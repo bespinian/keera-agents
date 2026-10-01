@@ -163,7 +163,7 @@ func (s *Server) signedIn(next handler) http.Handler {
 			}
 			token = sess.Token
 		}
-		me, err := s.whoIs(r, token)
+		me, err := s.whoIs(r.Context(), token)
 		if err != nil {
 			if gateway.IsUnauthorized(err) {
 				if !bearer {
@@ -196,7 +196,7 @@ func bearerToken(r *http.Request) (string, bool) {
 	return token, ok && strings.EqualFold(scheme, "Bearer") && token != ""
 }
 
-func (s *Server) whoIs(r *http.Request, token string) (gateway.Me, error) {
+func (s *Server) whoIs(ctx context.Context, token string) (gateway.Me, error) {
 	key := tokenKey(token)
 	s.whoMu.Lock()
 	c, ok := s.whoCache[key]
@@ -204,7 +204,7 @@ func (s *Server) whoIs(r *http.Request, token string) (gateway.Me, error) {
 	if ok && time.Since(c.at) < whoTTL {
 		return c.me, nil
 	}
-	me, err := s.gw.Me(r.Context(), token)
+	me, err := s.gw.Me(ctx, token)
 	if err != nil {
 		return me, err
 	}

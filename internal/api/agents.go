@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"net/mail"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +38,33 @@ type agentView struct {
 // canEdit: the owner and the organisation's administrators change an agent.
 func canEdit(p Principal, a store.Agent) bool { return a.OwnerID == p.UserID || p.CanAdmin() }
 
+func canGive(p Principal, a store.Agent) bool {
+	ok, _ := dispatch.May(a, p.User())
+	return ok
+}
+
+func viewAgent(p Principal, a store.Agent, l store.AgentLoad, channels int) agentView {
+	return agentView{
+		Agent: a, Queued: l.Queued, RunningTaskID: l.RunningTaskID,
+		CanEdit: canEdit(p, a), CanGive: canGive(p, a), Channels: channels,
+	}
+}
+
+// writeAgent answers a changed agent as the list shows it.
+func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, p Principal, status int, a store.Agent) {
+	l, err := s.st.AgentLoad(r.Context(), a.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	bindings, err := s.st.AgentBindings(r.Context(), a.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, status, viewAgent(p, a, l, len(bindings)))
+}
+
 // loadAgent finds an agent in the caller's organisation. Another
 // organisation's agent is not found, not forbidden, so ids say nothing.
 func (s *Server) loadAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
@@ -52,6 +79,41 @@ func (s *Server) editableAgent(w http.ResponseWriter, r *http.Request, p Princip
 		return a, false
 	}
 	return a, ok
+}
+
+// givableAgent finds an agent the caller may give work to now.
+func (s *Server) givableAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
+	a, ok := s.loadAgent(w, r, p, id)
+	if !ok {
+		return a, false
+	}
+	if allowed, why := dispatch.May(a, p.User()); !allowed {
+		forbid(w, why)
+		return a, false
+	}
+	if !a.Enabled {
+		agentStopped(w, p, a)
+		return a, false
+	}
+	return a, true
+}
+
+// agentStopped refuses work for a stopped agent, which would otherwise wait
+// until someone starts it.
+func agentStopped(w http.ResponseWriter, p Principal, a store.Agent) {
+	then := "start it first"
+	if !canEdit(p, a) {
+		then = "ask " + a.OwnerEmail + " to start it"
+	}
+	writeError(w, http.StatusConflict, "agent_stopped", a.Name+" is stopped; "+then)
+}
+
+func nameTaken(w http.ResponseWriter, name string) {
+	writeError(w, http.StatusConflict, "name_taken", "another agent in this organisation is called "+name)
+}
+
+func runtimeFailed(w http.ResponseWriter, err error) {
+	writeError(w, http.StatusBadGateway, "runtime_error", err.Error())
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -72,11 +134,7 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	out := make([]agentView, 0, len(agents))
 	for _, a := range agents {
-		l := loads[a.ID]
-		out = append(out, agentView{
-			Agent: a, Queued: l.Queued, RunningTaskID: l.RunningTaskID, CanEdit: canEdit(p, a),
-			CanGive: canGive(a, p), Channels: channels[a.ID],
-		})
+		out = append(out, viewAgent(p, a, loads[a.ID], channels[a.ID]))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
@@ -111,9 +169,8 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request, p Principal) {
 		Schedules []scheduleView  `json:"schedules"`
 		Stats     stats           `json:"stats"`
 	}{
-		Agent: a, Queued: l.Queued, RunningTaskID: l.RunningTaskID, CanEdit: canEdit(p, a),
-		CanGive: canGive(a, p), Channels: len(bindings),
-		Bindings: bindings, Schedules: viewSchedules(schedules), Stats: stats{l.LastTaskAt},
+		agentView: viewAgent(p, a, l, len(bindings)),
+		Bindings:  bindings, Schedules: viewSchedules(schedules), Stats: stats{l.LastTaskAt},
 	})
 }
 
@@ -291,10 +348,6 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 		MaxSteps: protocol.DefaultMaxSteps, Access: store.AccessOrg, Enabled: true, Class: runtime.DefaultClass,
 		Builtins: []string{protocol.BuiltinMemory, protocol.BuiltinFiles},
 	}
-	if in.ProjectID == nil {
-		empty := ""
-		in.ProjectID = &empty
-	}
 	if in.Class == nil || in.Class.Isolation == "" {
 		// The strongest tier this deployment has, since an agent runs code a
 		// model wrote.
@@ -311,7 +364,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	out, err := s.st.CreateAgent(r.Context(), a)
 	if errors.Is(err, store.ErrConflict) {
-		writeError(w, http.StatusConflict, "name_taken", "another agent in this organisation is called "+a.Name)
+		nameTaken(w, a.Name)
 		return
 	}
 	if err != nil {
@@ -320,7 +373,8 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	s.record(r.Context(), p, "agent.create", out.ID, map[string]any{"name": out.Name, "model": out.Model})
 	s.startLater(out)
-	writeJSON(w, http.StatusCreated, agentView{Agent: out, CanEdit: true})
+	// A new agent has no tasks and no channels yet.
+	writeJSON(w, http.StatusCreated, viewAgent(p, out, store.AgentLoad{}, 0))
 }
 
 // startLater starts a new or changed agent's machine in the background:
@@ -354,7 +408,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	out, err := s.st.UpdateAgent(r.Context(), a)
 	if errors.Is(err, store.ErrConflict) {
-		writeError(w, http.StatusConflict, "name_taken", "another agent in this organisation is called "+a.Name)
+		nameTaken(w, a.Name)
 		return
 	}
 	if err != nil {
@@ -379,7 +433,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 		out.Enabled && (before.Image != out.Image || before.Class != out.Class):
 		s.startLater(out)
 	}
-	writeJSON(w, http.StatusOK, agentView{Agent: out, CanEdit: true})
+	s.writeAgent(w, r, p, http.StatusOK, out)
 }
 
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -388,7 +442,7 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, p Principal
 		return
 	}
 	if err := s.fleet.Delete(r.Context(), a); err != nil {
-		writeError(w, http.StatusBadGateway, "runtime_error", err.Error())
+		runtimeFailed(w, err)
 		return
 	}
 	s.record(r.Context(), p, "agent.delete", a.ID, map[string]any{"name": a.Name})
@@ -416,18 +470,16 @@ func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request, p Principal,
 	}
 	s.record(r.Context(), p, action, a.ID, nil)
 	if enabled {
-		if err := s.fleet.Start(r.Context(), out); err != nil {
-			writeError(w, http.StatusBadGateway, "runtime_error", err.Error())
-			return
-		}
+		err = s.fleet.Start(r.Context(), out)
 	} else {
-		if err := s.fleet.Stop(r.Context(), out, "the agent was stopped"); err != nil {
-			writeError(w, http.StatusBadGateway, "runtime_error", err.Error())
-			return
-		}
+		err = s.fleet.Stop(r.Context(), out, "the agent was stopped")
+	}
+	if err != nil {
+		runtimeFailed(w, err)
+		return
 	}
 	out, _ = s.st.Agent(r.Context(), a.ID)
-	writeJSON(w, http.StatusOK, agentView{Agent: out, CanEdit: true})
+	s.writeAgent(w, r, p, http.StatusOK, out)
 }
 
 func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -467,7 +519,7 @@ func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Princip
 	_ = s.st.SetAgentState(r.Context(), a.ID, a.State, "")
 	s.record(r.Context(), p, "agent.take_over", a.ID, map[string]string{"previous_owner": previous})
 	out, _ := s.st.Agent(r.Context(), a.ID)
-	writeJSON(w, http.StatusOK, agentView{Agent: out, CanEdit: true})
+	s.writeAgent(w, r, p, http.StatusOK, out)
 }
 
 func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -475,14 +527,14 @@ func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request, p Principal) 
 	if !ok {
 		return
 	}
-	follow := r.URL.Query().Get("follow") == "1" || r.URL.Query().Get("follow") == "true"
+	follow, _ := strconv.ParseBool(r.URL.Query().Get("follow"))
 	rc, err := s.fleet.Logs(r.Context(), a.ID, follow)
 	if errors.Is(err, runtime.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "no_machine", "this agent has no running machine to read")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "runtime_error", err.Error())
+		runtimeFailed(w, err)
 		return
 	}
 	defer func() { _ = rc.Close() }()
@@ -490,19 +542,16 @@ func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request, p Principal) 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Streaming outlives the server's write timeout.
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-	flusher, _ := w.(http.Flusher)
-	sc := bufio.NewReader(rc)
+	rw := http.NewResponseController(w)
+	_ = rw.SetWriteDeadline(time.Time{})
 	buf := make([]byte, 32<<10)
 	for {
-		n, err := sc.Read(buf)
+		n, err := rc.Read(buf)
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				return
 			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			_ = rw.Flush()
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) && r.Context().Err() == nil {
@@ -516,16 +565,8 @@ func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request, p Principal) 
 // giveTask queues a task typed in the panel. The agent's access rule
 // applies, as for a chat message.
 func (s *Server) giveTask(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.loadAgent(w, r, p, r.PathValue("id"))
+	a, ok := s.givableAgent(w, r, p, r.PathValue("id"))
 	if !ok {
-		return
-	}
-	if allowed, why := mayGive(a, p); !allowed {
-		forbid(w, why)
-		return
-	}
-	if !a.Enabled {
-		writeError(w, http.StatusConflict, "agent_stopped", a.Name+" is stopped; start it first")
 		return
 	}
 	var in struct {
@@ -557,14 +598,6 @@ func (s *Server) submitFailed(w http.ResponseWriter, err error) {
 	}
 	s.fail(w, err)
 }
-
-func canGive(a store.Agent, p Principal) bool {
-	ok, _ := mayGive(a, p)
-	return ok
-}
-
-// mayGive is dispatch.May for the signed-in person.
-func mayGive(a store.Agent, p Principal) (bool, string) { return dispatch.May(a, p.User()) }
 
 // ------------------------------------------------------------ bindings
 

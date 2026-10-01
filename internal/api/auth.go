@@ -112,7 +112,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.failSignIn(w, r, err.Error())
 		return
 	}
-	if _, err := s.whoIs(r, tok.Token); err != nil {
+	if _, err := s.whoIs(r.Context(), tok.Token); err != nil {
 		s.failSignIn(w, r, err.Error())
 		return
 	}

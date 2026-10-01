@@ -34,21 +34,22 @@ func (s *Store) CreateBoard(ctx context.Context, b Board) (Board, error) {
 	return b, err
 }
 
+const boardSelect = `SELECT b.id, b.org_id, b.name, b.created_by, b.created_at,
+	(SELECT count(*) FROM cards c WHERE c.board_id = b.id)
+	FROM boards b`
+
+func scanBoard(row pgx.Row) (Board, error) {
+	var b Board
+	err := row.Scan(&b.ID, &b.OrgID, &b.Name, &b.CreatedBy, &b.CreatedAt, &b.Cards)
+	return b, notFound(err)
+}
+
 func (s *Store) Boards(ctx context.Context, orgID string) ([]Board, error) {
-	return queryAll(ctx, s, func(row pgx.Row) (Board, error) {
-		var b Board
-		err := row.Scan(&b.ID, &b.OrgID, &b.Name, &b.CreatedBy, &b.CreatedAt, &b.Cards)
-		return b, err
-	}, `SELECT b.id, b.org_id, b.name, b.created_by, b.created_at,
-		(SELECT count(*) FROM cards c WHERE c.board_id = b.id)
-		FROM boards b WHERE b.org_id = $1 ORDER BY b.created_at`, orgID)
+	return queryAll(ctx, s, scanBoard, boardSelect+` WHERE b.org_id = $1 ORDER BY b.created_at`, orgID)
 }
 
 func (s *Store) Board(ctx context.Context, id string) (Board, error) {
-	var b Board
-	err := s.pool.QueryRow(ctx, `SELECT id, org_id, name, created_by, created_at FROM boards
-		WHERE id = $1`, id).Scan(&b.ID, &b.OrgID, &b.Name, &b.CreatedBy, &b.CreatedAt)
-	return b, notFound(err)
+	return scanBoard(s.pool.QueryRow(ctx, boardSelect+` WHERE b.id = $1`, id))
 }
 
 func (s *Store) RenameBoard(ctx context.Context, id, name string) error {

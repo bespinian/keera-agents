@@ -292,16 +292,12 @@ func (s *Store) TaskSeries(ctx context.Context, orgID, agentID string, since tim
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	counted := map[int64]TaskPoint{}
-	for rows.Next() {
-		var p TaskPoint
-		if err := rows.Scan(&p.At, &p.Tasks, &p.Failed); err != nil {
-			return nil, err
-		}
-		counted[p.At.Unix()] = p
-	}
-	if err := rows.Err(); err != nil {
+	var row TaskPoint
+	if _, err := pgx.ForEachRow(rows, []any{&row.At, &row.Tasks, &row.Failed}, func() error {
+		counted[row.At.Unix()] = row
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	var out []TaskPoint
