@@ -282,53 +282,10 @@ func TestCreateRefusesABadQuantity(t *testing.T) {
 	}
 }
 
-// Creating again with the same spec, as after a dropped connection, changes
-// nothing and restarts nothing.
-func TestCreateAgainWithTheSameSpecIsANoOp(t *testing.T) {
-	f := newFakeAPI(t)
-	k := f.driver(t, KubernetesOptions{Runtimes: map[Isolation]string{VM: "kata"}})
-	spec := testSpec()
-	if _, err := k.Create(context.Background(), spec); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := k.Create(context.Background(), spec); err != nil {
-		t.Fatalf("second create: %v", err)
-	}
-	if n := len(f.requests(http.MethodPatch)) + len(f.requests(http.MethodDelete)); n != 0 {
-		t.Errorf("%d patches or deletes, want none", n)
-	}
-}
-
-// Creating a suspended agent again with the same spec only resumes it.
-func TestCreateAgainResumesASuspendedAgent(t *testing.T) {
-	f := newFakeAPI(t)
-	k := f.driver(t, KubernetesOptions{Runtimes: map[Isolation]string{VM: "kata"}})
-	spec := testSpec()
-	if _, err := k.Create(context.Background(), spec); err != nil {
-		t.Fatal(err)
-	}
-	if err := k.Suspend(context.Background(), spec.AgentID); err != nil {
-		t.Fatal(err)
-	}
-	// The fake does not apply patches, so it is suspended by hand.
-	var obj map[string]any
-	_ = json.Unmarshal([]byte(f.requests(http.MethodPost)[0].Raw), &obj)
-	obj["spec"].(map[string]any)["replicas"] = 0
-	raw, _ := json.Marshal(obj)
-	f.put(setsPath+objectName(spec.AgentID), string(raw))
-
-	if _, err := k.Create(context.Background(), spec); err != nil {
-		t.Fatalf("second create: %v", err)
-	}
-	patches := f.requests(http.MethodPatch)
-	if len(patches) != 2 || patches[1].Raw != `{"spec":{"replicas":1}}` {
-		t.Errorf("patches = %+v, want a suspend and then a resume", patches)
-	}
-}
-
-// A changed spec updates the pod template in place, which the StatefulSet
-// rolls out, and leaves the workspace claim where it is.
-func TestCreateWithAChangedSpecUpdatesTheTemplateAndKeepsTheVolume(t *testing.T) {
+// Creating again updates the pod template in place, which the StatefulSet
+// rolls out, resumes a suspended agent, and leaves the workspace claim where
+// it is.
+func TestCreateAgainUpdatesTheTemplateAndKeepsTheVolume(t *testing.T) {
 	f := newFakeAPI(t)
 	k := f.driver(t, KubernetesOptions{Runtimes: map[Isolation]string{VM: "kata"}})
 	spec := testSpec()
@@ -351,10 +308,14 @@ func TestCreateWithAChangedSpecUpdatesTheTemplateAndKeepsTheVolume(t *testing.T)
 		t.Fatal(err)
 	}
 	var tmpl string
+	resumed := false
 	for _, op := range ops {
 		if op.Path == "/spec/template" && op.Op == "replace" {
 			raw, _ := json.Marshal(op.Value)
 			tmpl = string(raw)
+		}
+		if op.Path == "/spec/replicas" && op.Value == float64(1) {
+			resumed = true
 		}
 		if strings.HasPrefix(op.Path, "/spec/volumeClaimTemplates") {
 			t.Errorf("volumeClaimTemplates cannot change, but the patch touches them: %+v", op)
@@ -362,6 +323,9 @@ func TestCreateWithAChangedSpecUpdatesTheTemplateAndKeepsTheVolume(t *testing.T)
 	}
 	if !strings.Contains(tmpl, "keera-agent:2") {
 		t.Errorf("the new pod template lacks the new image: %s", tmpl)
+	}
+	if !resumed {
+		t.Errorf("the patch does not set one replica: %+v", ops)
 	}
 	// Replaced whole, so the old tier's RuntimeClass does not linger.
 	if strings.Contains(tmpl, "runtimeClassName") {

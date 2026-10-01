@@ -111,7 +111,7 @@ still gets it, and so does a later change by anyone.
 ## Delivery
 
 A result is delivered once, by whichever replica claims it first. A service
-that answers 429 or 503 is asked again, up to three times, waiting as it asks
+that answers 429 or 503 is tried up to three times in all, waiting as it asks
 for up to 30 seconds: both mean it did not take the message. Other failures
 are not retried but written to the task's log, so a broken chat connector
 does not post the same answer ten times once it works again. What fails

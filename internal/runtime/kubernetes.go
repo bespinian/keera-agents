@@ -3,7 +3,6 @@ package runtime
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -273,9 +272,6 @@ const tmpSize = "1Gi"
 // its workspace claim stays. The StatefulSet rolls its pod when the template
 // changes. volumeClaimTemplates cannot change, so a larger Disk only applies
 // to a new agent.
-//
-// The spec's hash is kept in an annotation, so a Create with an unchanged
-// spec, such as a retry, writes nothing.
 func (k *Kubernetes) Create(ctx context.Context, spec Spec) (Status, error) {
 	if err := checkSpec(spec); err != nil {
 		return Status{}, err
@@ -298,16 +294,6 @@ func (k *Kubernetes) Create(ctx context.Context, spec Spec) (Status, error) {
 	if err := k.c.get(ctx, k.object(spec.AgentID), &existing); err != nil {
 		return Status{}, err
 	}
-	hash := obj.Metadata.Annotations[annotationSpecHash]
-	if existing.Metadata.Annotations[annotationSpecHash] == hash {
-		if r := existing.Spec.Replicas; r == nil || *r != 1 {
-			if err := k.setReplicas(ctx, spec.AgentID, 1); err != nil {
-				return Status{}, err
-			}
-		}
-		return k.Status(ctx, spec.AgentID)
-	}
-
 	ops := []jsonPatchOp{
 		{Op: "replace", Path: "/spec/template", Value: obj.Spec.Template},
 		{Op: "add", Path: "/spec/replicas", Value: 1},
@@ -407,9 +393,6 @@ func (k *Kubernetes) build(spec Spec, runtimeClass string) *kubeStatefulSet {
 			ClaimRetention: &kubeClaimRetain{WhenDeleted: "Delete", WhenScaled: "Retain"},
 		},
 	}
-	// The pod template alone: the volume claims cannot change anyway.
-	raw, _ := json.Marshal(obj.Spec.Template)
-	obj.Metadata.Annotations[annotationSpecHash] = hashOf(raw)
 	return obj
 }
 
@@ -564,7 +547,7 @@ func envList(env map[string]string) []kubeEnv {
 		return nil
 	}
 	out := make([]kubeEnv, 0, len(env))
-	// Sorted, so the same spec gives the same pod template and hash.
+	// Sorted, so the same spec gives the same pod template.
 	for _, n := range slices.Sorted(maps.Keys(env)) {
 		out = append(out, kubeEnv{Name: n, Value: env[n]})
 	}
