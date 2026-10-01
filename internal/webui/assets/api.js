@@ -1,0 +1,141 @@
+// The panel API client.
+//
+// Every mutating call carries the session's CSRF token. It comes from
+// /api/v1/me, not a cookie, so a page that has not loaded its identity cannot
+// change anything.
+
+export class ApiError extends Error {
+  constructor(status, message, code) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+let csrf = "";
+
+export function setCsrf(token) {
+  csrf = token || "";
+}
+
+// request sends one call and decodes the answer. raw returns the response,
+// for a body that streams. A refusal is an ApiError either way.
+async function request(method, path, body, { raw, signal } = {}) {
+  const headers = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (csrf && method !== "GET") headers["X-CSRF-Token"] = csrf;
+
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers,
+      credentials: "same-origin",
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    if (e && e.name === "AbortError") throw e;
+    throw new ApiError(0, "Keera Agents is unreachable. Check your connection and try again.");
+  }
+
+  if (raw && res.ok) return res;
+  if (res.status === 204) return null;
+
+  const text = await res.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+  if (!res.ok) {
+    const err = payload && payload.error ? payload.error : {};
+    throw new ApiError(res.status, err.message || `Request failed (${res.status}).`, err.code);
+  }
+  return payload;
+}
+
+const get = (path, opts) => request("GET", path, undefined, opts);
+const post = (path, body = {}) => request("POST", path, body);
+const patch = (path, body) => request("PATCH", path, body);
+const del = (path) => request("DELETE", path);
+
+function query(params) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params || {})) {
+    if (v !== undefined && v !== null && v !== "") q.set(k, v);
+  }
+  const s = q.toString();
+  return s ? "?" + s : "";
+}
+
+// path encodes each value put into it, so an id is one segment.
+const path = (strings, ...values) => strings.reduce((s, part, i) => s + encodeURIComponent(values[i - 1]) + part);
+
+const V1 = "/api/v1";
+
+export const api = {
+  authConfig: () => get("/auth/config"),
+  // Signing in is a page the browser goes to, not a call.
+  loginURL: (provider) => "/auth/login" + query({ provider }),
+  signOut: () => post("/auth/logout"),
+
+  me: () => get(V1 + "/me"),
+  switchOrg: (orgID) => post(V1 + "/me/org", { org_id: orgID }),
+  catalog: (projectID) => get(V1 + "/catalog" + query({ project_id: projectID })),
+  overview: (since) => get(V1 + "/overview" + query({ since })),
+
+  agents: () => get(V1 + "/agents"),
+  agent: (id) => get(V1 + path`/agents/${id}`),
+  agentActivity: (id, since) => get(V1 + path`/agents/${id}/activity` + query({ since })),
+  createAgent: (body) => post(V1 + "/agents", body),
+  updateAgent: (id, body) => patch(V1 + path`/agents/${id}`, body),
+  deleteAgent: (id) => del(V1 + path`/agents/${id}`),
+  // action is start, stop or restart.
+  agentAction: (id, action) => post(V1 + path`/agents/${id}/${action}`),
+  // An administrator becomes the owner, as when the owner left.
+  takeOverAgent: (id) => post(V1 + path`/agents/${id}/take-over`),
+  agentLogs: (id, signal) => get(V1 + path`/agents/${id}/logs` + "?follow=1", { raw: true, signal }),
+  giveTask: (id, prompt) => post(V1 + path`/agents/${id}/tasks`, { prompt }),
+
+  addBinding: (agentID, body) => post(V1 + path`/agents/${agentID}/bindings`, body),
+  deleteBinding: (id) => del(V1 + path`/bindings/${id}`),
+
+  schedules: (agentID) => get(V1 + "/schedules" + query({ agent_id: agentID })),
+  createSchedule: (body) => post(V1 + "/schedules", body),
+  updateSchedule: (id, body) => patch(V1 + path`/schedules/${id}`, body),
+  deleteSchedule: (id) => del(V1 + path`/schedules/${id}`),
+  runSchedule: (id) => post(V1 + path`/schedules/${id}/run`),
+  previewSchedule: (cron, timezone, signal) =>
+    request("POST", V1 + "/schedules/preview", { cron, timezone }, { signal }),
+
+  boards: () => get(V1 + "/boards"),
+  board: (id) => get(V1 + path`/boards/${id}`),
+  createBoard: (name) => post(V1 + "/boards", { name }),
+  renameBoard: (id, name) => patch(V1 + path`/boards/${id}`, { name }),
+  deleteBoard: (id) => del(V1 + path`/boards/${id}`),
+  createCard: (boardID, body) => post(V1 + path`/boards/${boardID}/cards`, body),
+  card: (id) => get(V1 + path`/cards/${id}`),
+  updateCard: (id, body) => patch(V1 + path`/cards/${id}`, body),
+  deleteCard: (id) => del(V1 + path`/cards/${id}`),
+  comment: (id, body) => post(V1 + path`/cards/${id}/comments`, { body }),
+
+  // params: agent_id, state, source, limit, before.
+  tasks: (params) => get(V1 + "/tasks" + query(params)),
+  task: (id) => get(V1 + path`/tasks/${id}`),
+  taskEvents: (id, after) => get(V1 + path`/tasks/${id}/events` + query({ after })),
+  cancelTask: (id) => post(V1 + path`/tasks/${id}/cancel`),
+
+  connectionKinds: () => get(V1 + "/connection-kinds"),
+  connections: () => get(V1 + "/connections"),
+  createConnection: (body) => post(V1 + "/connections", body),
+  updateConnection: (id, body) => patch(V1 + path`/connections/${id}`, body),
+  deleteConnection: (id) => del(V1 + path`/connections/${id}`),
+  checkConnection: (id) => post(V1 + path`/connections/${id}/check`),
+  folders: (id, parent) => get(V1 + path`/connections/${id}/folders` + query({ parent })),
+
+  audit: (before) => get(V1 + "/audit" + query({ limit: 100, before })),
+};

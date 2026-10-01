@@ -1,0 +1,194 @@
+// Package webui serves the keera-agents panel.
+//
+// The panel is plain ES modules and CSS with no build step, so `go build` is
+// the whole build and an air-gapped install needs no npm. It shares its look
+// with the Keera Gateway control panel and Keera Chat.
+package webui
+
+import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"embed"
+	"encoding/base64"
+	"io/fs"
+	"net/http"
+	"path"
+	"strconv"
+	"strings"
+	"time"
+)
+
+//go:embed assets
+var assets embed.FS
+
+// file is one embedded asset, gzipped once at startup rather than per request.
+type file struct {
+	body        []byte
+	contentType string
+	etag        string
+	// gz is nil when compressing did not make the body smaller.
+	gz []byte
+	// gzEtag must differ from etag, or a cache could serve the gzipped body to
+	// a client that cannot read it.
+	gzEtag string
+}
+
+var (
+	files map[string]file
+	// shell is the document every route that is not a file falls back to.
+	shell file
+)
+
+// files is keyed by URL path, so keys carry the assets/ prefix.
+const shellPath = "/assets/index.html"
+
+func init() {
+	files = make(map[string]file)
+	err := fs.WalkDir(assets, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		body, err := fs.ReadFile(assets, p)
+		if err != nil {
+			return err
+		}
+		files["/"+p] = newFile(p, body)
+		return nil
+	})
+	if err != nil {
+		panic("webui: " + err.Error())
+	}
+	var ok bool
+	if shell, ok = files[shellPath]; !ok {
+		panic("webui: " + shellPath + " is not embedded")
+	}
+}
+
+func newFile(p string, body []byte) file {
+	// With no build step there are no hashed filenames, so an ETag does the
+	// job: a changed file is refetched, an unchanged one is a 304.
+	sum := sha256.Sum256(body)
+	tag := `"` + base64.RawURLEncoding.EncodeToString(sum[:12]) + `"`
+	f := file{body: body, contentType: contentTypeFor(p), etag: tag}
+	if gz := squeeze(body); gz != nil {
+		f.gz, f.gzEtag = gz, tag[:len(tag)-1]+`-gzip"`
+	}
+	return f
+}
+
+// squeeze returns nil when gzip does not make the body smaller, as for a tiny
+// SVG.
+func squeeze(body []byte) []byte {
+	var buf bytes.Buffer
+	zw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		return nil
+	}
+	if _, err := zw.Write(body); err != nil {
+		return nil
+	}
+	if err := zw.Close(); err != nil {
+		return nil
+	}
+	if buf.Len() >= len(body) {
+		return nil
+	}
+	return buf.Bytes()
+}
+
+func contentTypeFor(p string) string {
+	switch path.Ext(p) {
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".js":
+		return "text/javascript; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	case ".woff2":
+		return "font/woff2"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// contentSecurityPolicy keeps everything same-origin and forbids framing. The
+// panel sets styles through each element's style object, which a style-src
+// without 'unsafe-inline' still allows.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self'; " +
+	"img-src 'self' data:; " +
+	"font-src 'self'; " +
+	"connect-src 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'none'; " +
+	"base-uri 'none'; " +
+	"object-src 'none'"
+
+// Handler serves the panel. Any path that is not a file gets the shell, since
+// the panel routes on the URL: /agents loads the same document as /.
+func Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		name := path.Clean(r.URL.Path)
+		f, ok := files[name]
+		if !ok {
+			// The shell would give the browser HTML where it expects
+			// JavaScript, which fails later and less clearly.
+			if strings.HasPrefix(name, "/assets/") {
+				http.NotFound(w, r)
+				return
+			}
+			f = shell
+		}
+
+		zipped := f.gz != nil && acceptsGzip(r.Header.Get("Accept-Encoding"))
+		body, etag := f.body, f.etag
+		if zipped {
+			body, etag = f.gz, f.gzEtag
+		}
+		// ServeContent answers If-None-Match from the ETag set here.
+		setHeaders(w.Header(), f.contentType, etag, zipped)
+		http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(body))
+	})
+}
+
+func setHeaders(header http.Header, contentType, etag string, zipped bool) {
+	header.Set("Content-Type", contentType)
+	header.Set("ETag", etag)
+	// Both bodies live at this URL.
+	header.Set("Vary", "Accept-Encoding")
+	if zipped {
+		header.Set("Content-Encoding", "gzip")
+	}
+	header.Set("Content-Security-Policy", contentSecurityPolicy)
+	header.Set("X-Content-Type-Options", "nosniff")
+	header.Set("Referrer-Policy", "same-origin")
+	// Only the browser may cache the panel, and only after revalidating.
+	header.Set("Cache-Control", "no-cache, private")
+}
+
+// acceptsGzip reports whether Accept-Encoding allows gzip with q > 0.
+func acceptsGzip(header string) bool {
+	for part := range strings.SplitSeq(header, ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
+		}
+		q, ok := strings.CutPrefix(strings.ReplaceAll(params, " ", ""), "q=")
+		if !ok {
+			return true
+		}
+		w, err := strconv.ParseFloat(q, 64)
+		return err != nil || w > 0
+	}
+	return false
+}

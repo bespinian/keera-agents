@@ -1,0 +1,25 @@
+# What a tag produces: the control plane's image, the agent image, an SBOM for
+# each, and a provenance attestation for each.
+#
+# It builds here, not on a workstation, so GitHub can sign which workflow,
+# repository and commit produced each image. The build is in
+# release-build.yml, a reusable workflow, which explains why it cannot forge
+# its own provenance. It runs the same `make` targets a developer does.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# The most any job in release-build.yml may have; each asks for only what it
+# needs.
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release:
+    uses: ./.github/workflows/release-build.yml

@@ -1,0 +1,231 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/bespinian/keera-agents/internal/runtime"
+)
+
+// Agent states, as last seen on its container.
+const (
+	AgentStopped   = "stopped"
+	AgentStarting  = "starting"
+	AgentRunning   = "running"
+	AgentSuspended = "suspended"
+	AgentFailed    = "failed"
+)
+
+// Who may give an agent work from a chat.
+const (
+	AccessOwner  = "owner"
+	AccessOrg    = "org"
+	AccessPeople = "people"
+)
+
+type Agent struct {
+	ID         string `json:"id"`
+	OrgID      string `json:"org_id"`
+	ProjectID  string `json:"project_id"`
+	OwnerID    string `json:"owner_id"`
+	OwnerEmail string `json:"owner_email"`
+	Name       string `json:"name"`
+	// Icon names one of the panel's agent icons. Empty is the default.
+	Icon          string        `json:"icon"`
+	Description   string        `json:"description"`
+	Instructions  string        `json:"instructions"`
+	Model         string        `json:"model"`
+	Builtins      []string      `json:"builtins"`
+	MaxSteps      int           `json:"max_steps"`
+	Access        string        `json:"access"`
+	AllowedEmails []string      `json:"allowed_emails"`
+	BudgetMicros  int64         `json:"budget_micros"`
+	Image         string        `json:"image"`
+	Class         runtime.Class `json:"class"`
+	State         string        `json:"state"`
+	StateDetail   string        `json:"state_detail"`
+	Enabled       bool          `json:"enabled"`
+	GatewayKeyID  string        `json:"-"`
+	// GatewayKey is sealed; only the runtime API opens it.
+	GatewayKey       []byte     `json:"-"`
+	RuntimeTokenHash []byte     `json:"-"`
+	LastActiveAt     *time.Time `json:"last_active_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+const agentColumns = `id, org_id, project_id, owner_id, owner_email, name, icon, description,
+	instructions, model, builtins, max_steps, access, allowed_emails, budget_micros, image,
+	class, state, state_detail, enabled, gateway_key_id, gateway_key, runtime_token_hash,
+	last_active_at, created_at, updated_at`
+
+func scanAgent(row pgx.Row) (Agent, error) {
+	var a Agent
+	var class []byte
+	err := row.Scan(&a.ID, &a.OrgID, &a.ProjectID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Icon,
+		&a.Description, &a.Instructions, &a.Model, &a.Builtins, &a.MaxSteps, &a.Access,
+		&a.AllowedEmails, &a.BudgetMicros, &a.Image, &class, &a.State, &a.StateDetail,
+		&a.Enabled, &a.GatewayKeyID, &a.GatewayKey, &a.RuntimeTokenHash, &a.LastActiveAt,
+		&a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return a, notFound(err)
+	}
+	_ = json.Unmarshal(class, &a.Class)
+	a.Builtins = emptyIfNil(a.Builtins)
+	a.AllowedEmails = emptyIfNil(a.AllowedEmails)
+	return a, nil
+}
+
+func (s *Store) CreateAgent(ctx context.Context, a Agent) (Agent, error) {
+	class, _ := json.Marshal(a.Class)
+	row := s.pool.QueryRow(ctx, `INSERT INTO agents (id, org_id, project_id, owner_id,
+		owner_email, name, description, instructions, model, builtins, max_steps, access,
+		allowed_emails, budget_micros, image, class, state, enabled, icon)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		RETURNING `+agentColumns,
+		a.ID, a.OrgID, a.ProjectID, a.OwnerID, a.OwnerEmail, a.Name, a.Description,
+		a.Instructions, a.Model, emptyIfNil(a.Builtins), a.MaxSteps, a.Access,
+		emptyIfNil(a.AllowedEmails), a.BudgetMicros, a.Image, class, AgentStopped, a.Enabled, a.Icon)
+	out, err := scanAgent(row)
+	return out, conflict(err)
+}
+
+// UpdateAgent writes the fields people edit.
+func (s *Store) UpdateAgent(ctx context.Context, a Agent) (Agent, error) {
+	class, _ := json.Marshal(a.Class)
+	row := s.pool.QueryRow(ctx, `UPDATE agents SET name = $2, description = $3,
+		instructions = $4, model = $5, builtins = $6, max_steps = $7, access = $8,
+		allowed_emails = $9, budget_micros = $10, image = $11, class = $12, enabled = $13,
+		project_id = $14, icon = $15, updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL RETURNING `+agentColumns,
+		a.ID, a.Name, a.Description, a.Instructions, a.Model, emptyIfNil(a.Builtins),
+		a.MaxSteps, a.Access, emptyIfNil(a.AllowedEmails), a.BudgetMicros, a.Image, class,
+		a.Enabled, a.ProjectID, a.Icon)
+	out, err := scanAgent(row)
+	return out, conflict(err)
+}
+
+func (s *Store) Agent(ctx context.Context, id string) (Agent, error) {
+	return scanAgent(s.pool.QueryRow(ctx,
+		`SELECT `+agentColumns+` FROM agents WHERE id = $1 AND deleted_at IS NULL`, id))
+}
+
+// AgentByName finds an agent in an organisation, ignoring case.
+func (s *Store) AgentByName(ctx context.Context, orgID, name string) (Agent, error) {
+	return scanAgent(s.pool.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents
+		WHERE org_id = $1 AND lower(name) = lower($2) AND deleted_at IS NULL`, orgID, name))
+}
+
+// AgentByRuntimeToken authenticates a container.
+func (s *Store) AgentByRuntimeToken(ctx context.Context, hash []byte) (Agent, error) {
+	return scanAgent(s.pool.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents
+		WHERE runtime_token_hash = $1 AND deleted_at IS NULL`, hash))
+}
+
+// Agents lists an organisation's agents. An empty orgID lists every agent,
+// for the control plane's own loops.
+func (s *Store) Agents(ctx context.Context, orgID string) ([]Agent, error) {
+	return queryAll(ctx, s, scanAgent, `SELECT `+agentColumns+` FROM agents
+		WHERE ($1 = '' OR org_id = $1) AND deleted_at IS NULL ORDER BY lower(name)`, orgID)
+}
+
+func (s *Store) SetAgentState(ctx context.Context, id, state, detail string) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET state = $2, state_detail = $3
+		WHERE id = $1 AND deleted_at IS NULL`, id, state, detail))
+}
+
+// SetAgentKey records a newly minted gateway key, sealed.
+func (s *Store) SetAgentKey(ctx context.Context, id, keyID string, sealed []byte) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET gateway_key_id = $2, gateway_key = $3
+		WHERE id = $1 AND deleted_at IS NULL`, id, keyID, sealed))
+}
+
+func (s *Store) SetRuntimeToken(ctx context.Context, id string, hash []byte) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET runtime_token_hash = $2
+		WHERE id = $1 AND deleted_at IS NULL`, id, hash))
+}
+
+// SetOwner hands the agent to another person. Its key must be replaced too.
+func (s *Store) SetOwner(ctx context.Context, id, ownerID, ownerEmail string) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET owner_id = $2, owner_email = $3, updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL`, id, ownerID, ownerEmail))
+}
+
+func (s *Store) TouchAgent(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE agents SET last_active_at = now() WHERE id = $1`, id)
+	return err
+}
+
+// SuspendIdle calls suspend if the agent has done nothing since idleSince
+// and has no task. It holds the agent's row meanwhile, so ClaimTask waits
+// and no task starts on a container that is stopping. New tasks can still
+// be queued: their foreign key takes only a key-share lock, which NO KEY
+// UPDATE lets through. It reports whether suspend ran.
+func (s *Store) SuspendIdle(ctx context.Context, id string, idleSince time.Time, suspend func() error) (bool, error) {
+	ran := false
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var idle bool
+		err := tx.QueryRow(ctx, `SELECT coalesce(last_active_at < $2, false) AND NOT EXISTS (
+			SELECT 1 FROM tasks WHERE agent_id = $1 AND state IN ('queued', 'running'))
+			FROM agents WHERE id = $1 AND enabled AND deleted_at IS NULL FOR NO KEY UPDATE`,
+			id, idleSince).Scan(&idle)
+		if err != nil || !idle {
+			return err
+		}
+		ran = true
+		return suspend()
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return ran && err == nil, err
+}
+
+// DeleteAgent keeps the row, marked, so tasks and audit entries still name
+// it, and frees its name and runtime token.
+func (s *Store) DeleteAgent(ctx context.Context, id string) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET deleted_at = now(), enabled = false,
+		state = 'stopped', runtime_token_hash = NULL, gateway_key = NULL
+		WHERE id = $1 AND deleted_at IS NULL`, id))
+}
+
+// AgentLoad is how much work an agent has. LastTaskAt is only set for one
+// agent, by AgentLoad.
+type AgentLoad struct {
+	Queued        int
+	RunningTaskID string
+	LastTaskAt    *time.Time
+}
+
+// AgentLoads is each agent's work in an organisation, for the list.
+func (s *Store) AgentLoads(ctx context.Context, orgID string) (map[string]AgentLoad, error) {
+	rows, err := s.pool.Query(ctx, `SELECT agent_id,
+		count(*) FILTER (WHERE state = 'queued'),
+		coalesce(max(id) FILTER (WHERE state = 'running'), '')
+		FROM tasks WHERE org_id = $1 AND state IN ('queued', 'running')
+		GROUP BY agent_id`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]AgentLoad{}
+	var id string
+	var l AgentLoad
+	_, err = pgx.ForEachRow(rows, []any{&id, &l.Queued, &l.RunningTaskID}, func() error {
+		out[id] = l
+		return nil
+	})
+	return out, err
+}
+
+// AgentLoad is one agent's work, and when it last got a task.
+func (s *Store) AgentLoad(ctx context.Context, id string) (AgentLoad, error) {
+	var l AgentLoad
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE state = 'queued'),
+		coalesce(max(id) FILTER (WHERE state = 'running'), ''), max(created_at)
+		FROM tasks WHERE agent_id = $1`, id).Scan(&l.Queued, &l.RunningTaskID, &l.LastTaskAt)
+	return l, err
+}

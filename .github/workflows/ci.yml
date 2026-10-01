@@ -1,0 +1,118 @@
+# Every commit must be formatted, pass the linters, build, and pass the unit
+# and integration tests. The integration tests need Postgres and skip without
+# KEERA_AGENTS_TEST_DATABASE_URL, so they get their own job.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push to a branch cancels the previous run, except on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # No cgo, like the images. The race detector needs it, so its steps turn it
+  # back on.
+  CGO_ENABLED: "0"
+
+jobs:
+  check:
+    name: Format, lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Before the linters: formatting is a one-command fix. This is gofmt;
+      # the lint step below also checks gofumpt.
+      - name: Check formatting
+        run: make fmt-check
+
+      - name: Vet
+        run: make vet
+
+      # Pinned, so a linter release cannot turn an untouched commit red.
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15
+
+      # Catches a platform-specific file that does not compile.
+      - name: Build
+        run: make build
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # The panel's JavaScript has no build step.
+      - name: Check the panel's JavaScript
+        run: make check-js
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # The tests that need Postgres skip here; the job below covers them.
+      - name: Test
+        run: make test
+        env:
+          CGO_ENABLED: "1"
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    env:
+      CGO_ENABLED: "1"
+      KEERA_AGENTS_TEST_DATABASE_URL: postgres://keera:keera@127.0.0.1:5432/keera_agents_test?sslmode=disable
+
+    # The same major version the Makefile uses, pinned.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: keera
+          POSTGRES_PASSWORD: keera
+          POSTGRES_DB: keera_agents_test
+        ports:
+          - 5432:5432
+        # Otherwise the first test can connect before Postgres listens.
+        options: >-
+          --health-cmd "pg_isready -U keera -d keera_agents_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # With the variable set, this uses the service above.
+      - name: Test
+        run: make test-integration
+
+      # A typo in the variable would skip every test, so check they ran.
+      - name: Confirm the integration tests actually ran
+        run: |
+          if go test -count=1 -run TestAgentNamesAreUniquePerOrg -v ./internal/store/ 2>&1 | grep -q SKIP; then
+            echo "the integration tests skipped: KEERA_AGENTS_TEST_DATABASE_URL was not set" >&2
+            exit 1
+          fi

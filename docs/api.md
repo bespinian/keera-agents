@@ -1,0 +1,193 @@
+# The panel API
+
+What the panel calls. It is not a stable public API yet; automation should go
+through the gateway. The runtime API agents call is in
+[internal/protocol](../internal/protocol/protocol.go).
+
+Same origin as the panel. JSON everywhere. Errors: `{"error":{"type":"...","code":"...","message":"..."}}`
+(message is for people; show it as-is). The session is an HttpOnly cookie. Unsafe methods
+(POST/PATCH/PUT/DELETE) need header `X-CSRF-Token: <csrf from /api/v1/me>`. 401 with code
+`unauthenticated` means show the sign-in screen. Times are RFC 3339. Money: `*_micros` are micro-CHF.
+
+Instead of the cookie, a caller may send a gateway sign-in as
+`Authorization: Bearer <token>`, as Keera Chat does. It needs no CSRF token,
+since a browser never adds the header on its own.
+
+## Who may do what
+
+Every member sees the organisation's agents, schedules, boards and connector
+names, and handlers check the rest themselves. Another organisation's things
+answer 404.
+
+- An agent's owner and administrators change, delete, start, stop or restart
+  it, read its logs, and add or remove its channels and schedules.
+- Whoever the agent's `access` lets gives it work: a task, a chat message, or
+  a card assigned to it (see [tasks.md](tasks.md#the-board)).
+- A task is seen by whoever asked, the agent's owner and administrators.
+- Only administrators manage connectors, read the audit log, take an agent
+  over, and choose an agent's project or image.
+
+## Sign-in (like Keera Chat)
+
+- `GET /auth/config` → `{providers:[{name,label}], passkeys:bool, gateway_url, sign_in_error}` (sign_in_error shown once)
+- `GET /auth/login?provider=<name>` → browser navigation (redirects to the gateway). Passkeys: `provider=passkey`.
+- `POST /auth/logout` → `{ok:true}`
+
+## Me
+
+- `GET /api/v1/me` →
+  `{user_id,email,name,role:"operator"|"admin"|"member",org_id,org_name,can_admin:bool,csrf,gateway_url,chat_url,
+orgs:[{id,name}] (only when >1), runtime:{driver:"podman"|"kubernetes"|"", tiers:["standard","isolated","vm"]},
+builtins:["memory","files","shell","web"], timezone_default:"Europe/Zurich"}`
+- `POST /api/v1/me/org {org_id}` → switches organisation; reload after.
+- `GET /api/v1/catalog?project_id=` → `{project_id, projects:[{id,name}], models:[{alias,kind:"model"|"router"}], mcp_servers:[{alias}]}`
+  What an agent in that project may use. `projects` is only filled for admins (members get the default project).
+
+## Overview
+
+What the panel's dashboard shows.
+
+- `GET /api/v1/overview?since=168h` →
+  `{agents:{total,running,suspended,stopped,failed}, tasks:{queued,running,succeeded,failed},
+series:[{at,tasks,failed}], bucket:"hour"|"day",
+recent_tasks:[Task] (10), upcoming:[{schedule_id,schedule_name,agent_id,agent_name,next_run_at}] (5)}`
+
+`since` is from `1h` to `2160h`, `168h` by default. `tasks` counts the tasks
+that came in since then, and any still queued or running. `series` counts
+those that came in, per hour up to two days and per day beyond, with days in
+`Europe/Zurich`.
+
+## Agents
+
+Agent:
+
+```
+{id,name,icon,description,instructions,model,builtins:[...],max_steps,access:"owner"|"org"|"people",
+ allowed_emails:[...],budget_micros,class:{isolation,cpu,memory,disk},image,
+ state:"stopped"|"starting"|"running"|"suspended"|"failed",state_detail,enabled,
+ owner_id,owner_email,project_id,last_active_at,created_at,updated_at,
+ queued:int,running_task_id:string, can_edit:bool, can_give:bool, channels:int}
+```
+
+`icon` names one of the panel's agent icons, such as `code`; empty is the
+default robot. A name the panel does not know shows the default.
+
+- `GET /api/v1/agents` → `{data:[Agent]}`
+- `POST /api/v1/agents` body: `{name,icon,description,instructions,model,builtins,max_steps,access,allowed_emails,budget_micros,class,image,project_id,enabled}` → 201 Agent
+  (name: 1–60 chars; unique in the org, case-insensitive)
+- `GET /api/v1/agents/{id}` → Agent + `{bindings:[Binding], schedules:[Schedule], stats:{last_task_at}}`
+- `GET /api/v1/agents/{id}/activity?since=168h` → `{tasks:{queued,running,succeeded,failed}, series:[{at,tasks,failed}], bucket:"hour"|"day"}` (the overview's counts and chart, for one agent)
+- `PATCH /api/v1/agents/{id}` (any subset of the POST fields) → Agent
+- `DELETE /api/v1/agents/{id}` → 204 (stops its container, deletes its volume, revokes its key)
+- `POST /api/v1/agents/{id}/start` | `/stop` | `/restart` → Agent
+- `POST /api/v1/agents/{id}/take-over` → Agent (administrators: become the owner, with a new key)
+- `GET /api/v1/agents/{id}/logs?follow=1` → `text/plain` stream (the container's output)
+- `POST /api/v1/agents/{id}/tasks {prompt}` → 201 Task (a task given in the panel)
+
+Binding:
+
+```
+{id,agent_id,agent_name,connection_id,connection_name,kind,target,label,mode:"chat"|"watch"|"files"|"repo",prompt,checked_at,created_by,created_at}
+```
+
+- `POST /api/v1/agents/{id}/bindings {connection_id,target,label,mode,prompt}` → 201 Binding
+  (`target` "*" for a chat binding = every conversation the bot is in, DMs included)
+- `DELETE /api/v1/bindings/{id}` → 204
+
+## Schedules
+
+Schedule:
+
+```
+{id,agent_id,agent_name,name,cron,timezone,prompt,reply_binding_id,enabled,next_run_at,last_run_at,description,created_by,requested_by,created_at}
+```
+
+`description` is the cron in words, e.g. "Every weekday at 08:00".
+
+- `GET /api/v1/schedules?agent_id=` → `{data:[Schedule]}`
+- `POST /api/v1/schedules {agent_id,name,cron,timezone,prompt,reply_binding_id,enabled}` → 201 Schedule
+- `PATCH /api/v1/schedules/{id}` (subset) → Schedule
+- `DELETE /api/v1/schedules/{id}` → 204
+- `POST /api/v1/schedules/{id}/run` → 201 Task (run now)
+- `POST /api/v1/schedules/preview {cron,timezone}` → `{description, next:[5 times]}` or 400 with the reason
+
+## Board (kanban)
+
+Statuses in order: `backlog`, `todo`, `in_progress`, `review`, `done`
+(labels: Backlog, To do, In progress, Review, Done). How an agent moves its cards is in
+[tasks.md](tasks.md#the-board).
+
+Card:
+
+```
+{id,board_id,title,body,status,position,agent_id,agent_name,labels:[...],due_at,task_id,task_state,
+ created_by,requested_by,created_at,updated_at,comments:int}
+```
+
+- `GET /api/v1/boards` → `{data:[{id,name,created_by,created_at,cards:int}]}` (an org always has at least one; the first is created on demand)
+- `POST /api/v1/boards {name}` → 201; `PATCH /api/v1/boards/{id} {name}`; `DELETE /api/v1/boards/{id}` → 204
+- `GET /api/v1/boards/{id}` → `{id,name,cards:[Card]}` (sorted by status order then position)
+- `POST /api/v1/boards/{id}/cards {title,body,status,agent_id,labels,due_at}` → 201 Card (appended to the column)
+- `GET /api/v1/cards/{id}` → Card + `{comments_list:[{id,author,agent_id,body,created_at}], task: Task|null}`
+- `PATCH /api/v1/cards/{id} {title,body,status,position,agent_id,labels,due_at}` → Card
+  (drag and drop: send `status` and `position`; position = midpoint between neighbours, or neighbour ± 1)
+- `DELETE /api/v1/cards/{id}` → 204
+- `POST /api/v1/cards/{id}/comments {body}` → 201 comment (403 on an assigned card in To do, for
+  whoever may not give its agent work)
+
+## Tasks
+
+Task:
+
+```
+{id,agent_id,agent_name,agent_icon,source:"chat"|"schedule"|"board"|"file"|"manual",origin_label,prompt,context,
+ requested_by,state:"queued"|"running"|"succeeded"|"failed"|"cancelled",result,error,delivered,
+ created_at,started_at,finished_at}
+```
+
+`origin_label` is e.g. "Slack #sales", "Schedule Daily digest", "Card Fix onboarding doc", "Google Drive Invoices", "Panel".
+
+- `GET /api/v1/tasks?agent_id=&state=&source=&limit=50&before=<created_at>` → `{data:[Task]}`
+- `GET /api/v1/tasks/{id}` → Task + `{events:[{id,kind:"message"|"tool_call"|"tool_result"|"log",text,data,at}]}`
+  (`data`, on tool events only: `{tool,call_id,arguments}` or `{tool,call_id,is_error}`)
+- `GET /api/v1/tasks/{id}/events?after=<id>` → `{events:[...], state, task}` (poll every 2s while running)
+- `POST /api/v1/tasks/{id}/cancel` → Task
+
+## Keera Chat
+
+What Keera Chat calls, with the person's gateway sign-in. See
+[tasks.md](tasks.md#keera-chat).
+
+- `GET /api/v1/chat/agents` → `{data:[{id,name,icon,description,state}]}`: the started agents the caller may give work to
+- `POST /api/v1/chat/agents/{id}/messages {conversation,text}` → 201 Task (`source` `chat`, `origin_label` "Keera Chat").
+  `conversation` is Keera Chat's id of the chat: 1–64 letters, digits, `-` or `_`.
+  Follow it with `GET /api/v1/tasks/{id}/events`, and stop it with `POST /api/v1/tasks/{id}/cancel`.
+
+## Connectors (admins create/change; everyone may list names to bind)
+
+The panel calls them connectors; the API keeps the name connections.
+
+Kind descriptor (`GET /api/v1/connection-kinds` → `{data:[Descriptor]}`):
+
+```
+{kind:"teams"|"googlechat"|"slack"|"gdrive"|"onedrive"|"github"|"gitlab",label,chat:bool,files:bool,code:bool,
+ fields:[{name,label,help,secret,required,multiline,endpoint}],setup (text; "{webhook}" placeholder),target_label,target_help}
+```
+
+Connection:
+
+```
+{id,kind,name,config:{...non-secret fields},secrets_set:["field",...],webhook_url (chat kinds),
+ created_by,created_at,updated_at,bindings:int}
+```
+
+- `GET /api/v1/connections` → `{data:[Connection]}`
+- `POST /api/v1/connections {kind,name,config:{},secrets:{}}` → 201 Connection (checked with the service first; 400 with the service's reason)
+- `PATCH /api/v1/connections/{id} {name,config,secrets}` (a secret left out or empty keeps its value, unless an `endpoint` field changes; then 400 until it is sent again)
+- `DELETE /api/v1/connections/{id}` → 204
+- `POST /api/v1/connections/{id}/check` → `{ok:true}` or 400
+- `GET /api/v1/connections/{id}/folders?parent=<id>` → `{data:[{id,name,folder,web_url,modified}]}` (file kinds; for a folder picker)
+
+## Audit (admins)
+
+- `GET /api/v1/audit?limit=100&before=<id>` → `{data:[{id,at,actor,action,target,detail}]}`

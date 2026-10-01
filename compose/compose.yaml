@@ -1,0 +1,48 @@
+# keera-agents on one host: its database and the control plane. Keera Gateway
+# runs from its own repository. See docs/install.md.
+#
+# The control plane in a container runs no agents: podman cannot run inside
+# it, and the kubernetes driver works only in a cluster. `make dev` runs it on
+# the host instead.
+
+services:
+  keera-agents-db:
+    image: docker.io/library/postgres:18
+    environment:
+      POSTGRES_USER: keera
+      POSTGRES_PASSWORD: ${KEERA_AGENTS_DB_PASSWORD:-keera}
+      POSTGRES_DB: keera_agents
+    ports:
+      # The development loop connects from the host.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - keera-agents-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "keera"]
+      interval: 5s
+      retries: 20
+
+  keera-agents:
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: control-plane
+    image: localhost/keera-agents:latest
+    depends_on:
+      keera-agents-db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      KEERA_AGENTS_DATABASE_URL: postgres://keera:${KEERA_AGENTS_DB_PASSWORD:-keera}@keera-agents-db:5432/keera_agents?sslmode=disable
+      # Inside the container, localhost is the container itself.
+      KEERA_AGENTS_GATEWAY_INTERNAL_URL: ${KEERA_AGENTS_GATEWAY_INTERNAL_URL:-http://host.containers.internal:8080}
+    ports:
+      - "${KEERA_AGENTS_BIND:-127.0.0.1}:8070:8070"
+    healthcheck:
+      test: ["CMD", "/keera-agents", "health"]
+      interval: 10s
+      retries: 6
+    profiles: [full]
+
+volumes:
+  keera-agents-db:

@@ -1,0 +1,233 @@
+// Package oauth gets and caches the access tokens adapters call services
+// with: client credentials for Microsoft, and a signed service account
+// assertion for Google.
+package oauth
+
+import (
+	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
+
+	"github.com/bespinian/keera-agents/internal/channels/internal/web"
+)
+
+// Token is an access token and when it stops working.
+type Token struct {
+	Access string
+	Expiry time.Time
+}
+
+// Error is a token endpoint's refusal. It holds the service's error code and
+// description, which never contain the credentials sent.
+type Error struct {
+	Status      int
+	Code        string
+	Description string
+}
+
+func (e *Error) Error() string {
+	s := e.Code
+	if s == "" {
+		s = fmt.Sprintf("HTTP %d", e.Status)
+	}
+	if e.Description != "" {
+		s += ": " + e.Description
+	}
+	return s
+}
+
+// ClientCredentials gets an app-only token, as Microsoft Entra issues them.
+func ClientCredentials(ctx context.Context, hc *http.Client, tokenURL, clientID, secret, scope string) (Token, error) {
+	return post(ctx, hc, tokenURL, url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {clientID},
+		"client_secret": {secret},
+		"scope":         {scope},
+	})
+}
+
+// JWTBearer exchanges a signed assertion for a token, as Google does for
+// service accounts.
+func JWTBearer(ctx context.Context, hc *http.Client, tokenURL, assertion string) (Token, error) {
+	return post(ctx, hc, tokenURL, url.Values{
+		"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
+		"assertion":  {assertion},
+	})
+}
+
+func post(ctx context.Context, hc *http.Client, tokenURL string, form url.Values) (Token, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return Token{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return Token{}, err
+	}
+	body, err := web.ReadBody(resp, 1<<20)
+	if err != nil {
+		return Token{}, err
+	}
+	var r struct {
+		AccessToken      string      `json:"access_token"`
+		ExpiresIn        json.Number `json:"expires_in"`
+		Error            string      `json:"error"`
+		ErrorDescription string      `json:"error_description"`
+	}
+	_ = json.Unmarshal(body, &r)
+	if resp.StatusCode != http.StatusOK || r.AccessToken == "" {
+		return Token{}, &Error{Status: resp.StatusCode, Code: r.Error, Description: web.Short(r.ErrorDescription, 300)}
+	}
+	secs, err := strconv.ParseInt(r.ExpiresIn.String(), 10, 64)
+	if err != nil || secs <= 0 {
+		secs = 3600
+	}
+	return Token{Access: r.AccessToken, Expiry: time.Now().Add(time.Duration(secs) * time.Second)}, nil
+}
+
+// Cache keeps tokens until shortly before they expire. Each key is fetched
+// by one caller at a time, so a burst of messages costs one token request.
+type Cache struct {
+	mu sync.Mutex
+	m  map[string]*slot
+}
+
+type slot struct {
+	mu  sync.Mutex
+	tok Token
+}
+
+// early is how long before expiry a token is replaced, so it does not run
+// out in the middle of a call.
+const early = 2 * time.Minute
+
+// Get returns the cached token for key, or fetches a new one. key should
+// change when the credentials do, such as by including web.Fingerprint.
+func (c *Cache) Get(ctx context.Context, key string, fetch func(context.Context) (Token, error)) (string, error) {
+	c.mu.Lock()
+	if c.m == nil || len(c.m) > 1000 {
+		// Many keys means many connections came and went; starting over only
+		// costs each live one a token request.
+		c.m = map[string]*slot{}
+	}
+	s := c.m[key]
+	if s == nil {
+		s = &slot{}
+		c.m[key] = s
+	}
+	c.mu.Unlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tok.Access != "" && time.Now().Before(s.tok.Expiry.Add(-early)) {
+		return s.tok.Access, nil
+	}
+	tok, err := fetch(ctx)
+	if err != nil {
+		return "", err
+	}
+	s.tok = tok
+	return tok.Access, nil
+}
+
+// Forget drops a token the service refused, so the next call gets a new one.
+func (c *Cache) Forget(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.m, key)
+}
+
+// ServiceAccount is a Google service account key file.
+type ServiceAccount struct {
+	Email string
+	KeyID string
+	key   *rsa.PrivateKey
+}
+
+// ParseServiceAccount reads a key file as Google Cloud downloads it. Its
+// errors never quote the file, which holds the private key.
+func ParseServiceAccount(s string) (*ServiceAccount, error) {
+	var raw struct {
+		Type         string `json:"type"`
+		ClientEmail  string `json:"client_email"`
+		PrivateKey   string `json:"private_key"`
+		PrivateKeyID string `json:"private_key_id"`
+	}
+	if strings.TrimSpace(s) == "" {
+		return nil, errors.New("the service account key is missing")
+	}
+	if json.Unmarshal([]byte(s), &raw) != nil {
+		return nil, errors.New("the service account key is not valid JSON; paste the whole key file")
+	}
+	if raw.Type != "" && raw.Type != "service_account" {
+		return nil, fmt.Errorf("the key file is not a service account key (its type is %q)", web.Short(raw.Type, 40))
+	}
+	if raw.ClientEmail == "" || raw.PrivateKey == "" {
+		return nil, errors.New("the key file has no client_email or private_key; paste the whole JSON key file")
+	}
+	block, _ := pem.Decode([]byte(raw.PrivateKey))
+	if block == nil {
+		return nil, errors.New("the key file's private_key is not a PEM key")
+	}
+	var key *rsa.PrivateKey
+	if k, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		rk, ok := k.(*rsa.PrivateKey)
+		if !ok {
+			return nil, errors.New("the key file's private_key is not an RSA key")
+		}
+		key = rk
+	} else if rk, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		key = rk
+	} else {
+		return nil, errors.New("the key file's private_key cannot be read")
+	}
+	return &ServiceAccount{Email: raw.ClientEmail, KeyID: raw.PrivateKeyID, key: key}, nil
+}
+
+// Assertion signs the JWT that JWTBearer exchanges for a token. subject is
+// the user to act as through domain-wide delegation, or empty for the
+// service account itself.
+func (sa *ServiceAccount) Assertion(aud, scope, subject string, now time.Time) (string, error) {
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: sa.key, KeyID: sa.KeyID}},
+		(&jose.SignerOptions{}).WithType("JWT"),
+	)
+	if err != nil {
+		return "", err
+	}
+	claims := map[string]any{
+		"iss":   sa.Email,
+		"scope": scope,
+		"aud":   aud,
+		"iat":   now.Unix(),
+		"exp":   now.Add(time.Hour).Unix(),
+	}
+	if subject != "" {
+		claims["sub"] = subject
+	}
+	return jwt.Signed(signer).Claims(claims).Serialize()
+}
+
+// Describe turns a token error into words an administrator can act on. who
+// names the service, such as "Microsoft".
+func Describe(who string, err error) error {
+	if oe, ok := errors.AsType[*Error](err); ok {
+		return fmt.Errorf("%s refused the credentials (%s)", who, oe)
+	}
+	return fmt.Errorf("could not reach %s to sign in: %w", who, err)
+}
