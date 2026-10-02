@@ -72,17 +72,12 @@ func Run() error {
 	if driver == nil {
 		log.Warn("KEERA_AGENTS_DRIVER is not set, so agents can be set up but not run")
 	}
-	limits, err := runtime.LimitsFrom(cfg.Runtime)
+
+	all.Register(channels.Options{HTTP: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Egress.Transport()}})
+	app, err := New(cfg, st, gw, driver, box, log)
 	if err != nil {
 		return err
 	}
-	if driver != nil && !slices.Contains(driver.Tiers(), limits.MinIsolation) {
-		return fmt.Errorf("KEERA_AGENTS_MIN_ISOLATION is %s, but the %s driver has no runtime for it; set KEERA_AGENTS_RUNTIME_%s",
-			limits.MinIsolation, driver.Name(), strings.ToUpper(string(limits.MinIsolation)))
-	}
-
-	all.Register(channels.Options{HTTP: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Egress.Transport()}})
-	app := New(cfg, st, gw, driver, box, log)
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           app.Handler,
@@ -132,9 +127,15 @@ type App struct {
 
 // New wires the control plane. Adapters must be registered with channels
 // first. driver may be nil: agents can then be set up but not run.
-func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.Driver, box *secret.Box, log *slog.Logger) *App {
-	// Run has checked the limits. Unset ones, as in tests, allow any class.
-	limits, _ := runtime.LimitsFrom(cfg.Runtime)
+func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.Driver, box *secret.Box, log *slog.Logger) (*App, error) {
+	limits, err := runtime.LimitsFrom(cfg.Runtime)
+	if err != nil {
+		return nil, err
+	}
+	if driver != nil && limits.MinIsolation != "" && !slices.Contains(driver.Tiers(), limits.MinIsolation) {
+		return nil, fmt.Errorf("KEERA_AGENTS_MIN_ISOLATION is %s, but the %s driver has no runtime for it; set KEERA_AGENTS_RUNTIME_%s",
+			limits.MinIsolation, driver.Name(), strings.ToUpper(string(limits.MinIsolation)))
+	}
 	fl := fleet.New(st, gw, driver, box, fleet.Options{
 		Image: cfg.Runtime.Image, RuntimeURL: cfg.Runtime.URL, IdleSuspend: cfg.Runtime.IdleSuspend,
 		Limits: limits, Log: log,
@@ -169,7 +170,7 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.Handle("/", webui.Handler())
-	return &App{Handler: mux, st: st, fleet: fl, disp: disp, log: log}
+	return &App{Handler: mux, st: st, fleet: fl, disp: disp, log: log}, nil
 }
 
 // leaderLock is the advisory lock the periodic work runs under, so one

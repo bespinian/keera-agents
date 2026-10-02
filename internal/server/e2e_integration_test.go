@@ -229,8 +229,11 @@ func TestEndToEnd(t *testing.T) {
 		TaskTimeout: time.Minute, WatchInterval: time.Minute,
 		Runtime: config.RuntimeConfig{Driver: "test", Image: "img", URL: srv.URL, GatewayURL: gwSrv.URL},
 	}
-	app := New(cfg, st, gateway.New(gwSrv.URL, strings.Repeat("s", 32)), driver, box,
+	app, err := New(cfg, st, gateway.New(gwSrv.URL, strings.Repeat("s", 32)), driver, box,
 		slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
 	handler = app.Handler
 
 	// A signed-in session, sealed as the API seals it.

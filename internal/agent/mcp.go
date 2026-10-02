@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -129,10 +130,10 @@ func (c *mcpClient) initialize(ctx context.Context) error {
 }
 
 // call runs a tool and turns its result into text for the model.
-func (c *mcpClient) call(ctx context.Context, session, name string, args json.RawMessage) (string, error) {
+func (c *mcpClient) call(ctx context.Context, taskID, name string, args json.RawMessage) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, mcpCallTimeout)
 	defer cancel()
-	raw, err := c.request(ctx, "tools/call", map[string]any{"name": name, "arguments": args}, session, true)
+	raw, err := c.request(ctx, "tools/call", map[string]any{"name": name, "arguments": args}, taskID, true)
 	if err != nil {
 		return "", err
 	}
@@ -196,18 +197,18 @@ func (c *mcpClient) notify(ctx context.Context, method string) error {
 
 // request sends one request and waits for its answer. A session the server
 // forgot (404) is initialized again, once.
-func (c *mcpClient) request(ctx context.Context, method string, params any, session string, retry bool) (json.RawMessage, error) {
+func (c *mcpClient) request(ctx context.Context, method string, params any, taskID string, retry bool) (json.RawMessage, error) {
 	id := c.nextID.Add(1)
-	msg := rpcMessage{JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprint(id)), Method: method, Params: params}
+	msg := rpcMessage{JSONRPC: "2.0", ID: json.RawMessage(strconv.FormatInt(id, 10)), Method: method, Params: params}
 	c.mu.Lock()
 	hadSession := c.session != ""
 	c.mu.Unlock()
-	res, err := c.post(ctx, msg, session, true)
+	res, err := c.post(ctx, msg, taskID, true)
 	if retry && hadSession && statusOf(err) == http.StatusNotFound {
 		if err := c.initialize(ctx); err != nil {
 			return nil, err
 		}
-		return c.request(ctx, method, params, session, false)
+		return c.request(ctx, method, params, taskID, false)
 	}
 	if err != nil {
 		return nil, err
@@ -220,7 +221,7 @@ func (c *mcpClient) request(ctx context.Context, method string, params any, sess
 
 // post sends a message. With wantReply it reads the answer with the same id
 // from a JSON body or an event stream; otherwise it expects 202.
-func (c *mcpClient) post(ctx context.Context, msg rpcMessage, session string, wantReply bool) (rpcMessage, error) {
+func (c *mcpClient) post(ctx context.Context, msg rpcMessage, taskID string, wantReply bool) (rpcMessage, error) {
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return rpcMessage{}, err
@@ -239,8 +240,8 @@ func (c *mcpClient) post(ctx context.Context, msg rpcMessage, session string, wa
 			req.Header.Set("Mcp-Name", name)
 		}
 	}
-	if session != "" {
-		req.Header.Set(sessionHeader, session)
+	if taskID != "" {
+		req.Header.Set(sessionHeader, taskID)
 	}
 	c.mu.Lock()
 	if c.session != "" {
@@ -347,7 +348,7 @@ func plainHeader(v string) bool {
 	if v == "" || v != strings.TrimSpace(v) {
 		return false
 	}
-	for i := 0; i < len(v); i++ {
+	for i := range len(v) {
 		if v[i] < 0x20 || v[i] > 0x7e {
 			return false
 		}

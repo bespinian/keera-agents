@@ -472,7 +472,7 @@ func (w *workspace) search(_ context.Context, args json.RawMessage) (string, err
 	var b strings.Builder
 	matches := 0
 	err = fs.WalkDir(w.root.FS(), filepath.ToSlash(rel), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || matches >= maxMatches {
+		if err != nil {
 			return nil
 		}
 		if d.IsDir() {

@@ -147,7 +147,7 @@ func (r *runner) work(ctx context.Context, task protocol.Task, ev *eventSink) (s
 	}
 	last := ""
 	retold := false
-	for step := 0; step < maxSteps; step++ {
+	for range maxSteps {
 		msg, err := r.step(ctx, conv, tools, task.ID, ev)
 		if err != nil {
 			return last, err

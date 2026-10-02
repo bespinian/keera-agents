@@ -173,7 +173,7 @@ func (rn *Runner) next(w http.ResponseWriter, r *http.Request, a store.Agent) {
 		woken := rn.wakeups.wait(a.ID)
 		// A task left running by a runtime that restarted is handed back.
 		t, err := rn.st.RunningTask(r.Context(), a.ID)
-		if errors.Is(err, store.ErrNotFound) && a.Enabled {
+		if errors.Is(err, store.ErrNotFound) {
 			t, err = rn.st.ClaimTask(r.Context(), a.ID, rn.opts.TaskTimeout)
 		}
 		if err == nil {

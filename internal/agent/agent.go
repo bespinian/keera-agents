@@ -129,8 +129,8 @@ func newRunner(cfg config, log *slog.Logger) (*runner, error) {
 		cp:  &controlPlane{base: cfg.RuntimeURL, token: cfg.Token, http: &http.Client{Transport: transport}},
 		gw:  &gateway{http: &http.Client{Transport: transport}, retryWait: 2 * time.Second},
 		// Its own transport: a page may be slow or hostile, and must not hold
-		// connections the gateway needs.
-		web:          &http.Client{Timeout: webTimeout},
+		// connections the gateway needs. fetch sets the timeout.
+		web:          &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone()},
 		ws:           ws,
 		wait:         30 * time.Second,
 		backoffMin:   time.Second,

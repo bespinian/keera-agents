@@ -102,15 +102,12 @@ func (p *Podman) runArgs(spec Spec, rt string) (args, env []string) {
 	for _, name := range slices.Sorted(maps.Keys(labels)) {
 		args = append(args, "--label", name+"="+labels[name])
 	}
-	// checkSpec has parsed both already. Zero means no limit.
-	if cpu, err := parseQuantity(spec.Class.CPU); err == nil && cpu > 0 {
-		args = append(args, "--cpus", strconv.FormatFloat(cpu, 'f', 3, 64))
-	}
-	if mem, err := parseQuantity(spec.Class.Memory); err == nil && mem > 0 {
-		m := strconv.FormatInt(int64(mem), 10)
-		// The same for swap, so the limit is the limit.
-		args = append(args, "--memory", m, "--memory-swap", m)
-	}
+	// checkSpec has refused a CPU or memory that is not a positive size.
+	cpu, _ := parseQuantity(spec.Class.CPU)
+	mem, _ := parseQuantity(spec.Class.Memory)
+	m := strconv.FormatInt(int64(mem), 10)
+	// The same for swap, so the limit is the limit.
+	args = append(args, "--cpus", strconv.FormatFloat(cpu, 'f', 3, 64), "--memory", m, "--memory-swap", m)
 	// The same hardening as the Kubernetes driver. on-failure restarts a
 	// crashed runtime, but not one stopped by Suspend. /tmp is a tmpfs, which
 	// counts against the memory limit.

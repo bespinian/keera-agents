@@ -320,6 +320,11 @@ func (m *Manager) Wake(ctx context.Context, agentID string) error {
 // Stop cancels the agent's unfinished tasks with reason, and suspends its
 // container. The workspace stays.
 func (m *Manager) Stop(ctx context.Context, a store.Agent, reason string) error {
+	return m.stop(ctx, a, reason, "")
+}
+
+// stop is Stop, with detail saying why on the agent's state.
+func (m *Manager) stop(ctx context.Context, a store.Agent, reason, detail string) error {
 	defer m.lock(a.ID)()
 	_ = m.st.CancelAgentTasks(ctx, a.ID, reason)
 	if m.driver != nil {
@@ -327,7 +332,7 @@ func (m *Manager) Stop(ctx context.Context, a store.Agent, reason string) error 
 			return err
 		}
 	}
-	return m.st.SetAgentState(ctx, a.ID, store.AgentStopped, "")
+	return m.st.SetAgentState(ctx, a.ID, store.AgentStopped, detail)
 }
 
 // Delete cancels the agent's unfinished tasks and removes its container,
@@ -530,13 +535,12 @@ func (m *Manager) CheckOwners(ctx context.Context) {
 		if _, err := m.st.UpdateAgent(ctx, a); err != nil {
 			continue
 		}
-		_ = m.Stop(ctx, a, "the agent's owner no longer has access")
+		_ = m.stop(ctx, a, "the agent's owner no longer has access",
+			a.OwnerEmail+" no longer has access, so this agent was stopped; an administrator can take it over")
 		if a.GatewayKeyID != "" {
 			_ = m.gw.RevokeKey(ctx, a.OrgID, a.GatewayKeyID)
 			_ = m.st.SetAgentKey(ctx, a.ID, "", nil)
 		}
-		_ = m.st.SetAgentState(ctx, a.ID, store.AgentStopped,
-			a.OwnerEmail+" no longer has access, so this agent was stopped; an administrator can take it over")
 		_ = m.st.Audit(ctx, a.OrgID, "keera-agents", "agent.owner_left", a.ID,
 			map[string]string{"owner": a.OwnerEmail})
 	}

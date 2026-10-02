@@ -282,7 +282,7 @@ func (k *Kubernetes) Create(ctx context.Context, spec Spec) (Status, error) {
 	}
 	obj := k.build(spec, rc)
 
-	err = k.c.post(ctx, k.collection(), obj, nil)
+	err = k.c.post(ctx, k.collection(), obj)
 	if err == nil {
 		return Status{State: Pending, Detail: "created; waiting for its pod"}, nil
 	}
