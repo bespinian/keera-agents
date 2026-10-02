@@ -87,29 +87,12 @@ func (d *Dispatcher) PickUpCards(ctx context.Context) {
 		}
 		comments, _ := d.st.Comments(ctx, c.ID)
 		board, _ := d.st.Board(ctx, c.BoardID)
-		var prompt strings.Builder
-		// The title first: the task list shows a task by its first line.
-		prompt.WriteString(c.Title + "\n\nThis task is a card on the board. Do what it asks.\n")
-		if c.Body != "" {
-			prompt.WriteString("\n" + c.Body + "\n")
-		}
-		if len(comments) > 0 {
-			prompt.WriteString("\nComments so far:\n")
-			for _, cm := range comments {
-				prompt.WriteString("- " + cm.Author + ": " + cm.Body + "\n")
-			}
-		}
-		// Weaker models otherwise comment on the card with board tools
-		// instead of doing the work.
-		prompt.WriteString("\nYour final answer is the result: write the work itself there, not a " +
-			"summary of it. It is added to this card as a comment and the card moves to Review on " +
-			"its own. Use the board tools only for other cards.")
 		dedupe := "card:" + c.ID + ":" + strconv.FormatInt(c.UpdatedAt.UnixNano(), 36)
 		t, err := d.Submit(ctx, store.Task{
 			OrgID: c.OrgID, AgentID: *c.AgentID, Source: protocol.SourceBoard,
 			Origin:        store.Origin{Label: "Card " + c.Title, CardID: c.ID},
 			DedupeKey:     &dedupe,
-			Prompt:        prompt.String(),
+			Prompt:        cardPrompt(c, comments),
 			Context:       fmt.Sprintf("Card %s on the board %q, given to you by %s.", c.ID, board.Name, c.RequestedBy),
 			RequestedBy:   c.RequestedBy,
 			RequestedByID: c.RequestedByID,
@@ -123,6 +106,28 @@ func (d *Dispatcher) PickUpCards(ctx context.Context) {
 		}
 		_ = d.st.MoveCard(ctx, c.ID, store.CardInProgress, &t.ID)
 	}
+}
+
+// cardPrompt is the task a card becomes.
+func cardPrompt(c store.Card, comments []store.Comment) string {
+	var prompt strings.Builder
+	// The title first: the task list shows a task by its first line.
+	prompt.WriteString(c.Title + "\n\nThis task is a card on the board. Do what it asks.\n")
+	if c.Body != "" {
+		prompt.WriteString("\n" + c.Body + "\n")
+	}
+	if len(comments) > 0 {
+		prompt.WriteString("\nComments so far:\n")
+		for _, cm := range comments {
+			prompt.WriteString("- " + cm.Author + ": " + cm.Body + "\n")
+		}
+	}
+	// Weaker models otherwise comment on the card with board tools
+	// instead of doing the work.
+	prompt.WriteString("\nYour final answer is the result: write the work itself there, not a " +
+		"summary of it. It is added to this card as a comment and the card moves to Review on " +
+		"its own. Use the board tools only for other cards.")
+	return prompt.String()
 }
 
 // CheckWatches reads the change feed of every watched folder that is due.
@@ -145,11 +150,7 @@ func (d *Dispatcher) CheckWatches(ctx context.Context, now time.Time) {
 }
 
 func (d *Dispatcher) checkWatch(ctx context.Context, b store.Binding) error {
-	adapter, ok := channels.FilesFor(channels.Kind(b.Kind))
-	if !ok {
-		return fmt.Errorf("no file adapter for %s", b.Kind)
-	}
-	conn, err := d.connection(ctx, b.ConnectionID)
+	adapter, conn, err := connect(ctx, d, b.ConnectionID, "folders", channels.FilesFor)
 	if err != nil {
 		return err
 	}
@@ -163,7 +164,7 @@ func (d *Dispatcher) checkWatch(ctx context.Context, b store.Binding) error {
 	}
 	desc := adapter.Descriptor()
 	folder := cmp.Or(b.Label, b.Target)
-	for _, f := range files {
+	for _, f := range latest(files) {
 		if f.Folder {
 			continue
 		}
@@ -193,6 +194,22 @@ func (d *Dispatcher) checkWatch(ctx context.Context, b store.Binding) error {
 		}
 	}
 	return d.st.SetWatchCursor(ctx, b.ID, cursor)
+}
+
+// latest lists each file once, where it first appears, as it was last
+// listed: a file changed twice is one task, about the file as it is now.
+func latest(files []channels.File) []channels.File {
+	var out []channels.File
+	at := map[string]int{}
+	for _, f := range files {
+		if i, ok := at[f.ID]; ok {
+			out[i] = f
+			continue
+		}
+		at[f.ID] = len(out)
+		out = append(out, f)
+	}
+	return out
 }
 
 // Deliver sends each finished task's result back to where it came from.
@@ -269,19 +286,17 @@ func (d *Dispatcher) deliver(ctx context.Context, t store.Task) error {
 		if t.Origin.ConnectionID == "" {
 			return nil // Keera Chat reads the result itself
 		}
-		return d.send(ctx, t.Origin.ConnectionID, channels.Target{
-			Conversation: t.Origin.Conversation, Thread: t.Origin.Thread, Extra: t.Origin.Extra,
-		}, resultText(t))
+		return d.send(ctx, t.Origin.ConnectionID, replyTarget(t.Origin), resultText(t))
 	case protocol.SourceSchedule:
 		if t.Origin.ReplyBindingID == "" {
 			return nil
 		}
 		b, err := d.st.Binding(ctx, t.Origin.ReplyBindingID)
 		if err != nil {
-			return fmt.Errorf("the schedule's channel is gone")
+			return errors.New("the schedule's channel is gone")
 		}
 		if b.Target == store.AnyConversation {
-			return fmt.Errorf("the schedule's channel takes every conversation, so it names none to post in")
+			return errors.New("the schedule's channel takes every conversation, so it names none to post in")
 		}
 		return d.send(ctx, b.ConnectionID, channels.Target{Conversation: b.Target}, resultText(t))
 	case protocol.SourceBoard:
@@ -291,16 +306,18 @@ func (d *Dispatcher) deliver(ctx context.Context, t store.Task) error {
 }
 
 func (d *Dispatcher) send(ctx context.Context, connectionID string, to channels.Target, text string) error {
-	conn, err := d.connection(ctx, connectionID)
+	adapter, conn, err := connect(ctx, d, connectionID, "channels", channels.ChatFor)
 	if err != nil {
 		return err
 	}
-	adapter, ok := channels.ChatFor(conn.Kind)
-	if !ok {
-		return fmt.Errorf("no chat adapter for %s", conn.Kind)
-	}
 	_, err = adapter.Send(ctx, conn, to, text)
 	return err
+}
+
+// replyTarget is where the answer to a chat task goes: the message's own
+// conversation and thread.
+func replyTarget(o store.Origin) channels.Target {
+	return channels.Target{Conversation: o.Conversation, Thread: o.Thread, Extra: o.Extra}
 }
 
 // errNotSent marks a delivery that failed before anything went out, so it

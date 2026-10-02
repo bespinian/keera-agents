@@ -13,16 +13,16 @@ import (
 )
 
 // Register creates every adapter with opts and makes it available through
-// channels.ChatFor, channels.FilesFor, channels.CodeFor and
-// channels.Descriptors. The server calls it once at start-up.
+// channels.AdapterFor, channels.ChatFor, channels.FilesFor, channels.CodeFor
+// and channels.Descriptors. The server calls it once at start-up.
 func Register(opts channels.Options) {
 	for _, a := range adapters(opts) {
 		channels.Register(a)
 	}
 }
 
-func adapters(opts channels.Options) []interface{ Descriptor() channels.Descriptor } {
-	return []interface{ Descriptor() channels.Descriptor }{
+func adapters(opts channels.Options) []channels.Adapter {
+	return []channels.Adapter{
 		teams.New(opts), googlechat.New(opts), slack.New(opts),
 		gdrive.New(opts), onedrive.New(opts),
 		github.New(opts), gitlab.New(opts),

@@ -243,19 +243,17 @@ func failed(format string, args ...any) protocol.ToolResult {
 
 func (d *Dispatcher) toolSend(ctx context.Context, a store.Agent, t store.Task, in toolArgs) error {
 	if in.Text == "" {
-		return fmt.Errorf("the message is empty")
+		return errors.New("the message is empty")
 	}
 	if in.Channel == "" {
 		if t.Source != protocol.SourceChat {
-			return fmt.Errorf("this task did not come from a chat; name one of your channels")
+			return errors.New("this task did not come from a chat; name one of your channels")
 		}
 		if t.Origin.ConnectionID == "" {
-			return fmt.Errorf("this task came from Keera Chat, which shows only your answer; " +
+			return errors.New("this task came from Keera Chat, which shows only your answer; " +
 				"answer there, or name one of your channels")
 		}
-		return d.send(ctx, t.Origin.ConnectionID, channels.Target{
-			Conversation: t.Origin.Conversation, Thread: t.Origin.Thread, Extra: t.Origin.Extra,
-		}, in.Text)
+		return d.send(ctx, t.Origin.ConnectionID, replyTarget(t.Origin), in.Text)
 	}
 	b, ok := d.binding(ctx, a, in.Channel, store.ModeChat)
 	if !ok || b.Target == store.AnyConversation {
@@ -352,7 +350,7 @@ func (d *Dispatcher) EnsureBoard(ctx context.Context, orgID, by string) (store.B
 func (d *Dispatcher) toolCreateCard(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
 	title := value(in.Title)
 	if title == "" {
-		return nil, fmt.Errorf("a card needs a title")
+		return nil, errors.New("a card needs a title")
 	}
 	status := cmp.Or(in.Status, store.CardBacklog)
 	if !slices.Contains(store.CardStatuses, status) {
@@ -438,7 +436,7 @@ func (d *Dispatcher) toolUpdateCard(ctx context.Context, a store.Agent, t store.
 func (d *Dispatcher) toolComment(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
 	body := value(in.Body)
 	if body == "" {
-		return nil, fmt.Errorf("the comment is empty")
+		return nil, errors.New("the comment is empty")
 	}
 	c, err := d.orgCard(ctx, a, in.CardID)
 	if err != nil {
@@ -546,7 +544,7 @@ func (d *Dispatcher) toolFilesRead(ctx context.Context, a store.Agent, t store.T
 
 func (d *Dispatcher) toolFilesWrite(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
 	if in.Name == "" || strings.ContainsAny(in.Name, "/\\") {
-		return nil, fmt.Errorf("give the file a name without slashes")
+		return nil, errors.New("give the file a name without slashes")
 	}
 	if len(in.Content) > channels.MaxFileBytes {
 		return nil, fmt.Errorf("the file is larger than %d MiB", channels.MaxFileBytes>>20)

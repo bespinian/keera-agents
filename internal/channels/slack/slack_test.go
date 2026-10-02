@@ -301,7 +301,7 @@ func TestCheck(t *testing.T) {
 
 func TestDescriptor(t *testing.T) {
 	d := New(channels.Options{}).Descriptor()
-	if d.Kind != channels.Slack || !d.Chat || d.Files || !strings.Contains(d.Setup, "{webhook}") || len(d.Fields) != 2 {
+	if d.Kind != channels.Slack || !strings.Contains(d.Setup, "{webhook}") || len(d.Fields) != 2 {
 		t.Errorf("descriptor = %+v", d)
 	}
 	for _, f := range d.Fields {

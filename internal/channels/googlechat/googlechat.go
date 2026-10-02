@@ -72,7 +72,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
 		Kind:  channels.GoogleChat,
 		Label: "Google Chat",
-		Chat:  true,
 		Fields: []channels.Field{
 			{
 				Name: "service_account_json", Label: "Service account key", Secret: true, Required: true, Multiline: true,
@@ -181,18 +180,16 @@ func (a *Adapter) Receive(ctx context.Context, conn channels.Connection, r *http
 			ev.Type, ev.Space = "ADDED_TO_SPACE", ev.Chat.AddedToSpacePayload.Space
 		}
 	}
+	out := channels.Receipt{Response: empty()}
 	switch ev.Type {
 	case "ADDED_TO_SPACE":
-		return channels.Receipt{Response: reply(hello, addOn)}, nil
+		out.Response = reply(hello, addOn)
 	case "MESSAGE":
-	default:
-		return channels.Receipt{Response: empty()}, nil
+		if in, ok := parse(ev); ok {
+			out.Messages = []channels.Inbound{in}
+		}
 	}
-	in, ok := parse(ev)
-	if !ok {
-		return channels.Receipt{Response: empty()}, nil
-	}
-	return channels.Receipt{Messages: []channels.Inbound{in}, Response: empty()}, nil
+	return out, nil
 }
 
 // verify checks the bearer token. With a project number as audience, Chat

@@ -67,7 +67,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
 		Kind:  channels.GoogleDrive,
 		Label: "Google Drive",
-		Files: true,
 		Fields: []channels.Field{
 			{
 				Name: "service_account_json", Label: "Service account key", Secret: true, Required: true, Multiline: true,
@@ -260,12 +259,12 @@ func (a *Adapter) Read(ctx context.Context, conn channels.Connection, id string)
 	case strings.HasPrefix(meta.MimeType, "application/vnd.google-apps."):
 		return f, nil, fmt.Errorf("gdrive: %q is a %s, which cannot be read as a file", meta.Name, strings.TrimPrefix(meta.MimeType, "application/vnd.google-apps."))
 	case f.Size > channels.MaxFileBytes:
-		return f, nil, fmt.Errorf("gdrive: %q is larger than %d MiB", meta.Name, channels.MaxFileBytes>>20)
+		return f, nil, web.FileTooLarge("gdrive", meta.Name)
 	default:
 		b, err = a.call(ctx, s, http.MethodGet, "/drive/v3/files/"+id, url.Values{"alt": {"media"}, "supportsAllDrives": {"true"}}, nil, "", channels.MaxFileBytes)
 	}
 	if errors.Is(err, web.ErrTooLarge) {
-		return f, nil, fmt.Errorf("gdrive: %q is larger than %d MiB", meta.Name, channels.MaxFileBytes>>20)
+		return f, nil, web.FileTooLarge("gdrive", meta.Name)
 	}
 	if err != nil {
 		return f, nil, fmt.Errorf("gdrive: downloading the file: %w", err)
@@ -364,7 +363,6 @@ func (a *Adapter) Changes(ctx context.Context, conn channels.Connection, folder,
 	q.Set("pageSize", "1000")
 	q.Set("fields", "nextPageToken,newStartPageToken,changes(fileId,removed,file("+fileFields+",parents,trashed))")
 	var out []channels.File
-	seen := map[string]int{}
 	for range maxPages {
 		q.Set("pageToken", cursor)
 		var r struct {
@@ -383,12 +381,6 @@ func (a *Adapter) Changes(ctx context.Context, conn channels.Connection, folder,
 			if c.Removed || f == nil || f.Trashed || f.MimeType == folderType || !slices.Contains(f.Parents, parent) {
 				continue
 			}
-			// A file changed twice is reported once, as it is now.
-			if i, ok := seen[f.ID]; ok {
-				out[i] = f.file()
-				continue
-			}
-			seen[f.ID] = len(out)
 			out = append(out, f.file())
 		}
 		switch {

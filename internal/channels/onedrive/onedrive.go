@@ -59,7 +59,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
 		Kind:  channels.OneDrive,
 		Label: "OneDrive and SharePoint",
-		Files: true,
 		Fields: []channels.Field{
 			{Name: "tenant_id", Label: "Tenant ID", Required: true, Help: "Your Microsoft Entra tenant ID."},
 			{Name: "client_id", Label: "Client ID", Required: true, Help: "The application (client) ID of the app registration."},
@@ -192,7 +191,7 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	}
 	var d struct{}
 	err = a.getJSON(ctx, s, a.driveURL(s, "", url.Values{"$select": {"id,name,driveType"}}), &d)
-	if ge, ok := errors.AsType[*web.APIError](err); ok && (ge.Status == http.StatusForbidden || ge.Status == http.StatusUnauthorized) {
+	if st := web.Status(err); st == http.StatusForbidden || st == http.StatusUnauthorized {
 		return fmt.Errorf("signed in, but the app may not open the drive; grant it Files.ReadWrite.All or Sites.ReadWrite.All with admin consent (%w)", err)
 	}
 	if err != nil {
@@ -248,13 +247,13 @@ func (a *Adapter) Read(ctx context.Context, conn channels.Connection, id string)
 	case f.Folder:
 		return f, nil, fmt.Errorf("onedrive: %q is a folder", it.Name)
 	case f.Size > channels.MaxFileBytes:
-		return f, nil, fmt.Errorf("onedrive: %q is larger than %d MiB", it.Name, channels.MaxFileBytes>>20)
+		return f, nil, web.FileTooLarge("onedrive", it.Name)
 	}
 	// /content redirects to a pre-signed download URL; the client drops the
 	// Authorization header on the way, as it changes hosts.
 	b, err := a.call(ctx, s, http.MethodGet, a.driveURL(s, "/items/"+url.PathEscape(id)+"/content", nil), nil, "", channels.MaxFileBytes)
 	if errors.Is(err, web.ErrTooLarge) {
-		return f, nil, fmt.Errorf("onedrive: %q is larger than %d MiB", it.Name, channels.MaxFileBytes>>20)
+		return f, nil, web.FileTooLarge("onedrive", it.Name)
 	}
 	if err != nil {
 		return f, nil, fmt.Errorf("onedrive: downloading the file: %w", err)
@@ -378,7 +377,7 @@ func (a *Adapter) Changes(ctx context.Context, conn channels.Connection, folder,
 		parent = r.ID
 	}
 	files, next, err := a.delta(ctx, s, cursor, parent)
-	if ge, ok := errors.AsType[*web.APIError](err); ok && ge.Status == http.StatusGone {
+	if web.Status(err) == http.StatusGone {
 		// Graph forgot the cursor. Start again from now; changes in the gap
 		// are lost, which beats replaying the whole drive.
 		next, err = a.startDelta(ctx, s)
@@ -399,7 +398,6 @@ func (a *Adapter) startDelta(ctx context.Context, s settings) (string, error) {
 // looks for the link to ask with next.
 func (a *Adapter) delta(ctx context.Context, s settings, u, parent string) ([]channels.File, string, error) {
 	var out []channels.File
-	seen := map[string]int{}
 	for range maxPages {
 		var r struct {
 			Value     []item `json:"value"`
@@ -413,11 +411,6 @@ func (a *Adapter) delta(ctx context.Context, s settings, u, parent string) ([]ch
 			if parent == "" || it.Deleted != nil || it.Folder != nil || it.File == nil || it.ParentReference.ID != parent {
 				continue
 			}
-			if i, ok := seen[it.ID]; ok {
-				out[i] = it.file()
-				continue
-			}
-			seen[it.ID] = len(out)
 			out = append(out, it.file())
 		}
 		switch {

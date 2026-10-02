@@ -127,13 +127,9 @@ func getJSON(ctx context.Context, hc *http.Client, url string, v any) error {
 	if err != nil {
 		return err
 	}
-	b, err := web.Do(hc, req, url, 1<<20, func(status int, _ []byte) error {
+	return web.DoJSON(hc, req, url, 1<<20, func(status int, _ []byte) error {
 		return fmt.Errorf("%s answered %d %s", url, status, http.StatusText(status))
-	})
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(b, v)
+	}, v)
 }
 
 // Expected is what a token must say.

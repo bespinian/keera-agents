@@ -121,17 +121,30 @@ func (d *Dispatcher) binding(ctx context.Context, a store.Agent, id string, mode
 func bound[T any](ctx context.Context, d *Dispatcher, a store.Agent, id, noun string,
 	adapterFor func(channels.Kind) (T, bool), modes ...string,
 ) (store.Binding, T, channels.Connection, error) {
-	var none T
 	b, ok := d.binding(ctx, a, id, modes...)
 	if !ok {
+		var none T
 		return b, none, channels.Connection{}, fmt.Errorf("%s is not one of your %s", id, noun)
 	}
-	adapter, ok := adapterFor(channels.Kind(b.Kind))
-	if !ok {
-		return b, none, channels.Connection{}, fmt.Errorf("keera-agents cannot work with %s %s", b.Kind, noun)
-	}
-	conn, err := d.connection(ctx, b.ConnectionID)
+	adapter, conn, err := connect(ctx, d, b.ConnectionID, noun, adapterFor)
 	return b, adapter, conn, err
+}
+
+// connect loads a stored connection with its adapter. noun names what the
+// connection holds, such as channels, for the error when its kind cannot.
+func connect[T any](ctx context.Context, d *Dispatcher, connectionID, noun string,
+	adapterFor func(channels.Kind) (T, bool),
+) (T, channels.Connection, error) {
+	var none T
+	conn, err := d.connection(ctx, connectionID)
+	if err != nil {
+		return none, channels.Connection{}, err
+	}
+	adapter, ok := adapterFor(conn.Kind)
+	if !ok {
+		return none, channels.Connection{}, fmt.Errorf("keera-agents cannot work with %s %s", conn.Kind, noun)
+	}
+	return adapter, conn, nil
 }
 
 // ------------------------------------------------------------ tasks

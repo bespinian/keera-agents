@@ -135,6 +135,30 @@ func TestResultText(t *testing.T) {
 	}
 }
 
+func TestCardPrompt(t *testing.T) {
+	c := store.Card{Title: "Write the report", Body: "For October."}
+	got := cardPrompt(c, []store.Comment{{Author: "ada", Body: "Keep it short."}})
+	// The title comes first, since the task list shows a task by its first line.
+	if !strings.HasPrefix(got, "Write the report\n") {
+		t.Errorf("prompt does not start with the title: %q", got)
+	}
+	for _, want := range []string{"For October.", "Comments so far:\n- ada: Keep it short.", "Your final answer is the result"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt lacks %q: %q", want, got)
+		}
+	}
+	if got := cardPrompt(store.Card{Title: "T"}, nil); strings.Contains(got, "Comments") {
+		t.Errorf("no comments: %q", got)
+	}
+}
+
+func TestLatest(t *testing.T) {
+	got := latest([]channels.File{{ID: "a", Name: "old"}, {ID: "b"}, {ID: "a", Name: "new"}})
+	if len(got) != 2 || got[0].ID != "a" || got[0].Name != "new" || got[1].ID != "b" {
+		t.Errorf("latest = %+v", got)
+	}
+}
+
 func TestGrants(t *testing.T) {
 	g := newGrants()
 	g.add("t1", "b1", "f1")

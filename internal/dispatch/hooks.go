@@ -129,7 +129,7 @@ func (d *Dispatcher) receive(ctx context.Context, adapter channels.Chat, conn ch
 		return
 	}
 
-	desc, _ := channels.Describe(channels.Kind(conn.Kind))
+	desc, _ := channels.Describe(conn.Kind)
 	where := msg.ConversationLabel
 	if where == "" {
 		where = msg.Target.Conversation
@@ -160,10 +160,10 @@ func (d *Dispatcher) receive(ctx context.Context, adapter channels.Chat, conn ch
 	}
 }
 
-// route picks the agent a message is for. Several agents can share one bot:
-// a message that starts with an agent's name goes to that agent, one in a
-// conversation only one agent listens on goes to it, and otherwise to the
-// agent bound to that conversation first.
+// route picks the agent a message is for, since several agents can share one
+// bot. A message that starts with an agent's name goes to that agent. Others
+// go to the first agent bound to that conversation, or else to the first one
+// bound to every conversation.
 func route(bindings []store.Binding, msg channels.Inbound) (store.Binding, bool) {
 	var here []store.Binding
 	for _, b := range bindings {

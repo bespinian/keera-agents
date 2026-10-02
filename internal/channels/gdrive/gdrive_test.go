@@ -274,7 +274,8 @@ func TestChanges(t *testing.T) {
 	if err != nil || cursor != "102" {
 		t.Fatalf("changes = %q, %v", cursor, err)
 	}
-	if len(files) != 2 || files[0].ID != "TXT" || files[0].Modified.Day() != 3 || files[1].ID != "DOC" {
+	// Both changes to TXT are listed, across the two pages.
+	if len(files) != 3 || files[0].ID != "TXT" || files[1].ID != "DOC" || files[2].ID != "TXT" || files[2].Modified.Day() != 3 {
 		t.Errorf("files = %+v", files)
 	}
 	files, _, err = a.Changes(context.Background(), c, "SUB", "100")

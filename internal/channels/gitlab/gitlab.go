@@ -11,15 +11,14 @@
 package gitlab
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/channels"
@@ -49,7 +48,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
 		Kind:  channels.GitLab,
 		Label: "GitLab",
-		Code:  true,
 		Fields: []channels.Field{
 			{
 				Name: "token", Label: "Access token", Secret: true, Required: true,
@@ -73,18 +71,8 @@ type settings struct {
 }
 
 func (a *Adapter) settingsOf(conn channels.Connection) (settings, error) {
-	s := settings{token: web.Value(conn, "token"), base: a.base}
-	if s.token == "" {
-		return s, errors.New("the access token is missing")
-	}
-	base, ok := web.BaseURL(web.Value(conn, "base_url"))
-	if !ok {
-		return s, errors.New("the GitLab URL must be https://, such as https://gitlab.example.com")
-	}
-	if base != "" {
-		s.base = base
-	}
-	return s, nil
+	token, base, err := web.TokenAndBaseURL(conn, "the GitLab URL must be https://, such as https://gitlab.example.com")
+	return settings{token: token, base: cmp.Or(base, a.base)}, err
 }
 
 // open reads the connection's settings and checks the project's path.
@@ -93,9 +81,8 @@ func (a *Adapter) open(conn channels.Connection, path string) (settings, string,
 	if err != nil {
 		return s, "", err
 	}
-	path = strings.Trim(strings.TrimSpace(path), "/")
-	path = strings.TrimSuffix(path, ".git")
-	if !validPath.MatchString(path) || strings.Contains(path, "..") {
+	path, ok := web.RepoPath(path, validPath)
+	if !ok {
 		return s, "", fmt.Errorf("%q is not a project; write its path, such as group/project", web.Short(path, 80))
 	}
 	return s, path, nil
@@ -111,7 +98,7 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, in,
 	}
 	req.Header.Set("PRIVATE-TOKEN", s.token)
 	req.Header.Set("Accept", "application/json")
-	b, err := web.Do(a.hc, req, "GitLab", 16<<20, func(status int, b []byte) error {
+	return web.DoJSON(a.hc, req, "GitLab", 16<<20, func(status int, b []byte) error {
 		// GitLab's message is a string, a list or an object of lists.
 		var e struct {
 			Message json.RawMessage `json:"message"`
@@ -127,11 +114,7 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, in,
 			msg = text
 		}
 		return &web.APIError{Service: "GitLab", Status: status, Message: msg}
-	})
-	if err != nil || out == nil {
-		return err
-	}
-	return json.Unmarshal(b, out)
+	}, out)
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
@@ -143,7 +126,7 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 		Username string `json:"username"`
 	}
 	err = a.call(ctx, s, http.MethodGet, "/user", nil, &me)
-	if ae, ok := errors.AsType[*web.APIError](err); ok && ae.Status == http.StatusUnauthorized {
+	if web.Status(err) == http.StatusUnauthorized {
 		return fmt.Errorf("GitLab does not accept the token; check it has not expired or been revoked (%w)", err)
 	}
 	return err
@@ -167,7 +150,7 @@ func (a *Adapter) Repo(ctx context.Context, conn channels.Connection, path strin
 		} `json:"permissions"`
 	}
 	err = a.call(ctx, s, http.MethodGet, project(path), nil, &p)
-	if ae, ok := errors.AsType[*web.APIError](err); ok && ae.Status == http.StatusNotFound {
+	if web.Status(err) == http.StatusNotFound {
 		return channels.Repo{}, fmt.Errorf("the token cannot see %s; check the path and the token's projects", path)
 	}
 	if err != nil {
@@ -243,9 +226,7 @@ func (a *Adapter) Issues(ctx context.Context, conn channels.Connection, path, st
 	}
 	out := []channels.Issue{}
 	for _, i := range list {
-		v := i.view(changes)
-		v.Body = ""
-		out = append(out, v)
+		out = append(out, i.view(changes).Brief())
 	}
 	return out, nil
 }
@@ -308,7 +289,5 @@ func (a *Adapter) OpenChange(ctx context.Context, conn channels.Connection, path
 	if err != nil {
 		return channels.Issue{}, err
 	}
-	out := i.view(true)
-	out.Body = ""
-	return out, nil
+	return i.view(true).Brief(), nil
 }

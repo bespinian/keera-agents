@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -141,7 +142,7 @@ func (d *Dispatcher) toolRepoRead(ctx context.Context, a store.Agent, in toolArg
 		return nil, err
 	}
 	if in.Number < 1 {
-		return nil, fmt.Errorf("give the number of the issue or change")
+		return nil, errors.New("give the number of the issue or change")
 	}
 	b, adapter, conn, err := d.repo(ctx, a, in.Repo)
 	if err != nil {
@@ -157,7 +158,7 @@ func (d *Dispatcher) toolRepoComment(ctx context.Context, a store.Agent, in tool
 	}
 	body := value(in.Body)
 	if in.Number < 1 || body == "" {
-		return nil, fmt.Errorf("give the number of the issue or change, and the comment")
+		return nil, errors.New("give the number of the issue or change, and the comment")
 	}
 	b, adapter, conn, err := d.repo(ctx, a, in.Repo)
 	if err != nil {
@@ -177,7 +178,7 @@ func (d *Dispatcher) toolRepoOpenChange(ctx context.Context, a store.Agent, in t
 		return nil, fmt.Errorf("you may only push branches starting with %s, so the change must come from one", protocol.BranchPrefix)
 	}
 	if c.Title == "" {
-		return nil, fmt.Errorf("give the change a title")
+		return nil, errors.New("give the change a title")
 	}
 	b, adapter, conn, err := d.repo(ctx, a, in.Repo)
 	if err != nil {

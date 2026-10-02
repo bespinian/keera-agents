@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,6 +72,28 @@ func BaseURL(s string) (string, bool) {
 	return s, err == nil && u.Scheme == "https" && u.Host != ""
 }
 
+// TokenAndBaseURL reads a code host connection's token and base URL, checked
+// with BaseURL. badBase is the error for a base URL that is not https://.
+func TokenAndBaseURL(conn channels.Connection, badBase string) (token, base string, err error) {
+	token = Value(conn, "token")
+	if token == "" {
+		return "", "", errors.New("the access token is missing")
+	}
+	base, ok := BaseURL(Value(conn, "base_url"))
+	if !ok {
+		return "", "", errors.New(badBase)
+	}
+	return token, base, nil
+}
+
+// RepoPath trims a repository's path as people paste it, with slashes or
+// .git around it, and says whether it matches valid. It goes into URLs, so
+// ".." is never valid.
+func RepoPath(path string, valid *regexp.Regexp) (string, bool) {
+	path = strings.TrimSuffix(strings.Trim(strings.TrimSpace(path), "/"), ".git")
+	return path, valid.MatchString(path) && !strings.Contains(path, "..")
+}
+
 // NewJSONRequest makes a request with in as its JSON body, or with no body
 // when in is nil.
 func NewJSONRequest(ctx context.Context, method, u string, in any) (*http.Request, error) {
@@ -109,6 +132,14 @@ func (e *APIError) Error() string {
 		s += ": " + Short(e.Message, 300)
 	}
 	return s
+}
+
+// Status returns the HTTP status of a call a service refused, or 0.
+func Status(err error) int {
+	if e, ok := errors.AsType[*APIError](err); ok {
+		return e.Status
+	}
+	return 0
 }
 
 // ErrTooLarge is a response bigger than the caller allows.
@@ -190,6 +221,21 @@ func Do(hc *http.Client, req *http.Request, service string, limit int64, fail fu
 		return nil, fail(resp.StatusCode, b)
 	}
 	return ReadBody(resp, limit)
+}
+
+// DoJSON is Do, then decodes the body into out unless out is nil.
+func DoJSON(hc *http.Client, req *http.Request, service string, limit int64, fail func(status int, body []byte) error, out any) error {
+	b, err := Do(hc, req, service, limit, fail)
+	if err != nil || out == nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}
+
+// FileTooLarge is the error for a file bigger than channels.MaxFileBytes.
+// prefix names the adapter, such as "gdrive".
+func FileTooLarge(prefix, name string) error {
+	return fmt.Errorf("%s: %q is larger than %d MiB", prefix, name, channels.MaxFileBytes>>20)
 }
 
 // Fingerprint names a set of credentials in a cache key without keeping
