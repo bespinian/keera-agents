@@ -98,6 +98,19 @@ const KIND_LABELS = {
   onedrive: "OneDrive",
   github: "GitHub",
   gitlab: "GitLab",
+  jira: "Jira",
+  confluence: "Confluence",
+  gdocs: "Google Docs",
+  gsheets: "Google Sheets",
+  gslides: "Google Slides",
+  gcalendar: "Google Calendar",
+  outlook: "Outlook",
+  hubspot: "HubSpot",
+  salesforce: "Salesforce",
+  kubernetes: "Kubernetes",
+  aws: "AWS",
+  azure: "Azure",
+  gcp: "Google Cloud",
 };
 
 export function kindLabel(kind, kinds) {
@@ -126,7 +139,17 @@ export const MODES = {
   watch: ["Watch", "Each new file in the folder is a task."],
   files: ["Files", "May read and write files in the folder."],
   repo: ["Repository", "May clone it, push keera/ branches and open pull requests."],
+  read: ["Read", "May look things up, never change them."],
+  write: ["Read and write", "May look things up and make changes."],
 };
+
+/** gives says in a few words what a connector kind gives agents. */
+export function gives(kind) {
+  if (kind.api) return `${(kind.tools || []).length} tools`;
+  if (kind.code) return "Repositories";
+  if (kind.chat && kind.files) return "Chats, folders";
+  return kind.files ? "Folders" : "Chats";
+}
 
 /** TIERS name the isolation tiers a deployment may offer. */
 export const TIERS = {

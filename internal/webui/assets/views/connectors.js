@@ -1,6 +1,6 @@
-// Connectors: the organisation's accounts with chat services, file stores
-// and code hosts. Administrators add them; everyone may connect an agent to
-// one.
+// Connectors: the organisation's accounts with chat services, file stores,
+// code hosts and other services. Administrators add them from the catalogue;
+// everyone may connect an agent to one.
 
 import { api } from "../api.js";
 import {
@@ -13,9 +13,11 @@ import {
   fail,
   modal,
   confirm,
-  serviceMark,
-  modeTiles,
+  kindMark,
   replace,
+  table,
+  crumb,
+  go,
   listHead,
   empty,
   banner,
@@ -25,9 +27,13 @@ import {
   date,
   num,
   plural,
+  pill,
+  stamp,
 } from "../ui.js";
 import { render } from "../markdown.js";
-import { kindLabel } from "../common.js";
+import { kindLabel, gives } from "../common.js";
+
+const catalogue = "/connectors/catalogue";
 
 export async function connectorsView(ctx) {
   const [conns, kindsRes] = await Promise.all([api.connections(), api.connectionKinds().catch(() => ({ data: [] }))]);
@@ -35,39 +41,101 @@ export async function connectorsView(ctx) {
   const kinds = kindsRes.data || [];
   const admin = isAdmin(ctx);
   ctx.setSubtitle(`${connections.length} ${plural(connections.length, "connector")}`);
-  const add = admin && kinds.length ? () => openEditor(ctx, kinds, null) : null;
+  const kindOf = (c) => kinds.find((k) => k.kind === c.kind) || {};
 
-  return h(
-    "div",
-    {},
-    listHead(
-      "A connector is the organisation's account with a chat service, a file store or a code host. " +
-        "Agents use it through their channels.",
-      [],
-      add ? { label: "Add connector", onClick: add } : null,
-    ),
-    connections.length
-      ? h(
-          "div",
-          { class: "table-tiles" },
-          connections.map((c) => tile(ctx, c, kinds, admin)),
-        )
-      : h(
-          "div",
-          { class: "card" },
-          empty("No connectors yet", [
-            h("div", {}, "Connect the services your team uses so agents can work in them."),
-            add
-              ? h(
-                  "button",
-                  { class: "btn btn-primary", style: { marginTop: "14px" }, onClick: add },
-                  icon(icons.plus),
-                  "Add connector",
-                )
-              : h("div", { class: "faint", style: { marginTop: "6px" } }, "An administrator adds them."),
-          ]),
-        ),
+  const head = listHead(
+    "A connector is the organisation's account with a service, such as a chat, a file store, a code host or a CRM. " +
+      "Agents use it through their channels.",
+    [
+      admin
+        ? null
+        : h(
+            "a",
+            { class: "btn", href: catalogue, title: "Every service agents can work with", onClick: go(ctx, catalogue) },
+            "Connector catalogue",
+          ),
+    ],
+    admin ? { label: "Add connector", onClick: go(ctx, catalogue) } : null,
   );
+
+  if (!connections.length) {
+    return h(
+      "div",
+      {},
+      head,
+      h(
+        "div",
+        { class: "card" },
+        empty("No connectors yet", [
+          h("div", {}, "Connect the services your team uses so agents can work in them."),
+          admin
+            ? h(
+                "button",
+                { class: "btn btn-primary", style: { marginTop: "14px" }, onClick: go(ctx, catalogue) },
+                icon(icons.plus),
+                "Add connector",
+              )
+            : h("div", { class: "faint", style: { marginTop: "6px" } }, "An administrator adds them."),
+        ]),
+      ),
+    );
+  }
+
+  const categories = [...new Set(connections.map((c) => kindOf(c).category).filter(Boolean))];
+  const list = table(
+    [
+      {
+        label: "Name",
+        sortKey: (c) => c.name,
+        cell: (c) =>
+          h(
+            "div",
+            { class: "row" },
+            h("span", { class: "tile-mark tile-mark-sm" }, kindMark(c.kind, kinds)),
+            h(
+              "div",
+              { class: "stack" },
+              h("strong", {}, c.name),
+              h("span", { class: "faint small" }, kindLabel(c.kind, kinds)),
+            ),
+          ),
+      },
+      {
+        label: "Gives agents",
+        shrink: true,
+        sortKey: (c) => gives(kindOf(c)),
+        cell: (c) => gives(kindOf(c)),
+      },
+      { label: "Channels", num: true, shrink: true, sortKey: (c) => c.bindings, cell: (c) => num(c.bindings) },
+      {
+        label: "Added",
+        num: true,
+        shrink: true,
+        sortKey: (c) => c.created_at,
+        sortDir: "desc",
+        cell: (c) => stamp(c.created_at),
+      },
+      { label: "", shrink: true, cell: (c) => (admin ? actions(ctx, c, kinds) : null) },
+    ],
+    connections,
+    {
+      search: (c) => [c.name, kindLabel(c.kind, kinds), kindOf(c).vendor, kindOf(c).category].join(" "),
+      searchLabel: "connectors",
+      sortBy: "Name",
+      tile: (c) => tile(ctx, c, kinds, admin),
+      choices:
+        categories.length > 1
+          ? [
+              {
+                label: "Categories",
+                options: categories.map((v) => ({ value: v, label: v })),
+                test: (c, v) => kindOf(c).category === v,
+              },
+            ]
+          : [],
+    },
+  );
+  return h("div", {}, head, list);
 }
 
 function tile(ctx, c, kinds, admin) {
@@ -78,7 +146,7 @@ function tile(ctx, c, kinds, admin) {
     h(
       "div",
       { class: "model-tile-head" },
-      h("span", { class: "tile-mark" }, serviceMark(c.kind) || icon(icons.connections)),
+      h("span", { class: "tile-mark" }, kindMark(c.kind, kinds)),
       h(
         "div",
         { class: "stack", style: { gap: "1px", minWidth: "0" } },
@@ -98,47 +166,193 @@ function tile(ctx, c, kinds, admin) {
       "dl",
       { class: "model-tile-facts" },
       h("div", {}, h("dt", {}, "Channels"), h("dd", {}, num(c.bindings))),
-      h(
-        "div",
-        {},
-        h("dt", {}, "Kind"),
-        h("dd", {}, kind.code ? "Code" : kind.chat && kind.files ? "Chat, files" : kind.files ? "Files" : "Chat"),
-      ),
+      h("div", {}, h("dt", {}, "Gives agents"), h("dd", {}, gives(kind))),
       h("div", {}, h("dt", {}, "Added"), h("dd", {}, date(c.created_at))),
     ),
-    admin
-      ? h(
-          "div",
-          { class: "row" },
-          checkButton(
-            "Check that the service still accepts its credentials",
-            () => api.checkConnection(c.id),
-            () => ({ label: "Works", tone: "good", title: "The service accepted the credentials" }),
-          ),
-          h("div", { class: "spacer" }),
-          iconButton(icons.pencil, "Edit this connector", () => openEditor(ctx, kinds, c), {
-            label: `Edit ${c.name}`,
-          }),
-          iconButton(
-            icons.trash,
-            "Delete this connector",
-            () =>
-              confirm({
-                title: `Delete ${c.name}?`,
-                body: c.bindings
-                  ? `${c.bindings} ${plural(c.bindings, "channel")} use it and go with it. Agents stop answering there.`
-                  : "No channel uses it.",
-                confirmLabel: "Delete connector",
-                danger: true,
-                onConfirm: () => api.deleteConnection(c.id),
-                done: `${c.name} deleted`,
-                ctx,
-              }),
-            { danger: true, label: `Delete ${c.name}` },
-          ),
-        )
-      : null,
+    admin ? actions(ctx, c, kinds) : null,
   );
+}
+
+/** actions are an administrator's buttons for one connector. */
+function actions(ctx, c, kinds) {
+  return h(
+    "div",
+    { class: "row" },
+    checkButton(
+      "Check that the service still accepts its credentials",
+      () => api.checkConnection(c.id),
+      () => ({ label: "Works", tone: "good", title: "The service accepted the credentials" }),
+    ),
+    h("div", { class: "spacer" }),
+    iconButton(icons.pencil, "Edit this connector", () => openEditor(ctx, kinds, c), {
+      label: `Edit ${c.name}`,
+    }),
+    iconButton(
+      icons.trash,
+      "Delete this connector",
+      () =>
+        confirm({
+          title: `Delete ${c.name}?`,
+          body: c.bindings
+            ? `${c.bindings} ${plural(c.bindings, "channel")} use it and go with it. Agents stop working there.`
+            : "No channel uses it.",
+          confirmLabel: "Delete connector",
+          danger: true,
+          onConfirm: () => api.deleteConnection(c.id),
+          done: `${c.name} deleted`,
+          ctx,
+        }),
+      { danger: true, label: `Delete ${c.name}` },
+    ),
+  );
+}
+
+/** catalogueView lists every kind of connector, and the organisation's
+ *  connectors of each. An administrator adds one by picking its kind. */
+export async function catalogueView(ctx) {
+  const admin = isAdmin(ctx);
+  const [kindsRes, conns] = await Promise.all([api.connectionKinds(), api.connections().catch(() => ({ data: [] }))]);
+  const kinds = kindsRes.data || [];
+  const connections = conns.data || [];
+  const rows = kinds.map((k) => ({ k, mine: connections.filter((c) => c.kind === k.kind) }));
+  ctx.setSubtitle(`${rows.length} ${plural(rows.length, "service")}`);
+  const unique = (f) => [...new Set(kinds.map(f).filter(Boolean))].sort();
+
+  const list = table(
+    [
+      {
+        label: "Service",
+        sortKey: (r) => r.k.label,
+        cell: (r) =>
+          h(
+            "div",
+            { class: "row" },
+            h("span", { class: "tile-mark tile-mark-sm" }, kindMark(r.k.kind, kinds)),
+            h(
+              "div",
+              { class: "stack" },
+              h("strong", {}, r.k.label),
+              r.k.summary ? h("span", { class: "faint small" }, r.k.summary) : null,
+            ),
+          ),
+      },
+      { label: "Vendor", shrink: true, sortKey: (r) => r.k.vendor, cell: (r) => r.k.vendor || "" },
+      { label: "Category", shrink: true, sortKey: (r) => r.k.category, cell: (r) => pill(r.k.category || "Other") },
+      { label: "Gives agents", shrink: true, cell: (r) => h("span", { class: "nowrap" }, gives(r.k)) },
+      {
+        label: "In use",
+        shrink: true,
+        sortKey: (r) => r.mine.length || null,
+        sortDir: "desc",
+        cell: (r) => inUse(r.mine),
+      },
+    ],
+    rows,
+    {
+      pick: admin ? (r) => openEditor(ctx, kinds, null, r.k) : (r) => showKind(r.k),
+      pickTitle: admin ? "Add a connector to this service" : "What agents can do with it",
+      emptyTitle: "No services",
+      emptyBody: "This build knows no connectors.",
+      search: (r) =>
+        [r.k.label, r.k.kind, r.k.vendor, r.k.category, r.k.summary, ...(r.k.tools || []).map((t) => t.name)].join(" "),
+      searchLabel: "services",
+      tile: (r) => catalogueTile(r, kinds),
+      choices: [
+        {
+          label: "Categories",
+          options: unique((k) => k.category).map((v) => ({ value: v, label: v })),
+          test: (r, v) => r.k.category === v,
+        },
+        {
+          label: "Vendors",
+          options: unique((k) => k.vendor).map((v) => ({ value: v, label: v })),
+          test: (r, v) => r.k.vendor === v,
+        },
+      ].filter((c) => c.options.length > 1),
+    },
+  );
+
+  return h("div", {}, h("div", { class: "detail-head row" }, crumb(ctx, "/connectors", "Connectors")), list);
+}
+
+function inUse(mine) {
+  if (!mine.length) return h("span", { class: "faint" }, "Not yet");
+  return h("span", { class: "small", title: mine.map((c) => c.name).join(", ") }, mine.map((c) => c.name).join(", "));
+}
+
+function catalogueTile(r, kinds) {
+  const fact = (label, value) => h("div", {}, h("dt", {}, label), h("dd", {}, value));
+  return h(
+    "article",
+    { class: "model-tile" },
+    h(
+      "div",
+      { class: "model-tile-head" },
+      h("span", { class: "tile-mark" }, kindMark(r.k.kind, kinds)),
+      h(
+        "div",
+        { class: "stack" },
+        h("span", { class: "model-tile-name" }, r.k.label),
+        h("span", { class: "faint small" }, [r.k.vendor, r.k.category].filter(Boolean).join(" · ")),
+      ),
+    ),
+    r.k.summary ? h("p", { class: "model-tile-what" }, r.k.summary) : null,
+    h(
+      "dl",
+      { class: "model-tile-facts" },
+      fact("Gives agents", gives(r.k)),
+      fact("Narrows to", r.k.target_label || "Nothing"),
+      fact("In use", r.mine.length ? num(r.mine.length) : "Not yet"),
+    ),
+  );
+}
+
+/** toolList says what an API kind's tools do, those that change something
+ *  marked, so an administrator knows what agents may do before adding it. */
+function toolList(kind) {
+  if (!kind.api || !(kind.tools || []).length) return null;
+  return h(
+    "div",
+    { class: "field" },
+    h("label", {}, "What agents can do"),
+    h(
+      "ul",
+      { class: "tool-list" },
+      kind.tools.map((t) =>
+        h(
+          "li",
+          {},
+          h("span", { class: "mono small" }, `${kind.kind}_${t.name}`),
+          t.write ? pill("Writes", "warn") : null,
+          h("div", { class: "faint small" }, t.description),
+        ),
+      ),
+    ),
+    h(
+      "div",
+      { class: "hint" },
+      "A channel that may only read never gets the tools that write. ",
+      kind.target_label
+        ? `Each channel names one ${kind.target_label.toLowerCase()}, and its tools stay in it.`
+        : "The service's own permissions decide what it reaches.",
+    ),
+  );
+}
+
+/** showKind tells a member what a service does, since only an
+ *  administrator can add it. */
+function showKind(kind) {
+  modal({
+    title: kind.label,
+    subtitle: kind.summary,
+    wide: true,
+    body: h(
+      "div",
+      {},
+      toolList(kind),
+      banner("info", { style: { marginBottom: "0" } }, "An administrator adds connectors."),
+    ),
+  });
 }
 
 /** setupText fills in the webhook URL, or says where it will be. */
@@ -146,10 +360,10 @@ export function setupText(setup, webhook) {
   return String(setup || "").replaceAll("{webhook}", webhook || "the webhook URL (shown once saved)");
 }
 
-/** openEditor adds a connector, or changes one. Secrets are never shown:
- *  one left empty keeps its value. */
-function openEditor(ctx, kinds, conn) {
-  let kind = conn ? kinds.find((k) => k.kind === conn.kind) : kinds.length === 1 ? kinds[0] : null;
+/** openEditor adds a connector of kind, or changes conn. Secrets are never
+ *  shown: one left empty keeps its value. */
+function openEditor(ctx, kinds, conn, kind = null) {
+  if (conn) kind = kinds.find((k) => k.kind === conn.kind) || null;
   const name = h("input", { class: "input", value: conn ? conn.name : "" });
   const fieldsHost = h("div");
   const inputs = {};
@@ -205,45 +419,15 @@ function openEditor(ctx, kinds, conn) {
     );
   }
 
-  const picker = conn
-    ? null
-    : modeTiles(
-        kinds.map((k) => ({
-          value: k.kind,
-          name: k.label,
-          mark: () => serviceMark(k.kind),
-          icon: icons.connections,
-          what: k.code
-            ? "Agents code in its repositories."
-            : k.chat && k.files
-              ? "Chats and files."
-              : k.chat
-                ? "Agents answer in its chats."
-                : "Agents watch and use its folders.",
-        })),
-        kind ? kind.kind : null,
-        (value) => {
-          kind = kinds.find((k) => k.kind === value);
-          drawFields();
-          name.focus();
-        },
-      );
-  if (picker && kind) picker.choose(kind.kind);
   drawFields();
 
   formModal({
-    title: conn ? `Edit ${conn.name}` : "Add connector",
-    subtitle: conn ? kindLabel(conn.kind, kinds) : "It is checked with the service before it is saved.",
+    title: conn ? `Edit ${conn.name}` : `Add ${kind.label}`,
+    subtitle: conn ? kindLabel(conn.kind, kinds) : `${kind.label}. It is checked with the service before it is saved.`,
     wide: true,
-    body: h(
-      "form",
-      {},
-      picker ? h("div", { class: "field" }, h("label", {}, "Service"), picker.tiles, picker.chosenRow) : null,
-      fieldsHost,
-    ),
+    body: h("form", {}, fieldsHost, toolList(kind)),
     submitLabel: conn ? "Save" : "Add connector",
     submit: async () => {
-      if (!kind) throw { message: "Choose a service." };
       if (!name.value.trim()) fail(name, "Give the connector a name.");
       const config = {};
       const secrets = {};
@@ -259,7 +443,9 @@ function openEditor(ctx, kinds, conn) {
         : api.createConnection({ kind: kind.kind, name: name.value.trim(), config, secrets });
     },
     done: (saved) => {
-      ctx.reload();
+      // A new connector shows among the others.
+      if (conn) ctx.reload();
+      else ctx.navigate("/connectors");
       if (!conn && saved.webhook_url) showWebhook(saved, kind);
       return conn ? `${saved.name} saved` : `${saved.name} added`;
     },

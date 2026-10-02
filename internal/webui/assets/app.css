@@ -752,6 +752,15 @@ input[type="checkbox"]:disabled {
   color: var(--accent);
   font-weight: 600;
 }
+.seg-icons button {
+  display: grid;
+  place-items: center;
+  padding: 5px 8px;
+}
+.seg-icons svg {
+  width: 15px;
+  height: 15px;
+}
 
 /* A choice made before the form, for modes whose fields differ and that need
    a logo or sentence an <option> cannot hold. */
@@ -805,6 +814,23 @@ input[type="checkbox"]:disabled {
 .tile-mark .provider-mark {
   width: 18px;
   height: 18px;
+}
+/* Beside a name in a table row. */
+.tile-mark-sm {
+  flex: none;
+  margin-bottom: 0;
+}
+
+/* An API connector's tools, in its form. */
+.tool-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tool-list li .pill {
+  margin-left: 6px;
 }
 .tile-name {
   font-size: 13px;
@@ -980,11 +1006,15 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 /* A row that opens or acts on a click anywhere in it. */
-tr.row-opens {
+tr.row-opens,
+.table-tiles > .row-opens {
   cursor: pointer;
 }
 tr.row-opens:hover td {
   background: var(--surface-2);
+}
+.table-tiles > .row-opens:hover {
+  border-color: var(--accent);
 }
 td.num,
 th.num {
@@ -1060,6 +1090,11 @@ th.num .th-sort {
 .toolbar-end {
   margin-left: auto;
 }
+.btn-sort {
+  align-self: stretch;
+  justify-content: center;
+  padding: 0 10px;
+}
 
 /* At most five tiles in a row, as more are hard to read across. The minimum
    is a fifth of the row, less the gaps. */
@@ -1071,6 +1106,9 @@ th.num .th-sort {
     minmax(max(260px, (100% - 4 * var(--tile-gap)) / 5), 1fr)
   );
   gap: var(--tile-gap);
+}
+.table-tiles > .table-none {
+  grid-column: 1 / -1;
 }
 
 .model-tile {
@@ -1105,6 +1143,17 @@ th.num .th-sort {
   font-size: 14px;
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+.model-tile-what {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 /* At the bottom, so the numbers line up across a row of tiles. */
 .model-tile-facts {

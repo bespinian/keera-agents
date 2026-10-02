@@ -65,8 +65,11 @@ func New(opts channels.Options) *Adapter {
 
 func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
-		Kind:  channels.GoogleDrive,
-		Label: "Google Drive",
+		Kind:     channels.GoogleDrive,
+		Label:    "Google Drive",
+		Vendor:   "Google",
+		Category: "Files",
+		Summary:  "Agents watch folders for new files, and read and write files in them.",
 		Fields: []channels.Field{
 			{
 				Name: "service_account_json", Label: "Service account key", Secret: true, Required: true, Multiline: true,

@@ -87,11 +87,14 @@ default robot. A name the panel does not know shows the default.
 Binding:
 
 ```
-{id,agent_id,agent_name,connection_id,connection_name,kind,target,label,mode:"chat"|"watch"|"files"|"repo",prompt,checked_at,created_by,created_at}
+{id,agent_id,agent_name,connection_id,connection_name,kind,target,label,mode:"chat"|"watch"|"files"|"repo"|"read"|"write",prompt,checked_at,created_by,created_at}
 ```
 
 - `POST /api/v1/agents/{id}/bindings {connection_id,target,label,mode,prompt}` → 201 Binding
-  (`target` "*" for a chat binding = every conversation the bot is in, DMs included)
+  (`target` "*" for a chat binding = every conversation the bot is in, DMs included;
+  for an API kind with `any_target` = everything the connector reaches; ignored for
+  an API kind without `target_label`. `read` and `write` are only for API kinds, and
+  their target is checked with the service first: 400 with its reason)
 - `DELETE /api/v1/bindings/{id}` → 204
 
 ## Schedules
@@ -170,9 +173,13 @@ The panel calls them connectors; the API keeps the name connections.
 Kind descriptor (`GET /api/v1/connection-kinds` → `{data:[Descriptor]}`):
 
 ```
-{kind:"teams"|"googlechat"|"slack"|"gdrive"|"onedrive"|"github"|"gitlab",label,chat:bool,files:bool,code:bool,
- fields:[{name,label,help,secret,required,multiline,endpoint}],setup (text; "{webhook}" placeholder),target_label,target_help}
+{kind,label,vendor,category,summary,chat:bool,files:bool,code:bool,api:bool,
+ tools:[{name,description,write}] (API kinds),
+ fields:[{name,label,help,secret,required,multiline,endpoint}],setup (text; "{webhook}" placeholder),
+ target_label,target_help,any_target:bool}
 ```
+
+The kinds are listed in [channels.md](channels.md).
 
 Connection:
 

@@ -29,7 +29,7 @@ import { agentView } from "./views/agent.js";
 import { boardView } from "./views/board.js";
 import { tasksView, taskView } from "./views/tasks.js";
 import { schedulesView } from "./views/schedules.js";
-import { connectorsView } from "./views/connectors.js";
+import { connectorsView, catalogueView } from "./views/connectors.js";
 import { auditView } from "./views/audit.js";
 
 const root = document.getElementById("root");
@@ -44,7 +44,8 @@ const shellCtx = { state, navigate };
 /** routes is the whole panel in sidebar order; `group` splits it for the
  *  sidebar. A `detail` is one row opened up, such as /agents/agent_1. With
  *  `sub`, it may take one more segment, such as /agents/agent_1/logs for a
- *  tab. */
+ *  tab. A route `under` another is not in the sidebar and lights that one
+ *  up. */
 const routes = [
   { path: "/", label: "Dashboard", icon: "dashboard", view: dashboardView },
   {
@@ -71,6 +72,15 @@ const routes = [
     label: "Connectors",
     icon: "connections",
     view: connectorsView,
+  },
+  // Every kind of connector. It opens from Connectors.
+  {
+    path: "/connectors/catalogue",
+    group: "Organisation",
+    label: "Connector catalogue",
+    icon: "connections",
+    view: catalogueView,
+    under: "/connectors",
   },
   {
     path: "/audit",
@@ -272,7 +282,7 @@ function renderShell() {
       brandMark(22),
       h("span", { class: "nav-text" }, "Keera Agents"),
     ),
-    navGroups(visibleRoutes()).map(({ group, items }) =>
+    navGroups(visibleRoutes().filter((r) => !r.under)).map(({ group, items }) =>
       h("div", { class: "nav-group" }, group ? h("div", { class: "nav-label" }, group) : null, items.map(navItem)),
     ),
     h(
@@ -377,7 +387,7 @@ async function renderRoute() {
   const { route, param, sub } = matchRoute(available, location.pathname);
 
   // A detail screen lights up its list in the sidebar.
-  const current = (route.parent || route).path;
+  const current = route.under || (route.parent || route).path;
   for (const el of document.querySelectorAll(".nav-item")) {
     if (el.dataset.path === current) el.setAttribute("aria-current", "page");
     else el.removeAttribute("aria-current");

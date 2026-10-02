@@ -56,8 +56,11 @@ func New(opts channels.Options) *Adapter {
 
 func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
-		Kind:  channels.Slack,
-		Label: "Slack",
+		Kind:     channels.Slack,
+		Label:    "Slack",
+		Vendor:   "Slack",
+		Category: "Chat",
+		Summary:  "Agents answer when mentioned in channels and in direct messages.",
 		Fields: []channels.Field{
 			{
 				Name: "bot_token", Label: "Bot token", Secret: true, Required: true,

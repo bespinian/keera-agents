@@ -448,6 +448,15 @@ func TestBindingsAndWatches(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("repo binding: %v", err)
 	}
+	// The modes API connections use.
+	for _, mode := range []string{ModeRead, ModeWrite} {
+		if _, err := st.CreateBinding(ctx, Binding{
+			ID: id.New("bnd"), AgentID: a.ID, ConnectionID: c.ID,
+			Target: "ACME", Mode: mode, CreatedBy: "ada",
+		}); err != nil {
+			t.Fatalf("%s binding: %v", mode, err)
+		}
+	}
 	chats, err := st.ChatBindings(ctx, c.ID)
 	if err != nil || len(chats) != 1 || chats[0].AgentName != "Scout" || chats[0].Kind != "slack" {
 		t.Fatalf("ChatBindings = %+v, %v", chats, err)
@@ -477,7 +486,7 @@ func TestBindingsAndWatches(t *testing.T) {
 		t.Fatal("a pruned write is still remembered")
 	}
 	counts, _ := st.BindingCounts(ctx, "org_a")
-	if counts[c.ID] != 3 {
+	if counts[c.ID] != 5 {
 		t.Fatalf("BindingCounts = %v", counts)
 	}
 	// A stopped agent listens to nothing.

@@ -198,6 +198,9 @@ export const icons = {
   gateway: "M3 12h4c3.5 0 4.5-7 9-7h5M3 12h4c3.5 0 4.5 7 9 7h5M18 2l3 3-3 3M18 16l3 3-3 3",
   signout: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
   plus: "M12 5v14M5 12h14",
+  cloud: "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
+  rows: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  tiles: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
   passkey:
     "M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4zM16.5 7.5h.01",
   copy: "M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
@@ -303,11 +306,38 @@ const serviceMarks = {
   slack: slackGlyph,
   github: idpMarks.github,
   gitlab: gitlabGlyph,
+  gdocs: googleMark,
+  gsheets: googleMark,
+  gslides: googleMark,
+  gcalendar: googleMark,
+  gcp: googleMark,
+  outlook: idpMarks.microsoft,
+  azure: idpMarks.microsoft,
 };
 
 /** serviceMark is a connector kind's mark at text size, or null. */
 export function serviceMark(kind) {
   return drawMark(serviceMarks[kind]);
+}
+
+/** categoryIcons stand in for the marks of kinds that have none, by the
+ *  category the control plane gives them. */
+const categoryIcons = {
+  Chat: icons.chat,
+  Files: icons.folder,
+  Code: icons.terminal,
+  "Projects and wikis": icons.board,
+  Documents: icons.file,
+  "Email and calendar": icons.calendar,
+  CRM: icons.person,
+  Cloud: icons.cloud,
+};
+
+/** kindMark is a connector kind's mark, or its category's icon. kinds is
+ *  /connection-kinds' answer. */
+export function kindMark(kind, kinds) {
+  const d = (kinds || []).find((k) => k.kind === kind);
+  return serviceMark(kind) || icon(categoryIcons[d && d.category] || icons.connections);
 }
 
 /** remembered is a setting kept for this tab, or with lasting for every visit,
@@ -442,7 +472,7 @@ function verdictPill({ label, tone, title, open }) {
   );
 }
 
-function crumb(ctx, path, label) {
+export function crumb(ctx, path, label) {
   return link(ctx, path, [icon(icons.back), label], { class: "crumb" });
 }
 
@@ -645,7 +675,13 @@ export function miniRow(ctx, path, title, below, end) {
  *    rowClass     (row) => string - a class for that row's <tr>
  *    open         (row) => path - the row's screen, opened by a click anywhere
  *                 on the row. Needs `ctx`. Null leaves that row closed.
+ *    pick         (row) => void - what a click or Enter on the row does when
+ *                 it has no screen of its own.
+ *    pickTitle    what pick does, for the tooltip
  *    emptyTitle / emptyBody
+ *    tile         (row) => node - the row as a tile. Passing it adds a switch
+ *                 between the table and a grid of tiles. Tiles show until
+ *                 someone chooses the table.
  *
  *  A column with a sortKey gets a header that sorts by it, first in its
  *  sortDir. Sorting happens here, so a paged list has no sortKeys: sorting
@@ -665,9 +701,11 @@ export function table(columns, rows, opts = {}) {
     picked: choices.map(() => ""),
     sort: columns.find((c) => c.sortKey && c.label === opts.sortBy) || null,
     dir: opts.sortDir === "desc" ? -1 : 1,
+    tiles: !!opts.tile,
   };
 
   const body = h("tbody");
+  const grid = opts.tile ? h("div", { class: "table-tiles" }) : null;
   const count = h("span", { class: "faint nowrap small" });
   const sortable = new Map();
 
@@ -721,31 +759,56 @@ export function table(columns, rows, opts = {}) {
     return out;
   }
 
+  const none = "Nothing matches. Clear the search, or turn a filter off.";
+
+  function clickable(el, row) {
+    const path = opts.open ? opts.open(row) : null;
+    if (path) openRow(el, opts.ctx, path);
+    else if (opts.pick) pickRow(el, () => opts.pick(row), opts.pickTitle);
+    return el;
+  }
+
+  function setLayout(tiles) {
+    view.tiles = tiles;
+    card.hidden = tiles;
+    grid.hidden = !tiles;
+    tileControls.hidden = !tiles;
+    tableButton.setAttribute("aria-pressed", String(!tiles));
+    tilesButton.setAttribute("aria-pressed", String(tiles));
+    draw();
+  }
+
   function draw() {
     const shown = visible();
     count.textContent = shown.length === rows.length ? "" : `${shown.length} of ${rows.length}`;
+    if (sortSelect) {
+      sortSelect.value = String(sortCols.indexOf(view.sort));
+      sortDir.textContent = view.dir === 1 ? "↑" : "↓";
+      sortDir.disabled = !view.sort;
+    }
+    if (view.tiles) {
+      replace(
+        grid,
+        shown.length
+          ? shown.map((row) => clickable(opts.tile(row), row))
+          : h("div", { class: "card table-none" }, none),
+      );
+      return;
+    }
     replace(
       body,
       shown.length
-        ? shown.map((row) => {
-            const tr = h(
-              "tr",
-              { class: (opts.rowClass && opts.rowClass(row)) || null },
-              columns.map((c) => h("td", { class: cellClass(c) }, c.cell(row))),
-            );
-            const path = opts.open ? opts.open(row) : null;
-            if (path) openRow(tr, opts.ctx, path);
-            return tr;
-          })
-        : h(
-            "tr",
-            {},
-            h(
-              "td",
-              { colspan: String(columns.length), class: "table-none" },
-              "Nothing matches. Clear the search, or turn a filter off.",
+        ? shown.map((row) =>
+            clickable(
+              h(
+                "tr",
+                { class: (opts.rowClass && opts.rowClass(row)) || null },
+                columns.map((c) => h("td", { class: cellClass(c) }, c.cell(row))),
+              ),
+              row,
             ),
-          ),
+          )
+        : h("tr", {}, h("td", { colspan: String(columns.length), class: "table-none" }, none)),
     );
     for (const [c, { th, arrow }] of sortable) {
       const active = view.sort === c;
@@ -755,8 +818,47 @@ export function table(columns, rows, opts = {}) {
     }
   }
 
+  // Tiles have no headers, so they sort with a dropdown. Both change the same
+  // sort, so switching keeps the order.
+  const sortCols = columns.filter((c) => c.sortKey);
+  const sortSelect =
+    grid && sortCols.length
+      ? h(
+          "select",
+          {
+            class: "select toolbar-select",
+            "aria-label": "Sort by",
+            onChange: (e) => {
+              const c = sortCols[Number(e.target.value)] || null;
+              view.sort = c;
+              if (c) view.dir = c.sortDir === "desc" ? -1 : 1;
+              draw();
+            },
+          },
+          view.sort ? null : h("option", { value: "-1" }, "As listed"),
+          sortCols.map((c, i) => h("option", { value: String(i) }, `Sort by ${c.label.toLowerCase()}`)),
+        )
+      : null;
+  const sortDir = sortSelect
+    ? h("button", {
+        class: "btn btn-sort",
+        type: "button",
+        title: "Reverse the order",
+        "aria-label": "Reverse the order",
+        onClick: () => {
+          view.dir = -view.dir;
+          draw();
+        },
+      })
+    : null;
+  const tileControls = grid ? h("div", { class: "row-tight" }, sortSelect, sortDir) : null;
+  const layoutButton = (tiles, path, label) =>
+    h("button", { type: "button", title: label, "aria-label": label, onClick: () => setLayout(tiles) }, icon(path));
+  const tableButton = grid ? layoutButton(false, icons.rows, "Table") : null;
+  const tilesButton = grid ? layoutButton(true, icons.tiles, "Tiles") : null;
+
   let toolbar = null;
-  if (opts.search || choices.length) {
+  if (opts.search || choices.length || grid) {
     const label = opts.searchLabel ? `Search ${opts.searchLabel}` : "Search";
     toolbar = h(
       "div",
@@ -790,7 +892,16 @@ export function table(columns, rows, opts = {}) {
           c.options.map((o) => h("option", { value: o.value }, o.label)),
         ),
       ),
-      h("div", { class: "row toolbar-end" }, count),
+      // One group, so a narrow screen wraps it whole, still on the right.
+      h(
+        "div",
+        { class: "row toolbar-end" },
+        count,
+        tileControls,
+        grid
+          ? h("div", { class: "seg seg-icons", role: "group", "aria-label": "Layout" }, tableButton, tilesButton)
+          : null,
+      ),
     );
   }
 
@@ -799,20 +910,27 @@ export function table(columns, rows, opts = {}) {
     { class: "card" },
     h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, heads)), body)),
   );
-  draw();
-  const el = toolbar ? h("div", {}, toolbar, card) : card;
+  if (grid) setLayout(view.tiles);
+  else draw();
+  const el = toolbar ? h("div", {}, toolbar, card, grid) : card;
   // Load more pushes rows and calls this. Calling table() again would lose
   // the reader's search and sort.
   el.redraw = draw;
   return el;
 }
 
+/** ownClick reports whether a click in a row is not the row's to handle: a
+ *  link, button or field in the row does its own thing, and selecting text
+ *  to copy it is not a click. */
+function ownClick(e) {
+  return !!e.target.closest("a, button, input, select, textarea, label") || !!getSelection().toString();
+}
+
 /** openRow opens a row's screen on a click anywhere in it, and in a new tab
- *  on a middle or modified click, like a link. A link, button or field in the
- *  row does its own thing, and selecting text to copy it is not a click. */
+ *  on a middle or modified click, like a link. */
 function openRow(el, ctx, path) {
   const open = (e) => {
-    if (e.target.closest("a, button, input, select, textarea, label") || getSelection().toString()) return;
+    if (ownClick(e)) return;
     if (e.type === "auxclick" && e.button !== 1) return;
     if (e.button === 1 || e.ctrlKey || e.metaKey || e.shiftKey) window.open(path, "_blank");
     else ctx.navigate(path);
@@ -820,6 +938,22 @@ function openRow(el, ctx, path) {
   el.classList.add("row-opens");
   el.addEventListener("click", open);
   el.addEventListener("auxclick", open);
+}
+
+/** pickRow runs pick on a click in the row, or on Enter or Space. The row
+ *  takes focus, as it has no link to tab to. */
+function pickRow(el, pick, title) {
+  el.classList.add("row-opens");
+  el.tabIndex = 0;
+  if (title) el.title = title;
+  el.addEventListener("click", (e) => {
+    if (!ownClick(e)) pick();
+  });
+  el.addEventListener("keydown", (e) => {
+    if (e.target !== el || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault();
+    pick();
+  });
 }
 
 function cellClass(c) {

@@ -1,6 +1,8 @@
 package all
 
 import (
+	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -20,6 +22,19 @@ func TestRegister(t *testing.T) {
 		{channels.OneDrive, "files"},
 		{channels.GitHub, "code"},
 		{channels.GitLab, "code"},
+		{channels.Jira, "api"},
+		{channels.Confluence, "api"},
+		{channels.GoogleDocs, "api"},
+		{channels.GoogleSheets, "api"},
+		{channels.GoogleSlides, "api"},
+		{channels.GoogleCalendar, "api"},
+		{channels.Outlook, "api"},
+		{channels.HubSpot, "api"},
+		{channels.Salesforce, "api"},
+		{channels.Kubernetes, "api"},
+		{channels.AWS, "api"},
+		{channels.Azure, "api"},
+		{channels.GCP, "api"},
 	}
 	ds := channels.Descriptors()
 	// A kind missing from channels' order would be left out of the list.
@@ -30,10 +45,18 @@ func TestRegister(t *testing.T) {
 		if d.Kind != want[i].kind {
 			t.Errorf("descriptor %d is %s, want %s", i, d.Kind, want[i].kind)
 		}
-		if d.Label == "" || d.Setup == "" || d.TargetLabel == "" || len(d.Fields) == 0 {
+		if d.Label == "" || d.Vendor == "" || d.Category == "" || d.Summary == "" || d.Setup == "" ||
+			len(d.Fields) == 0 {
 			t.Errorf("%s: incomplete descriptor %+v", d.Kind, d)
 		}
-		// Each kind is one of chat, files and code.
+		// Only an API kind may name nothing, and only it may reach everything.
+		if !d.API && (d.TargetLabel == "" || d.AnyTarget) {
+			t.Errorf("%s: target_label %q with any_target %v", d.Kind, d.TargetLabel, d.AnyTarget)
+		}
+		if d.API {
+			checkTools(t, d)
+		}
+		// Each kind is one of chat, files, code and api.
 		if got := role(d); got != want[i].role {
 			t.Errorf("%s is %q, want %q", d.Kind, got, want[i].role)
 		}
@@ -53,6 +76,48 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// toolName is what models accept as a tool's name, with room for the
+// kind's prefix.
+var toolName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// checkTools checks an API kind's tools are ones a model can be given.
+func checkTools(t *testing.T, d channels.Descriptor) {
+	t.Helper()
+	if len(d.Tools) == 0 {
+		t.Errorf("%s has no tools", d.Kind)
+	}
+	names := map[string]bool{}
+	reads := false
+	for _, tool := range d.Tools {
+		full := string(d.Kind) + "_" + tool.Name
+		if !toolName.MatchString(tool.Name) || len(full) > 64 || names[tool.Name] || tool.Name == "connector" {
+			t.Errorf("%s: bad tool name %q", d.Kind, tool.Name)
+		}
+		names[tool.Name] = true
+		reads = reads || !tool.Write
+		if tool.Description == "" {
+			t.Errorf("%s: %s has no description", d.Kind, full)
+		}
+		var schema struct {
+			Type       string                     `json:"type"`
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if len(tool.Parameters) > 0 {
+			if err := json.Unmarshal(tool.Parameters, &schema); err != nil || schema.Type != "object" {
+				t.Errorf("%s: %s's parameters are not an object: %v", d.Kind, full, err)
+			}
+		}
+		// Dispatch adds it, naming the channel.
+		if _, ok := schema.Properties["connector"]; ok {
+			t.Errorf("%s: %s takes connector itself", d.Kind, full)
+		}
+	}
+	// A channel that may only read must still have something to do.
+	if !reads {
+		t.Errorf("%s has no tool that only reads", d.Kind)
+	}
+}
+
 // role names what Register found a kind's adapter does.
 func role(d channels.Descriptor) string {
 	var roles []string
@@ -64,6 +129,9 @@ func role(d channels.Descriptor) string {
 	}
 	if d.Code {
 		roles = append(roles, "code")
+	}
+	if d.API {
+		roles = append(roles, "api")
 	}
 	return strings.Join(roles, "+")
 }
