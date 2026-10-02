@@ -2,26 +2,10 @@
 // and what comes next.
 
 import { api } from "../api.js";
-import {
-  h,
-  stat,
-  num,
-  link,
-  listCard,
-  miniRow,
-  icon,
-  icons,
-  until,
-  dateTime,
-  empty,
-  plural,
-  currentRange,
-  rangeOf,
-  rangePicker,
-} from "../ui.js";
+import { h, stat, num, link, listCard, miniRow, stamp, plural, currentRange, rangeOf, rangePicker } from "../ui.js";
 import { tasksCard, taskTotal, agentPath } from "../common.js";
 import { taskRow } from "./agent.js";
-import { openNewAgent, noRuntime } from "./agents.js";
+import { noAgents, noRuntime } from "./agents.js";
 
 export async function dashboardView(ctx) {
   const since = currentRange();
@@ -32,29 +16,7 @@ export async function dashboardView(ctx) {
   ctx.setSubtitle(ctx.state.me.org_name || "");
 
   if (!agents.total) {
-    return h(
-      "div",
-      { class: "grid" },
-      noRuntime(ctx.state.me),
-      h(
-        "div",
-        { class: "card" },
-        empty("No agents yet", [
-          h(
-            "div",
-            {},
-            "An agent is an assistant for your organisation. It takes tasks from chats, folders, " +
-              "schedules and the board, and does them with the tools you allow.",
-          ),
-          h(
-            "button",
-            { class: "btn btn-primary", style: { marginTop: "14px" }, onClick: () => openNewAgent(ctx) },
-            icon(icons.plus),
-            "New agent",
-          ),
-        ]),
-      ),
-    );
+    return h("div", { class: "grid" }, noRuntime(ctx.state.me), noAgents(ctx));
   }
 
   const recent = o.recent_tasks || [];
@@ -95,7 +57,7 @@ export async function dashboardView(ctx) {
             agentPath(u.agent_id, "schedules"),
             u.schedule_name,
             u.agent_name,
-            h("span", { class: "muted nowrap", title: dateTime(u.next_run_at) }, until(u.next_run_at)),
+            stamp(u.next_run_at, { ahead: true, cls: "muted nowrap" }),
           ),
         ),
         emptyTitle: "Nothing scheduled",

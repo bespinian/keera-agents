@@ -24,9 +24,12 @@ import {
   confirm,
   toast,
   formModal,
+  fail,
   field,
   checkRow,
   link,
+  card,
+  loading,
   listCard,
   miniRow,
   every,
@@ -107,7 +110,7 @@ export async function agentView(ctx) {
     // The URL names the tab, so a reload or a shared link opens it.
     const path = agentPath(agent.id, tab === "overview" ? "" : tab);
     if (location.pathname !== path) history.replaceState({}, "", path);
-    replace(panel, h("div", { class: "boot", style: { minHeight: "160px" } }, h("div", { class: "boot-mark" })));
+    replace(panel, loading("160px"));
     try {
       const body = await TAB_VIEWS[tab](tabCtx, agent);
       if (current === tab && ctx.current()) replace(panel, body);
@@ -228,10 +231,7 @@ function giveTask(ctx, agent) {
     body: h("form", {}, field("Task", prompt, "Ctrl+Enter gives it. You can follow it on the task's page.")),
     submitLabel: "Give task",
     submit: () => {
-      if (!prompt.value.trim()) {
-        prompt.focus();
-        throw { message: "Say what it should do." };
-      }
+      if (!prompt.value.trim()) fail(prompt, "Say what it should do.");
       return api.giveTask(agent.id, prompt.value.trim());
     },
     done: (task) => {
@@ -297,13 +297,9 @@ async function overviewTab(ctx, agent) {
     h(
       "div",
       { class: "grid grid-2" },
-      h(
-        "div",
-        { class: "card", style: { alignSelf: "start" } },
-        h("div", { class: "card-head" }, h("h2", {}, "Setup")),
-        h(
-          "div",
-          { class: "card-body facts" },
+      card(
+        "Setup",
+        [
           fact("Model", h("span", { class: "mono" }, agent.model)),
           fact(
             "Tools",
@@ -325,7 +321,8 @@ async function overviewTab(ctx, agent) {
           fact("Machine", machine),
           fact("Owner", agent.owner_email),
           fact("Created", date(agent.created_at)),
-        ),
+        ],
+        { style: { alignSelf: "start" }, bodyClass: "card-body facts" },
       ),
       listCard({
         title: "Recent tasks",
@@ -345,14 +342,7 @@ async function overviewTab(ctx, agent) {
         emptyBody: "Give it one with Give a task.",
       }),
     ),
-    agent.instructions
-      ? h(
-          "div",
-          { class: "card" },
-          h("div", { class: "card-head" }, h("h2", {}, "Instructions")),
-          h("div", { class: "card-body" }, h("div", { class: "prompt-text" }, agent.instructions)),
-        )
-      : null,
+    agent.instructions ? card("Instructions", h("div", { class: "prompt-text" }, agent.instructions)) : null,
   );
 }
 
@@ -439,10 +429,10 @@ async function settingsTab(ctx, agent) {
                 body: "Its machine, files, memory, channels and schedules go with it. This cannot be undone.",
                 confirmLabel: "Delete agent",
                 danger: true,
-                onConfirm: async () => {
-                  await api.deleteAgent(agent.id);
-                  toast(`${agent.name} deleted`, "good");
+                onConfirm: () => api.deleteAgent(agent.id),
+                done: () => {
                   ctx.navigate("/agents");
+                  return `${agent.name} deleted`;
                 },
               }),
           },
@@ -485,11 +475,9 @@ function takeOverCard(ctx, agent) {
                 "You become its owner, and it gets a new gateway key in your name. " +
                 "What it spends and does from now on counts as yours.",
               confirmLabel: "Take over",
-              onConfirm: async () => {
-                await api.takeOverAgent(agent.id);
-                toast(`${agent.name} is yours now`, "good");
-                ctx.reload();
-              },
+              onConfirm: () => api.takeOverAgent(agent.id),
+              done: `${agent.name} is yours now`,
+              ctx,
             }),
         },
         icon(icons.person),

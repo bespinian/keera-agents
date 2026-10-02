@@ -8,6 +8,7 @@ import {
   table,
   field,
   formModal,
+  fail,
   confirm,
   toast,
   iconButton,
@@ -15,9 +16,7 @@ import {
   busyButton,
   listHead,
   replace,
-  dateTime,
-  ago,
-  until,
+  stamp,
   dash,
   link,
   checkRow,
@@ -88,16 +87,14 @@ export function scheduleTable(ctx, schedules, { agents = [], agent = null, showA
         shrink: true,
         num: true,
         cell: (s) =>
-          s.enabled && s.next_run_at
-            ? h("span", { title: dateTime(s.next_run_at) }, until(s.next_run_at))
-            : h("span", { class: "faint" }, "Off"),
+          s.enabled && s.next_run_at ? stamp(s.next_run_at, { ahead: true }) : h("span", { class: "faint" }, "Off"),
         sortKey: (s) => (s.enabled ? s.next_run_at : ""),
       },
       {
         label: "Last run",
         shrink: true,
         num: true,
-        cell: (s) => (s.last_run_at ? h("span", { title: dateTime(s.last_run_at) }, ago(s.last_run_at)) : dash()),
+        cell: (s) => (s.last_run_at ? stamp(s.last_run_at) : dash()),
       },
       {
         label: "On",
@@ -154,9 +151,9 @@ export function scheduleTable(ctx, schedules, { agents = [], agent = null, showA
                       danger: true,
                       onConfirm: async () => {
                         await api.deleteSchedule(s.id);
-                        toast(`${s.name} deleted`, "good");
                         onChange();
                       },
+                      done: `${s.name} deleted`,
                     }),
                   { danger: true, label: `Delete ${s.name}` },
                 ),
@@ -651,17 +648,9 @@ export function openScheduleEditor(ctx, { schedule = null, agent = null, agents 
     done: (res) => (schedule ? `${res.name} saved` : `${res.name} created`),
     submit: async () => {
       inflight?.abort();
-      const problem = !name.value.trim()
-        ? [name, "Give the schedule a name."]
-        : when.problem()
-          ? [when, when.problem()]
-          : !prompt.value.trim()
-            ? [prompt, "Say what the agent should do each time."]
-            : null;
-      if (problem) {
-        problem[0].focus();
-        throw { message: problem[1] };
-      }
+      if (!name.value.trim()) fail(name, "Give the schedule a name.");
+      if (when.problem()) fail(when, when.problem());
+      if (!prompt.value.trim()) fail(prompt, "Say what the agent should do each time.");
       const body = {
         name: name.value.trim(),
         cron: when.cron(),

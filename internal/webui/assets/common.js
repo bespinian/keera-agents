@@ -1,7 +1,7 @@
 // Words, tones and small cells that several screens share, so an agent's or
 // a task's state reads the same everywhere.
 
-import { h, pill, icon, icons, duration, num } from "./ui.js";
+import { h, pill, card, icon, icons, duration, num } from "./ui.js";
 import { areaChart } from "./chart.js";
 
 /** agentPath is an agent's screen, or one of its tabs. */
@@ -25,7 +25,7 @@ export const AGENT_STATES = {
 
 export function agentStatePill(state) {
   const [label, tone] = AGENT_STATES[state] || [state || "Unknown", ""];
-  return h("span", { class: "pill" + (tone ? " pill-" + tone : "") }, h("span", { class: "dot" }), label);
+  return pill(label, tone, { dot: true });
 }
 
 /** isUp reports whether an agent's machine runs or is on its way. */
@@ -145,23 +145,10 @@ export function taskTotal(tasks) {
 export function tasksCard({ tasks = {}, series, bucket }) {
   const total = taskTotal(tasks);
   const failRate = total ? (tasks.failed / total) * 100 : 0;
-  return h(
-    "div",
-    { class: "card" },
-    h(
-      "div",
-      { class: "card-head" },
-      h("h2", {}, "Tasks"),
-      h("div", { class: "spacer" }),
+  return card("Tasks", areaChart(series, { bucket }), {
+    more:
       tasks.failed > 0
-        ? h(
-            "span",
-            { class: "pill pill-bad" },
-            h("span", { class: "dot" }),
-            `${num(tasks.failed)} failed (${failRate.toFixed(1)}%)`,
-          )
-        : h("span", { class: "pill pill-good" }, h("span", { class: "dot" }), "No failures"),
-    ),
-    h("div", { class: "card-body" }, areaChart(series, { bucket })),
-  );
+        ? pill(`${num(tasks.failed)} failed (${failRate.toFixed(1)}%)`, "bad", { dot: true })
+        : pill("No failures", "good", { dot: true }),
+  });
 }

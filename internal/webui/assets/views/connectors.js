@@ -10,10 +10,9 @@ import {
   iconButton,
   field,
   formModal,
+  fail,
   modal,
   confirm,
-  toast,
-  copyText,
   serviceMark,
   modeTiles,
   replace,
@@ -92,20 +91,7 @@ function tile(ctx, c, kinds, admin) {
           "div",
           { class: "stack" },
           h("span", { class: "faint small" }, "Webhook URL"),
-          h(
-            "div",
-            { class: "webhook" },
-            h("input", {
-              class: "input",
-              readonly: true,
-              value: c.webhook_url,
-              "aria-label": `Webhook URL of ${c.name}`,
-              onFocus: (e) => e.target.select(),
-            }),
-            iconButton(icons.copy, "Copy the webhook URL", () => copyText(c.webhook_url), {
-              label: `Copy the webhook URL of ${c.name}`,
-            }),
-          ),
+          secretField(c.webhook_url, `Webhook URL of ${c.name}`, { compact: true }),
         )
       : null,
     h(
@@ -144,11 +130,9 @@ function tile(ctx, c, kinds, admin) {
                   : "No channel uses it.",
                 confirmLabel: "Delete connector",
                 danger: true,
-                onConfirm: async () => {
-                  await api.deleteConnection(c.id);
-                  toast(`${c.name} deleted`, "good");
-                  ctx.reload();
-                },
+                onConfirm: () => api.deleteConnection(c.id),
+                done: `${c.name} deleted`,
+                ctx,
               }),
             { danger: true, label: `Delete ${c.name}` },
           ),
@@ -260,18 +244,12 @@ function openEditor(ctx, kinds, conn) {
     submitLabel: conn ? "Save" : "Add connector",
     submit: async () => {
       if (!kind) throw { message: "Choose a service." };
-      if (!name.value.trim()) {
-        name.focus();
-        throw { message: "Give the connector a name." };
-      }
+      if (!name.value.trim()) fail(name, "Give the connector a name.");
       const config = {};
       const secrets = {};
       for (const { f, input, isSet } of Object.values(inputs)) {
         const v = input.value.trim();
-        if (f.required && !v && !(f.secret && isSet)) {
-          input.focus();
-          throw { message: `Fill in ${f.label}.` };
-        }
+        if (f.required && !v && !(f.secret && isSet)) fail(input, `Fill in ${f.label}.`);
         if (f.secret) {
           if (v) secrets[f.name] = v;
         } else config[f.name] = v;

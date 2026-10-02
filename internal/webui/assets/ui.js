@@ -372,8 +372,9 @@ export function rangePicker(ctx, since) {
   );
 }
 
-export function pill(text, tone) {
-  return h("span", { class: "pill" + (tone ? " pill-" + tone : "") }, text);
+/** pill is a short label. dot puts a dot before it, as for a state. */
+export function pill(text, tone, { dot = false } = {}) {
+  return h("span", { class: "pill" + (tone ? " pill-" + tone : "") }, dot ? h("span", { class: "dot" }) : null, text);
 }
 
 /** rowLink is a row's name as a link to its screen. A table with `open` also
@@ -604,12 +605,11 @@ export function empty(title, body) {
  *  tasks. more, such as a link to the whole list, goes beside the title. With
  *  no rows it shows empty(emptyTitle, emptyBody). */
 export function listCard({ title, more, rows, emptyTitle, emptyBody }) {
-  return h(
-    "div",
-    { class: "card", style: { alignSelf: "start" } },
-    h("div", { class: "card-head" }, h("h2", {}, title), h("div", { class: "spacer" }), more),
-    rows.length ? h("div", { class: "mini-list" }, rows) : empty(emptyTitle, emptyBody),
-  );
+  return card(title, rows.length ? h("div", { class: "mini-list" }, rows) : empty(emptyTitle, emptyBody), {
+    more,
+    style: { alignSelf: "start" },
+    bodyClass: null,
+  });
 }
 
 /** miniRow is one row of a listCard, linking to its screen: a title with a
@@ -1071,8 +1071,9 @@ function trapTab(card, e) {
  *  submit(close) returns false to keep the dialog open, as after focusing an
  *  empty field. A failure, or a thrown { message } of text or nodes, shows in
  *  the dialog. On success it closes, toasts done (text, or a function of
- *  submit's result) and reloads ctx, each if given. */
-export function formModal({ title, subtitle, wide, body, submitLabel = "Save", danger, submit, done, ctx }) {
+ *  submit's result) and reloads ctx, each if given. lead(close) returns
+ *  actions for the left of the footer, such as Delete. */
+export function formModal({ title, subtitle, wide, body, submitLabel = "Save", danger, submit, done, ctx, lead }) {
   const err = h("div");
   body.prepend(err);
   let button;
@@ -1082,6 +1083,7 @@ export function formModal({ title, subtitle, wide, body, submitLabel = "Save", d
     wide,
     body,
     actions: (close) => [
+      lead ? [lead(close), h("div", { class: "spacer" })] : null,
       h("button", { class: "btn", onClick: close }, "Cancel"),
       (button = h(
         "button",
@@ -1114,14 +1116,16 @@ export function formModal({ title, subtitle, wide, body, submitLabel = "Save", d
 }
 
 /** confirm asks before something irreversible. A failure shows in the
- *  dialog. */
-export function confirm({ title, body, confirmLabel = "Confirm", danger, onConfirm }) {
+ *  dialog. done and ctx work as in formModal. */
+export function confirm({ title, body, confirmLabel = "Confirm", danger, onConfirm, done, ctx }) {
   formModal({
     title,
     body: h("div", {}, h("div", { class: "muted" }, body)),
     submitLabel: confirmLabel,
     danger,
     submit: onConfirm,
+    done,
+    ctx,
   });
 }
 
@@ -1155,13 +1159,15 @@ export async function copyText(text) {
   }
 }
 
-/** secretField shows a value that is handed over once, with a Copy button. */
-export function secretField(value, ariaLabel) {
+/** secretField shows a value that is handed over once, with a Copy button.
+ *  compact makes it small enough for a tile, with the button an icon. */
+export function secretField(value, ariaLabel, { compact = false } = {}) {
+  const copy = () => copyText(value);
   return h(
     "div",
-    { class: "row-tight" },
+    { class: compact ? "row-tight secret-compact" : "row-tight" },
     h("input", {
-      class: "input key-value mono",
+      class: compact ? "input" : "input key-value mono",
       readonly: true,
       value,
       "aria-label": ariaLabel,
@@ -1170,7 +1176,9 @@ export function secretField(value, ariaLabel) {
       onFocus: (e) => e.target.select(),
       onClick: (e) => e.target.select(),
     }),
-    h("button", { class: "btn", onClick: () => copyText(value) }, icon(icons.copy), "Copy"),
+    compact
+      ? iconButton(icons.copy, "Copy", copy, { label: `Copy ${ariaLabel}` })
+      : h("button", { class: "btn", onClick: copy }, icon(icons.copy), "Copy"),
   );
 }
 
@@ -1295,6 +1303,39 @@ export function field(label, input, hint, ...extra) {
 }
 
 /* Helpers the gateway panel does not need. */
+
+/** card is a card with a title. more, such as a link or a pill, goes beside
+ *  the title. The body goes in a div of bodyClass, or as it is when that is
+ *  null. */
+export function card(title, body, { more, style, bodyClass = "card-body" } = {}) {
+  return h(
+    "div",
+    { class: "card", style },
+    h("div", { class: "card-head" }, h("h2", {}, title), more ? [h("div", { class: "spacer" }), more] : null),
+    bodyClass ? h("div", { class: bodyClass }, body) : body,
+  );
+}
+
+/** fail focuses a form's field at fault and throws { message }, for
+ *  formModal to show. A field in a closed fold cannot take focus, so the fold
+ *  opens first. */
+export function fail(input, message) {
+  const details = input.closest && input.closest("details");
+  if (details) details.open = true;
+  input.focus();
+  throw { message };
+}
+
+/** stamp is a relative time, with the date and time on hover. ahead counts
+ *  towards it, as for a next run. */
+export function stamp(iso, { ahead = false, cls } = {}) {
+  return h("span", { class: cls, title: dateTime(iso) }, ahead ? until(iso) : ago(iso));
+}
+
+/** loading holds a screen's place while it loads. */
+export function loading(minHeight) {
+  return h("div", { class: "boot", style: { minHeight } }, h("div", { class: "boot-mark" }));
+}
 
 /** pad writes a number with at least two digits, as times and dates want. */
 export function pad(n) {

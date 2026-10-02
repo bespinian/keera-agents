@@ -6,7 +6,8 @@ import {
   h,
   table,
   rowLink,
-  ago,
+  stamp,
+  card,
   dateTime,
   dash,
   fact,
@@ -170,7 +171,7 @@ function taskTable(ctx, rows, { showAgent = true, emptyTitle, emptyBody } = {}) 
         label: "Created",
         shrink: true,
         num: true,
-        cell: (t) => h("span", { title: dateTime(t.created_at) }, ago(t.created_at)),
+        cell: (t) => stamp(t.created_at),
       },
       { label: "Took", shrink: true, num: true, cell: (t) => took(t) || dash() },
     ].filter(Boolean),
@@ -245,38 +246,27 @@ export async function taskView(ctx) {
         h(
           "div",
           { class: "grid", style: { alignContent: "start" } },
-          h(
-            "div",
-            { class: "card" },
-            h("div", { class: "card-head" }, h("h2", {}, "Prompt")),
-            h(
-              "div",
-              { class: "card-body" },
-              h("div", { class: "prompt-text" }, task.prompt || ""),
-              task.context
-                ? fold("Context the agent was given", h("div", { class: "prompt-text mono" }, task.context))
-                : null,
-            ),
-          ),
+          card("Prompt", [
+            h("div", { class: "prompt-text" }, task.prompt || ""),
+            task.context
+              ? fold("Context the agent was given", h("div", { class: "prompt-text mono" }, task.context))
+              : null,
+          ]),
           resultCard(task),
         ),
         factsCard(ctx, task),
       ),
-      h(
-        "div",
-        { class: "card" },
-        h(
-          "div",
-          { class: "card-head" },
-          h("h2", {}, "Steps"),
-          h("div", { class: "spacer" }),
-          isLive(task.state)
-            ? h("span", { class: "faint small row-tight" }, h("span", { class: "blip" }), "following")
-            : h("span", { class: "faint small" }, `${events.length} ${plural(events.length, "step")}`),
-        ),
+      card(
+        "Steps",
         events.length || isLive(task.state)
           ? timeline
           : empty("No steps recorded", "The agent left no messages or tool calls for this task."),
+        {
+          more: isLive(task.state)
+            ? h("span", { class: "faint small row-tight" }, h("span", { class: "blip" }), "following")
+            : h("span", { class: "faint small" }, `${events.length} ${plural(events.length, "step")}`),
+          bodyClass: null,
+        },
       ),
     );
   }
@@ -315,22 +305,13 @@ function resultCard(task) {
   else if (task.state === "running")
     body = h("div", { class: "muted row" }, h("span", { class: "blip" }), "The agent is working on it.");
   else body = h("div", { class: "faint" }, "No result.");
-  return h(
-    "div",
-    { class: "card" },
-    h("div", { class: "card-head" }, h("h2", {}, "Result")),
-    h("div", { class: "card-body" }, task.error ? banner("bad", task.error) : null, body),
-  );
+  return card("Result", [task.error ? banner("bad", task.error) : null, body]);
 }
 
 function factsCard(ctx, task) {
-  return h(
-    "div",
-    { class: "card", style: { alignSelf: "start" } },
-    h("div", { class: "card-head" }, h("h2", {}, "Details")),
-    h(
-      "div",
-      { class: "card-body facts" },
+  return card(
+    "Details",
+    [
       fact("Agent", task.agent_id ? agentLink(ctx, task) : null),
       fact("From", sourceCell(task)),
       fact("Requested by", task.requested_by),
@@ -341,7 +322,8 @@ function factsCard(ctx, task) {
       task.source === "chat"
         ? fact("Reply", task.delivered ? "Sent to the chat" : isLive(task.state) ? "Not yet" : "Not sent")
         : null,
-    ),
+    ],
+    { style: { alignSelf: "start" }, bodyClass: "card-body facts" },
   );
 }
 
