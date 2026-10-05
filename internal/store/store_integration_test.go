@@ -235,6 +235,19 @@ func TestTasksForAViewer(t *testing.T) {
 		t.Fatalf("without a viewer: %d tasks", len(all))
 	}
 
+	f, err := st.TaskFacets(ctx, TaskQuery{OrgID: "org_a", ViewerID: "usr_3", ViewerEmail: "eve@example.ch"})
+	if err != nil || len(f.Agents) != 2 || !slices.Equal(f.States, []string{"queued"}) ||
+		!slices.Equal(f.Sources, []string{"manual"}) {
+		t.Fatalf("TaskFacets = %+v, %v", f, err)
+	}
+	f, _ = st.TaskFacets(ctx, TaskQuery{OrgID: "org_a", AgentID: other.ID, ViewerID: "usr_3", ViewerEmail: "eve@example.ch"})
+	if len(f.Agents) != 1 || f.Agents[0] != (TaskAgent{ID: other.ID, Name: "Other"}) {
+		t.Fatalf("one agent's facets: %+v", f.Agents)
+	}
+	if f, _ := st.TaskFacets(ctx, TaskQuery{OrgID: "org_b"}); f.Agents == nil || len(f.States) != 0 {
+		t.Fatalf("another organisation's facets: %+v", f)
+	}
+
 	if err := st.DeleteAgent(ctx, mine.ID); err != nil {
 		t.Fatal(err)
 	}

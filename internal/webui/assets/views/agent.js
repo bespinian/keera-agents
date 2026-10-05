@@ -58,7 +58,7 @@ import {
 import { agentForm, noRuntime } from "./agents.js";
 import { channelsTab } from "./channels.js";
 import { scheduleTable, openScheduleEditor } from "./schedules.js";
-import { taskList } from "./tasks.js";
+import { taskList, giveTask } from "./tasks.js";
 import { logPane } from "./logs.js";
 
 const TABS = [
@@ -190,7 +190,7 @@ function head(ctx, agent) {
     controls.push(
       h(
         "button",
-        { class: "btn btn-primary", title: "Ask it to do something now", onClick: () => giveTask(ctx, agent) },
+        { class: "btn btn-primary", title: "Ask it to do something now", onClick: () => giveTask(ctx, { agent }) },
         icon(icons.send),
         "Give a task",
       ),
@@ -215,37 +215,6 @@ function head(ctx, agent) {
     ],
     h("div", { class: "row-tight", style: { flexWrap: "wrap" } }, controls),
   );
-}
-
-/** giveTask asks the agent to do something now, then opens the task. */
-function giveTask(ctx, agent) {
-  const prompt = h("textarea", {
-    class: "input",
-    rows: 6,
-    placeholder: "Draft a reply to the latest message from Müller AG and put it in /Drafts.",
-  });
-  formModal({
-    title: `Give ${agent.name} a task`,
-    subtitle: isUp(agent.state) ? null : "Its machine starts if it is stopped.",
-    wide: true,
-    body: h("form", {}, field("Task", prompt, "Ctrl+Enter gives it. You can follow it on the task's page.")),
-    submitLabel: "Give task",
-    submit: () => {
-      if (!prompt.value.trim()) fail(prompt, "Say what it should do.");
-      return api.giveTask(agent.id, prompt.value.trim());
-    },
-    done: (task) => {
-      ctx.navigate(taskPath(task.id));
-      return "Task given";
-    },
-  });
-  // A textarea takes Enter for new lines, so Ctrl+Enter sends.
-  prompt.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      document.querySelector(".modal-foot .btn-primary")?.click();
-    }
-  });
 }
 
 const TAB_VIEWS = {

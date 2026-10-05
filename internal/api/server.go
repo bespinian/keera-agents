@@ -128,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/chat/agents/{id}/messages", s.chatMessage)
 
 	route("GET /api/v1/tasks", s.listTasks)
+	route("GET /api/v1/tasks/facets", s.taskFacets)
 	route("GET /api/v1/tasks/{id}", s.getTask)
 	route("GET /api/v1/tasks/{id}/events", s.taskEvents)
 	route("POST /api/v1/tasks/{id}/cancel", s.cancelTask)

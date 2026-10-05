@@ -151,6 +151,8 @@ Task:
 `origin_label` is e.g. "Slack #sales", "Schedule Daily digest", "Card Fix onboarding doc", "Google Drive Invoices", "Panel".
 
 - `GET /api/v1/tasks?agent_id=&state=&source=&limit=50&before=<created_at>` → `{data:[Task]}`
+- `GET /api/v1/tasks/facets?agent_id=` → `{agents:[{id,name}], states:[...], sources:[...]}`: what the
+  caller's tasks have, so the panel offers only filters that find something
 - `GET /api/v1/tasks/{id}` → Task + `{events:[{id,kind:"message"|"tool_call"|"tool_result"|"log",text,data,at}]}`
   (`data`, on tool events only: `{tool,call_id,arguments}` or `{tool,call_id,is_error}`)
 - `GET /api/v1/tasks/{id}/events?after=<id>` → `{events:[...], state, task}` (poll every 2s while running)

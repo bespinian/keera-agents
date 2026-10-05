@@ -125,6 +125,7 @@ export const api = {
 
   // params: agent_id, state, source, limit, before.
   tasks: (params) => get(V1 + "/tasks" + query(params)),
+  taskFacets: (params) => get(V1 + "/tasks/facets" + query(params)),
   task: (id) => get(V1 + path`/tasks/${id}`),
   taskEvents: (id, after) => get(V1 + path`/tasks/${id}/events` + query({ after })),
   cancelTask: (id) => post(V1 + path`/tasks/${id}/cancel`),
