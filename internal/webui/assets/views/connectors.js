@@ -5,7 +5,6 @@
 import { api } from "../api.js";
 import {
   h,
-  icon,
   icons,
   iconButton,
   field,
@@ -68,14 +67,7 @@ export async function connectorsView(ctx) {
         { class: "card" },
         empty("No connectors yet", [
           h("div", {}, "Connect the services your team uses so agents can work in them."),
-          admin
-            ? h(
-                "button",
-                { class: "btn btn-primary", style: { marginTop: "14px" }, onClick: go(ctx, catalogue) },
-                icon(icons.plus),
-                "Add connector",
-              )
-            : h("div", { class: "faint", style: { marginTop: "6px" } }, "An administrator adds them."),
+          admin ? null : h("div", { class: "faint", style: { marginTop: "6px" } }, "An administrator adds them."),
         ]),
       ),
     );

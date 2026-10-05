@@ -36,13 +36,18 @@ export async function schedulesView(ctx) {
     "div",
     {},
     listHead(
-      "A schedule gives an agent the same task at set times. Its result can go to a chat.",
+      null,
       [],
       editable.length
         ? { label: "New schedule", onClick: () => openScheduleEditor(ctx, { agents: editable, onSaved: ctx.reload }) }
         : null,
     ),
     scheduleTable(ctx, schedules, { agents, showAgent: true, onChange: ctx.reload }),
+    h(
+      "div",
+      { class: "hint", style: { marginTop: "14px" } },
+      "A schedule gives an agent the same task at set times. Its result can go to a chat.",
+    ),
   );
 }
 

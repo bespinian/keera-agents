@@ -2,10 +2,23 @@
 // and what comes next.
 
 import { api } from "../api.js";
-import { h, stat, num, link, listCard, miniRow, stamp, plural, currentRange, rangeOf, rangePicker } from "../ui.js";
+import {
+  h,
+  stat,
+  num,
+  link,
+  listCard,
+  miniRow,
+  stamp,
+  plural,
+  currentRange,
+  rangeOf,
+  rangePicker,
+  listHead,
+} from "../ui.js";
 import { tasksCard, taskTotal, agentPath } from "../common.js";
 import { taskRow } from "./agent.js";
-import { noAgents, noRuntime } from "./agents.js";
+import { noAgents, noRuntime, openNewAgent } from "./agents.js";
 
 export async function dashboardView(ctx) {
   const since = currentRange();
@@ -16,7 +29,13 @@ export async function dashboardView(ctx) {
   ctx.setSubtitle(ctx.state.me.org_name || "");
 
   if (!agents.total) {
-    return h("div", { class: "grid" }, noRuntime(ctx.state.me), noAgents(ctx));
+    return h(
+      "div",
+      { class: "grid" },
+      listHead(null, null, { label: "New agent", onClick: () => openNewAgent(ctx) }),
+      noRuntime(ctx.state.me),
+      noAgents(),
+    );
   }
 
   const recent = o.recent_tasks || [];
