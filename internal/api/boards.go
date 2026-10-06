@@ -149,7 +149,7 @@ func (s *Server) applyCard(ctx context.Context, p Principal, c *store.Card, in c
 		}
 		if agentID != nil && *agentID != "" {
 			a, err := s.st.Agent(ctx, *agentID)
-			if err != nil || a.OrgID != p.OrgID {
+			if err != nil || a.OrgID != p.OrgID || a.Kind != store.KindAgent {
 				return errors.New("there is no such agent")
 			}
 			c.AgentID = &a.ID

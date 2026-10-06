@@ -67,10 +67,20 @@ func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, p Principal,
 }
 
 // loadAgent finds an agent in the caller's organisation. Another
-// organisation's agent is not found, not forbidden, so ids say nothing.
+// organisation's agent is not found, not forbidden, so ids say nothing. Nor
+// is a workspace: the agents' routes do not serve them.
 func (s *Server) loadAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
 	a, err := s.st.Agent(r.Context(), id)
-	return a, s.found(w, err, a.OrgID == p.OrgID, "agent")
+	return a, s.found(w, err, a.OrgID == p.OrgID && a.Kind == store.KindAgent, "agent")
+}
+
+// editableMachine finds an agent or a workspace the caller may change.
+func (s *Server) editableMachine(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
+	a, err := s.st.Agent(r.Context(), id)
+	if err == nil && a.Kind == store.KindWorkspace {
+		return s.editableWorkspace(w, r, p, id)
+	}
+	return s.editableAgent(w, r, p, id)
 }
 
 func (s *Server) editableAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
@@ -455,32 +465,42 @@ func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request, p Principal,
 	if !ok {
 		return
 	}
+	if out, ok := s.setMachineEnabled(w, r, p, a, enabled, restart); ok {
+		s.writeAgent(w, r, p, http.StatusOK, out)
+	}
+}
+
+// setMachineEnabled starts, stops or restarts an agent or a workspace, and
+// answers only when that fails.
+func (s *Server) setMachineEnabled(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent,
+	enabled, restart bool,
+) (store.Agent, bool) {
 	if !s.fleet.Runs() && enabled {
 		writeError(w, http.StatusConflict, "no_runtime", fleet.ErrNoRuntime.Error())
-		return
+		return a, false
 	}
 	a.Enabled = enabled
 	out, err := s.st.UpdateAgent(r.Context(), a)
 	if err != nil {
 		s.fail(w, err)
-		return
+		return a, false
 	}
-	action := map[bool]string{true: "agent.start", false: "agent.stop"}[enabled]
+	action := map[bool]string{true: ".start", false: ".stop"}[enabled]
 	if restart {
-		action = "agent.restart"
+		action = ".restart"
 	}
-	s.record(r.Context(), p, action, a.ID, nil)
+	s.record(r.Context(), p, a.Kind+action, a.ID, nil)
 	if enabled {
 		err = s.fleet.Start(r.Context(), out)
 	} else {
-		err = s.fleet.Stop(r.Context(), out, "the agent was stopped")
+		err = s.fleet.Stop(r.Context(), out, "the "+a.Kind+" was stopped")
 	}
 	if err != nil {
 		runtimeFailed(w, err)
-		return
+		return a, false
 	}
 	out, _ = s.st.Agent(r.Context(), a.ID)
-	s.writeAgent(w, r, p, http.StatusOK, out)
+	return out, true
 }
 
 func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -524,14 +544,18 @@ func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Princip
 }
 
 func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.editableAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+	if a, ok := s.editableAgent(w, r, p, r.PathValue("id")); ok {
+		s.streamLogs(w, r, a)
 	}
+}
+
+// streamLogs answers with a machine's output, and with ?follow=1 what it
+// prints next.
+func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request, a store.Agent) {
 	follow, _ := strconv.ParseBool(r.URL.Query().Get("follow"))
 	rc, err := s.fleet.Logs(r.Context(), a.ID, follow)
 	if errors.Is(err, runtime.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no_machine", "this agent has no running machine to read")
+		writeError(w, http.StatusNotFound, "no_machine", "this "+a.Kind+" has no running machine to read")
 		return
 	}
 	if err != nil {
@@ -603,10 +627,13 @@ func (s *Server) submitFailed(w http.ResponseWriter, err error) {
 // ------------------------------------------------------------ bindings
 
 func (s *Server) createBinding(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.editableAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+	if a, ok := s.editableAgent(w, r, p, r.PathValue("id")); ok {
+		s.bind(w, r, p, a)
 	}
+}
+
+// bind connects an agent or a workspace to a connection.
+func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent) {
 	var in struct {
 		ConnectionID string `json:"connection_id"`
 		Target       string `json:"target"`
@@ -635,6 +662,10 @@ func (s *Server) createBinding(w http.ResponseWriter, r *http.Request, p Princip
 		store.ModeChat, store.ModeWatch, store.ModeFiles, store.ModeRepo, store.ModeRead, store.ModeWrite,
 	}, in.Mode):
 		badRequest(w, "mode must be chat, watch, files, repo, read or write")
+		return
+	case a.Kind == store.KindWorkspace && (in.Mode == store.ModeChat || in.Mode == store.ModeWatch):
+		// Both give work, and a workspace takes none.
+		badRequest(w, "a workspace takes no tasks, so it connects with files, repo, read or write")
 		return
 	case in.Target == "":
 		badRequest(w, "name the "+strings.ToLower(desc.TargetLabel))
@@ -697,7 +728,7 @@ func (s *Server) deleteBinding(w http.ResponseWriter, r *http.Request, p Princip
 	if !s.found(w, err, b.OrgID == p.OrgID, "channel") {
 		return
 	}
-	if _, ok := s.editableAgent(w, r, p, b.AgentID); !ok {
+	if _, ok := s.editableMachine(w, r, p, b.AgentID); !ok {
 		return
 	}
 	if err := s.st.DeleteBinding(r.Context(), b.ID); err != nil {
