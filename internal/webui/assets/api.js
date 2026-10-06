@@ -102,6 +102,7 @@ export const api = {
   giveTask: (id, prompt) => post(V1 + path`/agents/${id}/tasks`, { prompt }),
 
   addBinding: (agentID, body) => post(V1 + path`/agents/${agentID}/bindings`, body),
+  addWorkspaceBinding: (id, body) => post(V1 + path`/workspaces/${id}/bindings`, body),
   deleteBinding: (id) => del(V1 + path`/bindings/${id}`),
 
   schedules: (agentID) => get(V1 + "/schedules" + query({ agent_id: agentID })),
@@ -139,4 +140,18 @@ export const api = {
   folders: (id, parent) => get(V1 + path`/connections/${id}/folders` + query({ parent })),
 
   audit: (before) => get(V1 + "/audit" + query({ limit: 100, before })),
+
+  // all lists every workspace in the organisation, for an administrator.
+  workspaces: (all) => get(V1 + "/workspaces" + query({ all: all ? "true" : "" })),
+  workspace: (id) => get(V1 + path`/workspaces/${id}`),
+  createWorkspace: (body) => post(V1 + "/workspaces", body),
+  updateWorkspace: (id, body) => patch(V1 + path`/workspaces/${id}`, body),
+  deleteWorkspace: (id) => del(V1 + path`/workspaces/${id}`),
+  // action is start or stop.
+  workspaceAction: (id, action) => post(V1 + path`/workspaces/${id}/${action}`),
+  workspaceLogs: (id, signal) => get(V1 + path`/workspaces/${id}/logs` + "?follow=1", { raw: true, signal }),
+
+  sshKeys: () => get(V1 + "/me/ssh-keys"),
+  addSSHKey: (body) => post(V1 + "/me/ssh-keys", body),
+  deleteSSHKey: (id) => del(V1 + path`/me/ssh-keys/${id}`),
 };

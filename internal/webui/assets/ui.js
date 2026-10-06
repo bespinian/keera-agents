@@ -217,6 +217,9 @@ export const icons = {
   trash: "M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6",
   pencil: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
   terminal: "M4 17l6-6-6-6M12 19h8",
+  // A terminal's prompt in a window, for a workspace.
+  workspace: "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM7 9l3 3-3 3M13 15h4",
+  code: "M16 18l6-6-6-6M8 6l-6 6 6 6",
   folder: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
   file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6",
   calendar: "M8 2v4M16 2v4M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM3 10h18",
@@ -661,12 +664,30 @@ export function miniRow(ctx, path, title, below, end) {
   );
 }
 
+function toggleBox(t, checked, onChange) {
+  return h(
+    "label",
+    { class: "row-tight" },
+    h("input", {
+      type: "checkbox",
+      checked,
+      onChange: (e) => onChange(e.target.checked),
+    }),
+    t.label,
+  );
+}
+
 /** table renders rows in a card, with search, filters and sorting.
  *
  *  opts:
  *    search       (row) => string - the text the search box matches. Passing
  *                 it adds the box.
  *    searchLabel  what is being searched, for the placeholder
+ *    toggles      [{ label, test, hidden, on, onChange }] - a checkbox that,
+ *                 while checked, keeps only the rows test() accepts. hidden()
+ *                 instead drops those rows while unchecked. `on` is whether it
+ *                 starts checked. onChange(checked) is for a toggle whose
+ *                 caller fetches a different list.
  *    choices      [{ label, options: [{ value, label }], test }] - a dropdown
  *                 that keeps the rows test(row, value) accepts. Its first
  *                 option is "All".
@@ -690,14 +711,31 @@ export function miniRow(ctx, path, title, below, end) {
  *  A column with a `width` keeps it, so the table does not shift on redraw.
  */
 export function table(columns, rows, opts = {}) {
+  const toggles = opts.toggles || [];
   const choices = opts.choices || [];
 
   if (!rows.length) {
-    return h("div", { class: "card" }, empty(opts.emptyTitle || "Nothing here yet", opts.emptyBody));
+    const card = h("div", { class: "card" }, empty(opts.emptyTitle || "Nothing here yet", opts.emptyBody));
+    // Over an empty table, only a toggle that fetches its own list can bring
+    // rows back.
+    const fetches = toggles.filter((t) => t.onChange);
+    if (!fetches.length) return card;
+    return h(
+      "div",
+      {},
+      h(
+        "div",
+        { class: "toolbar" },
+        fetches.map((t) => toggleBox(t, !!t.on, (v) => t.onChange(v))),
+        h("div", { class: "spacer" }),
+      ),
+      card,
+    );
   }
 
   const view = {
     q: "",
+    on: toggles.map((t) => !!t.on),
     picked: choices.map(() => ""),
     sort: columns.find((c) => c.sortKey && c.label === opts.sortBy) || null,
     dir: opts.sortDir === "desc" ? -1 : 1,
@@ -751,6 +789,13 @@ export function table(columns, rows, opts = {}) {
           .includes(q),
       );
     }
+    toggles.forEach((t, i) => {
+      if (view.on[i]) {
+        if (t.test) out = out.filter(t.test);
+      } else if (t.hidden) {
+        out = out.filter((r) => !t.hidden(r));
+      }
+    });
     choices.forEach((c, i) => {
       const v = view.picked[i];
       if (v) out = out.filter((r) => c.test(r, v));
@@ -858,7 +903,7 @@ export function table(columns, rows, opts = {}) {
   const tilesButton = grid ? layoutButton(true, icons.tiles, "Tiles") : null;
 
   let toolbar = null;
-  if (opts.search || choices.length || grid) {
+  if (opts.search || toggles.length || choices.length || grid) {
     const label = opts.searchLabel ? `Search ${opts.searchLabel}` : "Search";
     toolbar = h(
       "div",
@@ -891,6 +936,13 @@ export function table(columns, rows, opts = {}) {
           h("option", { value: "" }, `All ${c.label.toLowerCase()}`),
           c.options.map((o) => h("option", { value: o.value }, o.label)),
         ),
+      ),
+      toggles.map((t, i) =>
+        toggleBox(t, view.on[i], (v) => {
+          view.on[i] = v;
+          draw();
+          if (t.onChange) t.onChange(v);
+        }),
       ),
       // One group, so a narrow screen wraps it whole, still on the right.
       h(

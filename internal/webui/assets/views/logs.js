@@ -47,7 +47,8 @@ export function logPane(ctx, agent) {
     paint();
     setState("connecting", "Connecting", "Connecting to the agent's output");
     try {
-      const res = await api.agentLogs(agent.id, ac.signal);
+      const logs = agent.kind === "workspace" ? api.workspaceLogs : api.agentLogs;
+      const res = await logs(agent.id, ac.signal);
       setState("live", "Live", "Following its output. Click to stop.");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
