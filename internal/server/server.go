@@ -138,6 +138,7 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 	}
 	fl := fleet.New(st, gw, driver, box, fleet.Options{
 		Image: cfg.Runtime.Image, RuntimeURL: cfg.Runtime.URL, IdleSuspend: cfg.Runtime.IdleSuspend,
+		WorkspaceImage: cfg.Runtime.WorkspaceImage, WorkspaceIdleSuspend: cfg.Runtime.WorkspaceIdleSuspend,
 		Limits: limits, Log: log,
 	})
 	var rn *runner.Runner

@@ -6,12 +6,16 @@ package secret
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
 )
 
 type Box struct {
 	aead cipher.AEAD
+	// mac derives secrets nobody stores, such as a workspace's ingress
+	// secret. It is a key of its own, not the sealing key.
+	mac []byte
 }
 
 func New(key string) (*Box, error) {
@@ -30,7 +34,18 @@ func New(key string) (*Box, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Box{aead: aead}, nil
+	mac := sha256.Sum256([]byte("keera-agents-mac-v1|" + key))
+	return &Box{aead: aead, mac: mac[:]}, nil
+}
+
+// Derive is a secret only this key can make from name and data, so it can be
+// made again instead of stored.
+func (b *Box) Derive(name string, data []byte) []byte {
+	m := hmac.New(sha256.New, b.mac)
+	m.Write([]byte(name))
+	m.Write([]byte{0})
+	m.Write(data)
+	return m.Sum(nil)
 }
 
 // Seal encrypts plaintext bound to name, so it cannot be opened under

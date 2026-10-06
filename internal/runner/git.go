@@ -41,9 +41,13 @@ func gitClient(p egress.Policy) *http.Client {
 
 func (rn *Runner) git(w http.ResponseWriter, r *http.Request, a store.Agent) {
 	ctx := r.Context()
-	if _, err := rn.st.RunningTask(ctx, a.ID); err != nil {
-		gitError(w, http.StatusConflict, "git works only during a task")
-		return
+	// An agent works on a repository only for a task. A workspace's owner
+	// works in it whenever they are connected.
+	if a.Kind != store.KindWorkspace {
+		if _, err := rn.st.RunningTask(ctx, a.ID); err != nil {
+			gitError(w, http.StatusConflict, "git works only during a task")
+			return
+		}
 	}
 	// The clone URL names the repository, as web.git, for git's sake; only
 	// what follows it matters here.

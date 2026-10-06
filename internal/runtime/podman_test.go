@@ -203,3 +203,24 @@ func TestPodmanSuspendAMissingAgent(t *testing.T) {
 		t.Fatalf("Suspend = %v, want ErrNotFound", err)
 	}
 }
+
+func TestPodmanPublishesAWorkspacesFrontOnTheLoopback(t *testing.T) {
+	p := &Podman{}
+	spec := testSpec()
+	args, _ := p.runArgs(spec, "")
+	if slices.Contains(args, "--publish") {
+		t.Errorf("an agent takes no connections, so it publishes nothing: %v", args)
+	}
+	spec.Workspace = true
+	args, _ = p.runArgs(spec, "")
+	if line := strings.Join(args, " "); !strings.Contains(line, "--publish 127.0.0.1::7420") {
+		t.Errorf("a workspace's front is not published on the loopback: %s", line)
+	}
+	// On a network of its own, keera-agents is in a container there and
+	// reaches the workspace by name.
+	p.opts.Network = "keera"
+	args, _ = p.runArgs(spec, "")
+	if slices.Contains(args, "--publish") {
+		t.Errorf("a workspace on a podman network publishes a port: %v", args)
+	}
+}

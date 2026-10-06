@@ -7,9 +7,11 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/bespinian/keera-agents/internal/protocol"
@@ -195,7 +197,14 @@ type kubeContainer struct {
 	Env             []kubeEnv        `json:"env,omitempty"`
 	Resources       kubeResources    `json:"resources"`
 	VolumeMounts    []kubeMount      `json:"volumeMounts,omitempty"`
+	Ports           []kubePort       `json:"ports,omitempty"`
 	SecurityContext *kubeCtrSecurity `json:"securityContext,omitempty"`
+}
+
+type kubePort struct {
+	Name          string `json:"name"`
+	ContainerPort int    `json:"containerPort"`
+	Protocol      string `json:"protocol"`
 }
 
 type kubeCtrSecurity struct {
@@ -402,10 +411,17 @@ func agentContainer(spec Spec) kubeContainer {
 		"memory":            spec.Class.Memory,
 		"ephemeral-storage": tmpSize,
 	}
+	var ports []kubePort
+	if spec.Workspace {
+		// keera-agents dials the pod's IP, so this only documents the port.
+		// The namespace's NetworkPolicy decides who may reach it.
+		ports = []kubePort{{Name: "front", ContainerPort: protocol.FrontPort, Protocol: "TCP"}}
+	}
 	return kubeContainer{
 		Name:  podContainerName,
 		Image: spec.Image,
 		Env:   envList(spec.Env),
+		Ports: ports,
 		// Requests equal limits, so a noisy neighbour cannot slow it.
 		Resources: kubeResources{Requests: res, Limits: maps.Clone(res)},
 		VolumeMounts: []kubeMount{
@@ -540,6 +556,25 @@ func (k *Kubernetes) Logs(ctx context.Context, agentID string, follow bool) (io.
 		return nil, fmt.Errorf("the agent's runtime has not started yet: %w", err)
 	}
 	return rc, kubeNotFound(err)
+}
+
+// Address is the pod's IP and the front's port. keera-agents dials the pod
+// itself rather than a Service, so it needs no more than get on pods, and
+// works from any replica.
+func (k *Kubernetes) Address(ctx context.Context, agentID string) (string, error) {
+	var pod struct {
+		Status struct {
+			Phase string `json:"phase"`
+			PodIP string `json:"podIP"`
+		} `json:"status"`
+	}
+	if err := k.c.get(ctx, k.podPath(agentID), &pod); err != nil {
+		return "", kubeNotFound(err)
+	}
+	if pod.Status.Phase != "Running" || pod.Status.PodIP == "" {
+		return "", ErrNotFound
+	}
+	return net.JoinHostPort(pod.Status.PodIP, strconv.Itoa(protocol.FrontPort)), nil
 }
 
 func envList(env map[string]string) []kubeEnv {

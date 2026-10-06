@@ -102,6 +102,9 @@ func runtimeFor(c Class, runtimes map[Isolation]string, driver string) (string, 
 const (
 	labelManagedBy = "app.kubernetes.io/managed-by"
 	labelName      = "app.kubernetes.io/name"
+	// labelComponent is set on workspaces only, so a NetworkPolicy can let
+	// keera-agents reach them and keep agents closed.
+	labelComponent = "app.kubernetes.io/component"
 	labelAgentID   = "keera.dev/agent-id"
 	labelOrg       = "keera.dev/org"
 	labelProject   = "keera.dev/project"
@@ -116,6 +119,9 @@ func labelsFor(spec Spec) map[string]string {
 		labelManagedBy: "keera-agents",
 		labelName:      "keera-agent",
 		labelAgentID:   labelValue(spec.AgentID),
+	}
+	if spec.Workspace {
+		labels[labelComponent] = "workspace"
 	}
 	if v := labelValue(spec.Org); v != "" {
 		labels[labelOrg] = v

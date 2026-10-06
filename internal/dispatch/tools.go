@@ -25,6 +25,16 @@ import (
 
 func schema(s string) json.RawMessage { return json.RawMessage(s) }
 
+// WorkspaceTask is what a workspace's tool calls run as. A workspace has no
+// task, so it acts for its owner, and remembers what it has seen of its
+// folders under its own id.
+func WorkspaceTask(a store.Agent) store.Task {
+	return store.Task{
+		ID: "workspace:" + a.ID, OrgID: a.OrgID, AgentID: a.ID, State: store.TaskRunning,
+		RequestedBy: a.OwnerEmail, RequestedByID: a.OwnerID,
+	}
+}
+
 // Tools lists the platform tools an agent may call, described with what it
 // is bound to, so the model knows the ids to use.
 func (d *Dispatcher) Tools(ctx context.Context, a store.Agent) ([]protocol.ToolSpec, error) {
@@ -106,6 +116,10 @@ func (d *Dispatcher) Tools(ctx context.Context, a store.Agent) ([]protocol.ToolS
 	}
 	tools = append(tools, codeTools(bindings)...)
 	tools = append(tools, apiTools(bindings)...)
+	if a.Kind == store.KindWorkspace {
+		// A workspace has no chats: there is nowhere to send a message.
+		tools = slices.DeleteFunc(tools, func(t protocol.ToolSpec) bool { return t.Name == "send_message" })
+	}
 	return tools, nil
 }
 
