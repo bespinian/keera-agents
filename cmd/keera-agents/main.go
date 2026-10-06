@@ -1,7 +1,8 @@
 // Command keera-agents runs Keera's agent platform. With no arguments it
 // serves the control plane: the panel, its API, channel webhooks and the
 // runtime API. `keera-agents agent` is the runtime inside each agent's
-// container. One binary does both, so the image an agent runs is built from
+// container, and `keera-agents workspace` the runtime in a workspace's. One
+// binary does all three, so the image an agent runs is built from
 // the same source as the server that runs it.
 package main
 
@@ -29,6 +30,7 @@ const usage = `usage: keera-agents [command]
 
   (none)    serve the control plane, configured by KEERA_AGENTS_* variables
   agent     run an agent, inside its container
+  workspace run a workspace, inside its container
   health    check that the control plane on this machine is ready
   version   print the version
 `
@@ -44,6 +46,8 @@ func main() {
 		err = server.Run()
 	case "agent":
 		err = runAgent()
+	case "workspace":
+		err = runWorkspace()
 	case "health":
 		err = health()
 	case "version", "--version":
@@ -64,6 +68,12 @@ func runAgent() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return agent.Run(ctx, server.NewLogger(os.Getenv("KEERA_AGENT_LOG_LEVEL"), "text"))
+}
+
+func runWorkspace() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return agent.RunWorkspace(ctx, server.NewLogger(os.Getenv("KEERA_AGENT_LOG_LEVEL"), "text"))
 }
 
 // health asks this machine's /readyz, for a container healthcheck in an

@@ -1,5 +1,5 @@
-# What a tag produces: the control plane's image, the agent image, an SBOM for
-# each, and a provenance attestation for each.
+# What a tag produces: the control plane's image, the agent image, the
+# workspace image, an SBOM for each, and a provenance attestation for each.
 #
 # It builds here, not on a workstation, so GitHub can sign which workflow,
 # repository and commit produced each image. The build is in

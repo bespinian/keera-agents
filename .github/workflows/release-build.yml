@@ -27,6 +27,8 @@ jobs:
       control-plane-digest: ${{ steps.push.outputs.control-plane-digest }}
       agent: ${{ steps.name.outputs.agent }}
       agent-digest: ${{ steps.push.outputs.agent-digest }}
+      workspace: ${{ steps.name.outputs.workspace }}
+      workspace-digest: ${{ steps.push.outputs.workspace-digest }}
     steps:
       - uses: actions/checkout@v7
 
@@ -45,15 +47,17 @@ jobs:
           owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           echo "control-plane=ghcr.io/$owner/keera-agents" >> "$GITHUB_OUTPUT"
           echo "agent=ghcr.io/$owner/keera-agent" >> "$GITHUB_OUTPUT"
+          echo "workspace=ghcr.io/$owner/keera-workspace" >> "$GITHUB_OUTPUT"
 
-      # `sbom` depends on `image` and `agent-image`, so it describes the
+      # `sbom` depends on every image target, so it describes the
       # images this job pushes. VERSION is stamped in, as the build context
       # has no .git.
       - name: Build the images and their SBOMs
         run: |
           make sbom VERSION="$GITHUB_REF_NAME" \
             IMAGE='${{ steps.name.outputs.control-plane }}':"$GITHUB_REF_NAME" \
-            AGENT_IMAGE='${{ steps.name.outputs.agent }}':"$GITHUB_REF_NAME"
+            AGENT_IMAGE='${{ steps.name.outputs.agent }}':"$GITHUB_REF_NAME" \
+            WORKSPACE_IMAGE='${{ steps.name.outputs.workspace }}':"$GITHUB_REF_NAME"
 
       # The attestation's subject must be the digest: a tag can be moved later.
       - name: Push
@@ -62,12 +66,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONTROL_PLANE: ${{ steps.name.outputs.control-plane }}
           AGENT: ${{ steps.name.outputs.agent }}
+          WORKSPACE: ${{ steps.name.outputs.workspace }}
         run: |
           echo "$GITHUB_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           podman push "$CONTROL_PLANE:$GITHUB_REF_NAME" --digestfile=control-plane.txt
           podman push "$AGENT:$GITHUB_REF_NAME" --digestfile=agent.txt
+          podman push "$WORKSPACE:$GITHUB_REF_NAME" --digestfile=workspace.txt
           echo "control-plane-digest=$(cat control-plane.txt)" >> "$GITHUB_OUTPUT"
           echo "agent-digest=$(cat agent.txt)" >> "$GITHUB_OUTPUT"
+          echo "workspace-digest=$(cat workspace.txt)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -105,6 +112,13 @@ jobs:
         with:
           subject-name: ${{ needs.images.outputs.agent }}
           subject-digest: ${{ needs.images.outputs.agent-digest }}
+          push-to-registry: true
+
+      - name: Attest the workspace image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ needs.images.outputs.workspace }}
+          subject-digest: ${{ needs.images.outputs.workspace-digest }}
           push-to-registry: true
 
   # Last, so a release never shows images that have no provenance yet.
