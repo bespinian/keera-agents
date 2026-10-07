@@ -56,8 +56,8 @@ members do not see it at all: its id answers 404.
 
 Each hop is an HTTP/1.1 request with `Upgrade: keera-stream`, answered 101,
 then raw bytes both ways ([internal/stream](../internal/stream/stream.go)). A
-proxy in front of keera-agents must pass Upgrade requests on, as it does for
-WebSockets. nginx, Traefik and HAProxy do. Envoy needs it allowed.
+proxy in front of keera-agents must pass Upgrade requests on
+([install.md](install.md#one-listener-five-surfaces)).
 
 **keera-agents dials the pod.** A container that dialled back would keep
 workspaces as closed as agents. But with several replicas, the person's
@@ -146,30 +146,9 @@ key, and a model from the gateway.
 
 Workspaces run in the agents' namespace. The pods carry
 `app.kubernetes.io/component: workspace`. Let keera-agents reach their front,
-and nothing else:
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: workspace-front
-  namespace: agents
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/component: workspace
-  policyTypes: [Ingress]
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: keera
-      ports:
-        - { protocol: TCP, port: 7420 }
-```
-
-keera-agents finds a pod's IP with `get` on pods, which the Role in
-[agents.md](agents.md#hardening) already allows.
+and nothing else: the `workspace-front` NetworkPolicy in
+[agents.md](agents.md#hardening) does that. keera-agents finds a pod's IP with
+`get` on pods, which the Role there already allows.
 
 With podman, the front is published on a free port of the host's loopback.
 With `KEERA_AGENTS_PODMAN_NETWORK` set, keera-agents is taken to run in a

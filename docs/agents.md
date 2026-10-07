@@ -4,12 +4,14 @@ An agent is a persistent assistant: instructions, a model, tools, and a
 machine of its own with a workspace that outlives each task. This page
 explains how one runs and why.
 
-## One binary, two roles
+## One binary, three roles
 
 `keera-agents` serves the control plane. `keera-agents agent` is the runtime
-inside an agent's container. The agent image (the `agent` stage of the
-[Containerfile](../Containerfile)) holds the same binary, so the runtime always
-speaks the protocol of the control plane built from the same source.
+inside an agent's container, and `keera-agents workspace` the runtime inside a
+workspace's ([workspaces.md](workspaces.md)). The agent image (the `agent`
+stage of the [Containerfile](../Containerfile)) holds the same binary, so the
+runtime always speaks the protocol of the control plane built from the same
+source.
 
 The runtime calls the control plane, never the other way round
 ([internal/protocol](../internal/protocol/protocol.go)). So a container needs

@@ -1,6 +1,5 @@
-The panel shows the logos of Microsoft, Google and GitHub to name the
-services an agent connects to (Microsoft Teams and OneDrive, Google Chat and
-Google Drive, GitHub) and the sign-in they provide. They are drawn in
+The panel shows the logos of Microsoft, Google and GitHub to name their
+services an agent connects to and the sign-in they provide. They are drawn in
 internal/webui/assets/ui.js. Slack is shown as a plain hash glyph and GitLab
 as a plain fork glyph, not their logos.
 

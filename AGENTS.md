@@ -52,7 +52,7 @@ make dev               # Postgres in a container, keera-agents under air, podman
 make image             # the control plane's image
 make agent-image       # the image agents run in
 make workspace-image   # the image workspaces run in
-make sbom              # both images and an SBOM of each, to build/sbom
+make sbom              # the three images and an SBOM of each, to build/sbom
 ```
 
 Run `make check` before handing work back.

@@ -19,7 +19,7 @@ updates:
       actions:
         patterns: ["*"]
 
-  # The Containerfile's build stage and the agent image's Alpine.
+  # The Containerfile's base images: Go, Alpine and Node.
   - package-ecosystem: docker
     directory: /
     schedule:

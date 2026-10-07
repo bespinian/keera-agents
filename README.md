@@ -31,9 +31,10 @@ servers and audit log apply to agents as they do to people.
 
 ## What is in this repository
 
-One Go binary, `keera-agents`: the **control plane** by default, and
-`keera-agents agent`, the **runtime** inside each agent's container
-([docs/agents.md](docs/agents.md#one-binary-two-roles)). Agents run on
+One Go binary, `keera-agents`: the **control plane** by default,
+`keera-agents agent`, the **runtime** inside each agent's container, and
+`keera-agents workspace`, the runtime inside each workspace's
+([docs/agents.md](docs/agents.md#one-binary-three-roles)). Agents run on
 **podman** for local development, or on any **Kubernetes** cluster, as one
 StatefulSet each.
 
@@ -86,5 +87,5 @@ setting.
 - [workspaces.md](docs/workspaces.md) - machines to work in, with a coding agent
 - [tasks.md](docs/tasks.md) - where tasks come from and where results go
 - [api.md](docs/api.md) - the panel's API
-- [channels.md](docs/channels.md) - setting up Teams, Google Chat, Slack,
-  Google Drive, OneDrive, GitHub and GitLab
+- [channels.md](docs/channels.md) - setting up the chat services, folders,
+  repositories and service connectors

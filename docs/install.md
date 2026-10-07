@@ -128,7 +128,8 @@ with a runtime token, but nothing outside needs it. The chat services need
 through `/api/v1/workspaces/{id}/connect`, which takes the connection over as
 a WebSocket does ([workspaces.md](workspaces.md#how-a-connection-travels)). A
 proxy in front of keera-agents must let it, over HTTP/1.1, and not cut idle
-connections short.
+connections short. nginx, Traefik and HAProxy pass Upgrade requests on;
+Envoy needs it allowed.
 
 ## Metrics
 
@@ -204,8 +205,8 @@ default), and `KEERA_AGENTS_BIND`, the interface the port is published on
 
 ## Images
 
-Both come from one [Containerfile](../Containerfile), which builds the binary
-once. `make image` builds the control plane's image, `FROM scratch`
+All three come from one [Containerfile](../Containerfile), which builds the
+binary once. `make image` builds the control plane's image, `FROM scratch`
 (`--target control-plane`). `make agent-image` builds the agent image
 (`--target agent`): Alpine with bash, git, curl, python3, jq and ripgrep, user
 1000, the workspace at `/workspace`, and `keera-agents agent` under tini. It
@@ -214,12 +215,14 @@ need, and names it in `KEERA_AGENTS_IMAGE` or per agent. Agents run it with a
 read-only root filesystem, so install tools in the image, not at run time
 ([Hardening](agents.md#hardening)).
 Setting `KEERA_AGENT_LOG_LEVEL=debug` in such an image makes the runtime log
-more.
+more. `make workspace-image` builds the image workspaces run in
+([workspaces.md](workspaces.md#the-image)).
 
-Each release publishes both, built by GitHub Actions from the tag:
-`ghcr.io/bespinian/keera-agents:<tag>` and `ghcr.io/bespinian/keera-agent:<tag>`.
-The release lists an SBOM for each. Both images carry the licences of what is
-compiled in, in `/THIRD_PARTY_NOTICES`.
+Each release publishes all three, built by GitHub Actions from the tag:
+`ghcr.io/bespinian/keera-agents:<tag>`, `ghcr.io/bespinian/keera-agent:<tag>`
+and `ghcr.io/bespinian/keera-workspace:<tag>`. The release lists an SBOM for
+each. Every image carries the licences of what is compiled in, in
+`/THIRD_PARTY_NOTICES`.
 
 Each image is signed with build provenance (SLSA Build Level 3). To check
 that the release workflow built it from this repository:
