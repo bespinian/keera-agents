@@ -30,7 +30,9 @@ Open <http://localhost:8070> and sign in through the gateway.
 
 `make dev` builds the agent image the first time. After changing
 `internal/agent` or the `Containerfile`, run `make agent-image` and restart
-the agent.
+the agent. Workspaces need `make workspace-image` once; it takes a few
+minutes. Reach them with the `keera` command line from Keera Gateway, signed
+in to `http://localhost:8080` ([workspaces.md](workspaces.md#getting-in)).
 
 **Use `localhost` everywhere**, not `127.0.0.1`. Identity providers often
 accept only `localhost`, and the browser keeps cookies apart by host name, so

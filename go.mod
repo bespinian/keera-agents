@@ -3,7 +3,7 @@ module github.com/bespinian/keera-agents
 go 1.27.3
 
 require (
-	github.com/go-jose/go-jose/v4 v4.1.8
+	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/jackc/pgx/v5 v5.12.0
 )
 
