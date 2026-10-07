@@ -111,7 +111,7 @@ workspace-image:
 SYFT ?= syft
 # Pinned, so two builds of one commit describe it the same way. Dependabot does
 # not read this file.
-SYFT_IMAGE ?= docker.io/anchore/syft:v1.54.1
+SYFT_IMAGE ?= docker.io/anchore/syft:v1.57.0
 SBOM_DIR ?= $(BUILD_DIR)/sbom
 # CycloneDX is what scanners take. For another syft format, such as spdx-json,
 # change the file names below too.
