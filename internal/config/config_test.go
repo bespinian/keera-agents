@@ -45,6 +45,13 @@ func TestRefusals(t *testing.T) {
 		"bad userns":    func(m map[string]string) { m["KEERA_AGENTS_USER_NAMESPACES"] = "maybe" },
 		"bad deny":      func(m map[string]string) { m["KEERA_AGENTS_UPSTREAM_DENY"] = "localhost" },
 		"bad private":   func(m map[string]string) { m["KEERA_AGENTS_UPSTREAM_PRIVATE"] = "https://git.corp" },
+		"short metrics": func(m map[string]string) { m["KEERA_AGENTS_METRICS_TOKEN"] = "short" },
+		"metrics is service key": func(m map[string]string) {
+			m["KEERA_AGENTS_METRICS_TOKEN"] = m["KEERA_AGENTS_SERVICE_KEY"]
+		},
+		"metrics is secret key": func(m map[string]string) {
+			m["KEERA_AGENTS_METRICS_TOKEN"] = m["KEERA_AGENTS_SECRET_KEY"]
+		},
 	} {
 		m := base()
 		edit(m)
@@ -93,5 +100,16 @@ func TestEgress(t *testing.T) {
 	m["KEERA_AGENTS_UPSTREAM_DENY"] = "none"
 	if c, err = loadWith(m); err != nil || c.Egress.LimitPrivate || c.Egress.Deny != nil {
 		t.Fatalf("all open: %v, %+v", err, c.Egress)
+	}
+}
+
+func TestMetricsToken(t *testing.T) {
+	m := base()
+	if c, err := loadWith(m); err != nil || c.MetricsToken != "" {
+		t.Fatalf("off by default: %q, %v", c.MetricsToken, err)
+	}
+	m["KEERA_AGENTS_METRICS_TOKEN"] = strings.Repeat("m", 32)
+	if c, err := loadWith(m); err != nil || c.MetricsToken != m["KEERA_AGENTS_METRICS_TOKEN"] {
+		t.Fatalf("token: %q, %v", c.MetricsToken, err)
 	}
 }

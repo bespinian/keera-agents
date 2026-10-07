@@ -641,3 +641,63 @@ func TestSSHKeys(t *testing.T) {
 		t.Fatalf("after deleting: %v", keys)
 	}
 }
+
+func TestGauges(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	a := newAgent(t, st, "org_a", "Scout")
+	b := newAgent(t, st, "org_b", "Other")
+	gone := newAgent(t, st, "org_a", "Gone")
+	if err := st.SetAgentState(ctx, a.ID, AgentRunning, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteAgent(ctx, gone.ID); err != nil {
+		t.Fatal(err)
+	}
+	g, err := st.Gauges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Queued != 0 || g.Running != 0 || g.OldestQueued != nil || g.Undelivered != 0 {
+		t.Fatalf("an empty queue: %+v", g)
+	}
+	total := 0
+	for _, n := range g.Machines {
+		total += n
+	}
+	if total != 2 || g.Machines[[2]string{KindAgent, AgentRunning}] != 1 {
+		t.Fatalf("machines, without the deleted one: %v", g.Machines)
+	}
+
+	newTask := func(agentID string) Task {
+		task, err := st.CreateTask(ctx, Task{ID: id.New("task"), OrgID: "org_a", AgentID: agentID, Source: "manual", Prompt: "x"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return task
+	}
+	first := newTask(a.ID)
+	newTask(a.ID)
+	newTask(b.ID)
+	if _, err := st.ClaimTask(ctx, a.ID, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if g, err = st.Gauges(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if g.Queued != 2 || g.Running != 1 || g.OldestQueued == nil || g.OldestQueued.Before(first.CreatedAt) {
+		t.Fatalf("one running, two queued: %+v", g)
+	}
+	if _, err := st.FinishTask(ctx, first.ID, TaskSucceeded, "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ = st.Gauges(ctx); g.Running != 0 || g.Undelivered != 1 {
+		t.Fatalf("one finished, not delivered: %+v", g)
+	}
+	if _, err := st.MarkDelivered(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ = st.Gauges(ctx); g.Undelivered != 0 {
+		t.Fatalf("delivered: %+v", g)
+	}
+}

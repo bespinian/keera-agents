@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/gateway"
+	"github.com/bespinian/keera-agents/internal/metrics"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/runtime"
 	"github.com/bespinian/keera-agents/internal/secret"
@@ -53,7 +54,9 @@ type Options struct {
 	WorkspaceIdleSuspend time.Duration
 	// Limits bound the classes agents may run with.
 	Limits runtime.Limits
-	Log    *slog.Logger
+	// Metrics counts container starts. Nil counts nothing.
+	Metrics *metrics.Registry
+	Log     *slog.Logger
 }
 
 type Manager struct {
@@ -227,10 +230,11 @@ func (m *Manager) Start(ctx context.Context, a store.Agent) error {
 	return m.start(ctx, a)
 }
 
-func (m *Manager) start(ctx context.Context, a store.Agent) error {
+func (m *Manager) start(ctx context.Context, a store.Agent) (err error) {
 	if m.driver == nil {
 		return ErrNoRuntime
 	}
+	defer func() { m.opts.Metrics.MachineStart(a.Kind, metrics.Outcome(err)) }()
 	// A row's class can still lack fields, as the schema's default '{}' does.
 	// Checked again here, since the limits may have changed since the
 	// class was saved.

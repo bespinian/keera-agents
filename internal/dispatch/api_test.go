@@ -106,3 +106,20 @@ func TestCutResult(t *testing.T) {
 		t.Error("cut in the middle of a character")
 	}
 }
+
+func TestToolKind(t *testing.T) {
+	channels.Register(fakeAPI{})
+	for name, want := range map[string]string{
+		"fakeapi_search":    "fakeapi",
+		"send_message":      "chat",
+		"board_create_card": "board",
+		"files_read":        "files",
+		"repo_open_change":  "repo",
+		"nosuch_tool":       "unknown",
+		"rm":                "unknown",
+	} {
+		if got := toolKind(name); got != want {
+			t.Errorf("toolKind(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

@@ -52,6 +52,9 @@ type Config struct {
 
 	SecureCookies bool
 
+	// MetricsToken reads /metrics and nothing else. Empty turns /metrics off.
+	MetricsToken string
+
 	Runtime RuntimeConfig
 
 	// TaskTimeout ends a task that has run this long.
@@ -153,12 +156,13 @@ func load(getenv func(string) string) (Config, error) {
 	}
 
 	c := Config{
-		Addr:        env("KEERA_AGENTS_ADDR", DefaultAddr),
-		ServiceKey:  env("KEERA_AGENTS_SERVICE_KEY", ""),
-		DatabaseURL: env("KEERA_AGENTS_DATABASE_URL", ""),
-		SecretKey:   env("KEERA_AGENTS_SECRET_KEY", ""),
-		LogLevel:    env("KEERA_AGENTS_LOG_LEVEL", "info"),
-		LogFormat:   env("KEERA_AGENTS_LOG_FORMAT", "text"),
+		Addr:         env("KEERA_AGENTS_ADDR", DefaultAddr),
+		ServiceKey:   env("KEERA_AGENTS_SERVICE_KEY", ""),
+		DatabaseURL:  env("KEERA_AGENTS_DATABASE_URL", ""),
+		SecretKey:    env("KEERA_AGENTS_SECRET_KEY", ""),
+		MetricsToken: env("KEERA_AGENTS_METRICS_TOKEN", ""),
+		LogLevel:     env("KEERA_AGENTS_LOG_LEVEL", "info"),
+		LogFormat:    env("KEERA_AGENTS_LOG_FORMAT", "text"),
 		Runtime: RuntimeConfig{
 			Driver:          env("KEERA_AGENTS_DRIVER", ""),
 			Image:           env("KEERA_AGENTS_IMAGE", "localhost/keera-agent:latest"),
@@ -227,6 +231,17 @@ func load(getenv func(string) string) (Config, error) {
 	if len(c.SecretKey) < 16 {
 		return c, errors.New("KEERA_AGENTS_SECRET_KEY is required and must be at least 16 " +
 			"characters; generate one with: openssl rand -hex 32")
+	}
+
+	if c.MetricsToken != "" {
+		switch {
+		case len(c.MetricsToken) < 16:
+			return c, errors.New("KEERA_AGENTS_METRICS_TOKEN is too short to be a credential; " +
+				"generate one with: openssl rand -hex 32")
+		case c.MetricsToken == c.ServiceKey || c.MetricsToken == c.SecretKey:
+			return c, errors.New("KEERA_AGENTS_METRICS_TOKEN must differ from KEERA_AGENTS_SERVICE_KEY " +
+				"and KEERA_AGENTS_SECRET_KEY, so a scrape configuration holds nothing else")
+		}
 	}
 
 	if c.SecureCookies, err = boolEnv("KEERA_AGENTS_SECURE_COOKIES", strings.HasPrefix(c.PublicURL, "https://")); err != nil {

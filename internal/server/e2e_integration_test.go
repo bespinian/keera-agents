@@ -228,7 +228,7 @@ func TestEndToEnd(t *testing.T) {
 	defer srv.Close()
 	cfg := config.Config{
 		PublicURL: srv.URL, GatewayURL: gwSrv.URL, GatewayInternalURL: gwSrv.URL,
-		TaskTimeout: time.Minute, WatchInterval: time.Minute,
+		TaskTimeout: time.Minute, WatchInterval: time.Minute, MetricsToken: "metrics-0123456789",
 		Runtime: config.RuntimeConfig{Driver: "test", Image: "img", URL: srv.URL, GatewayURL: gwSrv.URL},
 	}
 	app, err := New(cfg, st, gateway.New(gwSrv.URL, strings.Repeat("s", 32)), driver, box,
@@ -355,6 +355,41 @@ func TestEndToEnd(t *testing.T) {
 	waitFor("the reply in the thread", func() bool {
 		return slices.Contains(chat.messages(), "sales/m1: All done: I put a card on the board.")
 	})
+
+	// The task, its tool call, its webhooks and its delivery are counted.
+	scrape := func() string {
+		req, _ := http.NewRequest("GET", srv.URL+"/metrics", nil)
+		req.Header.Set("Authorization", "Bearer metrics-0123456789")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		raw, _ := io.ReadAll(res.Body)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("metrics: %d %s", res.StatusCode, raw)
+		}
+		return string(raw)
+	}
+	var metricsOut string
+	waitFor("the task in /metrics", func() bool {
+		metricsOut = scrape()
+		return strings.Contains(metricsOut, `keera_agents_tasks_total{source="chat",state="succeeded"} 1`+"\n")
+	})
+	for _, want := range []string{
+		`keera_agents_deliveries_total{source="chat",outcome="ok"} 1`,
+		`keera_agents_tool_calls_total{kind="board",outcome="ok"} 1`,
+		`keera_agents_webhooks_total{kind="fakechat",outcome="unverified"} 1`,
+		`keera_agents_webhooks_total{kind="fakechat",outcome="accepted"} 2`,
+		`keera_agents_machine_starts_total{kind="agent",outcome="ok"} 1`,
+		`keera_agents_machines{kind="agent",state="running"} 1`,
+		"keera_agents_tasks_queued 0",
+		"keera_agents_results_undelivered 0",
+	} {
+		if !strings.Contains(metricsOut, want+"\n") {
+			t.Errorf("/metrics lacks %s:\n%s", want, metricsOut)
+		}
+	}
 
 	var tasks struct {
 		Data []store.Task `json:"data"`

@@ -208,6 +208,34 @@ func value(s *string) string {
 
 // CallTool runs one platform tool for a task.
 func (d *Dispatcher) CallTool(ctx context.Context, a store.Agent, t store.Task, name string, args json.RawMessage) protocol.ToolResult {
+	began := time.Now()
+	res := d.callTool(ctx, a, t, name, args)
+	outcome := "ok"
+	if res.IsError {
+		outcome = "error"
+	}
+	d.opts.Metrics.ToolCall(toolKind(name), outcome, time.Since(began))
+	return res
+}
+
+// toolKind groups a tool for /metrics: by its connector's kind, such as jira,
+// or by its group, such as board. The model names the tool, so a name nobody
+// offered is "unknown", and the series stay few.
+func toolKind(name string) string {
+	if kind, ok := apiKindOf(name); ok {
+		return string(kind)
+	}
+	if name == "send_message" {
+		return "chat"
+	}
+	group, _, _ := strings.Cut(name, "_")
+	if slices.Contains([]string{"board", "files", "repo"}, group) {
+		return group
+	}
+	return "unknown"
+}
+
+func (d *Dispatcher) callTool(ctx context.Context, a store.Agent, t store.Task, name string, args json.RawMessage) protocol.ToolResult {
 	// An API connector's tools have arguments of their own, which may not
 	// fit toolArgs.
 	if _, ok := apiKindOf(name); ok {

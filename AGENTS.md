@@ -30,6 +30,7 @@ calls its control API and never imports its code.
 | `internal/channels`     | The adapters: Teams, Google Chat, Slack, Drive, OneDrive, GitHub, GitLab.  |
 | `internal/channels/all` | Registers every adapter.                                                   |
 | `internal/webui`        | The panel, embedded. Same design as the gateway's.                         |
+| `internal/metrics`      | The Prometheus exposition on `/metrics`.                                   |
 | `internal/secret`       | Sealing for cookies, agents' keys and connector credentials.               |
 | `internal/egress`       | Where connectors may connect: not loopback, nor inside unless allowed.     |
 | `internal/id`           | Prefixed identifiers, sortable by creation time.                           |

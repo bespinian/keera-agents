@@ -3,9 +3,11 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,6 +23,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/dispatch"
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
+	"github.com/bespinian/keera-agents/internal/metrics"
 	"github.com/bespinian/keera-agents/internal/runner"
 	"github.com/bespinian/keera-agents/internal/runtime"
 	"github.com/bespinian/keera-agents/internal/secret"
@@ -128,6 +131,7 @@ type App struct {
 // New wires the control plane. Adapters must be registered with channels
 // first. driver may be nil: agents can then be set up but not run.
 func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.Driver, box *secret.Box, log *slog.Logger) (*App, error) {
+	reg := metrics.New(version.String())
 	limits, err := runtime.LimitsFrom(cfg.Runtime)
 	if err != nil {
 		return nil, err
@@ -139,12 +143,13 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 	fl := fleet.New(st, gw, driver, box, fleet.Options{
 		Image: cfg.Runtime.Image, RuntimeURL: cfg.Runtime.URL, IdleSuspend: cfg.Runtime.IdleSuspend,
 		WorkspaceImage: cfg.Runtime.WorkspaceImage, WorkspaceIdleSuspend: cfg.Runtime.WorkspaceIdleSuspend,
-		Limits: limits, Log: log,
+		Limits: limits, Metrics: reg, Log: log,
 	})
 	var rn *runner.Runner
 	disp := dispatch.New(st, fl, gw, box, dispatch.Options{
 		PublicURL: cfg.PublicURL, WatchInterval: cfg.WatchInterval, Log: log,
 		OnQueued: func(agentID string) { rn.Notify(agentID) },
+		Metrics:  reg,
 	})
 	rn = runner.New(st, fl, disp, gw, runner.Options{
 		GatewayURL: cfg.Runtime.GatewayURL, TaskTimeout: cfg.TaskTimeout, Egress: cfg.Egress, Log: log,
@@ -170,8 +175,56 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 		}
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	mux.Handle("GET /metrics", metricsHandler(st, reg, cfg.MetricsToken, log))
 	mux.Handle("/", webui.Handler())
 	return &App{Handler: mux, st: st, fleet: fl, disp: disp, log: log}, nil
+}
+
+// metricsHandler serves the Prometheus exposition to whoever holds token. With
+// no token, /metrics is off.
+func metricsHandler(st *store.Store, reg *metrics.Registry, token string, log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if token == "" {
+			http.NotFound(w, r)
+			return
+		}
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+			http.Error(w, "the metrics token is required", http.StatusUnauthorized)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		g, err := st.Gauges(ctx)
+		if err != nil {
+			log.Warn("could not read the metrics' gauges", "error", err)
+			http.Error(w, "the database does not answer", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		reg.Write(w, snapshot(g, time.Now()))
+	}
+}
+
+// snapshot turns the store's gauges into what /metrics shows. Every kind and
+// state is there, as 0 if need be, so a series never vanishes.
+func snapshot(g store.Gauges, now time.Time) metrics.Snapshot {
+	s := metrics.Snapshot{
+		Machines: map[[2]string]int{}, Queued: g.Queued, Running: g.Running, Undelivered: g.Undelivered,
+	}
+	for _, kind := range []string{store.KindAgent, store.KindWorkspace} {
+		for _, state := range []string{
+			store.AgentStarting, store.AgentRunning, store.AgentSuspended, store.AgentStopped, store.AgentFailed,
+		} {
+			s.Machines[[2]string{kind, state}] = 0
+		}
+	}
+	maps.Copy(s.Machines, g.Machines)
+	if g.OldestQueued != nil {
+		s.OldestQueued = max(now.Sub(*g.OldestQueued), 0)
+	}
+	return s
 }
 
 // leaderLock is the advisory lock the periodic work runs under, so one

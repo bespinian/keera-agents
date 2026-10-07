@@ -22,6 +22,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/id"
+	"github.com/bespinian/keera-agents/internal/metrics"
 	"github.com/bespinian/keera-agents/internal/secret"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -34,7 +35,10 @@ type Options struct {
 	// OnQueued is called with the agent of each queued task, so a runtime
 	// waiting for work gets it at once.
 	OnQueued func(agentID string)
-	Log      *slog.Logger
+	// Metrics counts tool calls, webhooks, deliveries and folder checks.
+	// Nil counts nothing.
+	Metrics *metrics.Registry
+	Log     *slog.Logger
 }
 
 type Dispatcher struct {

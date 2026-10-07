@@ -11,6 +11,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/id"
+	"github.com/bespinian/keera-agents/internal/metrics"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/schedule"
 	"github.com/bespinian/keera-agents/internal/store"
@@ -141,7 +142,9 @@ func (d *Dispatcher) CheckWatches(ctx context.Context, now time.Time) {
 		if b.CheckedAt != nil && now.Sub(*b.CheckedAt) < d.opts.WatchInterval {
 			continue
 		}
-		if err := d.checkWatch(ctx, b); err != nil {
+		err := d.checkWatch(ctx, b)
+		d.opts.Metrics.FolderCheck(b.Kind, metrics.Outcome(err))
+		if err != nil {
 			d.log.Warn("could not check a watched folder", "binding", b.ID, "error", err)
 			// Wait a full interval before asking again.
 			_ = d.st.SetWatchCursor(ctx, b.ID, b.Cursor)
@@ -244,15 +247,21 @@ func (d *Dispatcher) deliverClaimed(ctx context.Context, t store.Task) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTimeout)
 	defer cancel()
 	err := d.deliver(ctx, t)
-	if err == nil {
-		return
-	}
-	d.log.Warn("could not deliver a result", "task", t.ID, "error", err)
 	if errors.Is(err, errNotSent) {
+		d.log.Warn("could not deliver a result", "task", t.ID, "error", err)
+		d.opts.Metrics.Delivery(t.Source, "retry")
 		// Nothing went out, so trying again cannot post twice.
 		_ = d.st.UnmarkDelivered(ctx, t.ID)
 		return
 	}
+	// Every finished task is claimed here once, on one replica, so this is
+	// where it is counted.
+	d.opts.Metrics.TaskEnded(t.Source, t.State, t.CreatedAt, t.StartedAt, t.FinishedAt)
+	d.opts.Metrics.Delivery(t.Source, metrics.Outcome(err))
+	if err == nil {
+		return
+	}
+	d.log.Warn("could not deliver a result", "task", t.ID, "error", err)
 	_ = d.st.AddEvents(ctx, t.ID, []store.Event{{
 		Kind: protocol.EventLog, Text: "The result could not be delivered: " + err.Error(),
 	}})

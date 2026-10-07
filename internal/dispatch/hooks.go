@@ -40,6 +40,7 @@ func (d *Dispatcher) ServeHook(w http.ResponseWriter, r *http.Request) {
 	}
 	conn, err := d.Conn(c)
 	if err != nil {
+		d.opts.Metrics.Webhook(c.Kind, "unconfigured")
 		d.log.Warn("a webhook arrived for a connection whose credentials cannot be read",
 			"connection", c.ID, "error", err)
 		http.Error(w, "this connector is not set up", http.StatusServiceUnavailable)
@@ -52,14 +53,18 @@ func (d *Dispatcher) ServeHook(w http.ResponseWriter, r *http.Request) {
 	}
 	receipt, err := adapter.Receive(r.Context(), conn, r, body)
 	if errors.Is(err, channels.ErrUnverified) {
+		d.opts.Metrics.Webhook(c.Kind, "unverified")
 		http.Error(w, "unverified", http.StatusUnauthorized)
 		return
 	}
 	if err != nil {
+		d.opts.Metrics.Webhook(c.Kind, "unreadable")
 		d.log.Warn("could not read a webhook", "connection", c.ID, "kind", c.Kind, "error", err)
 		http.Error(w, "unreadable", http.StatusBadRequest)
 		return
 	}
+
+	d.opts.Metrics.Webhook(c.Kind, "accepted")
 
 	// Answer first: services retry a webhook that takes more than a few
 	// seconds, and asking the gateway who wrote and waking agents can take

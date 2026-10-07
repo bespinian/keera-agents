@@ -63,18 +63,19 @@ entered again, and agents get new keys at their next start.
 
 ### Everything else
 
-| Variable                            | Default                      | What it does                                          |
-| ----------------------------------- | ---------------------------- | ----------------------------------------------------- |
-| `KEERA_AGENTS_PUBLIC_URL`           | `http://127.0.0.1:<port>`    | keera-agents as browsers and chat services reach it   |
-| `KEERA_AGENTS_ADDR`                 | `:8070`                      | The listener: panel, API, webhooks and runtime API    |
-| `KEERA_AGENTS_GATEWAY_INTERNAL_URL` | `KEERA_AGENTS_GATEWAY_URL`   | The gateway as keera-agents reaches it                |
-| `KEERA_AGENTS_SECURE_COOKIES`       | on for an `https` public URL | Off allows plain HTTP on localhost                    |
-| `KEERA_AGENTS_TASK_TIMEOUT`         | `30m`                        | The longest a task may run                            |
-| `KEERA_AGENTS_WATCH_INTERVAL`       | `5m`                         | How often watched folders are checked; at least `30s` |
-| `KEERA_AGENTS_LOG_LEVEL`            | `info`                       | `debug`, `info`, `warn` or `error`                    |
-| `KEERA_AGENTS_LOG_FORMAT`           | `text`                       | `text` or `json`                                      |
-| `KEERA_AGENTS_UPSTREAM_DENY`        | loopback and cloud metadata  | Addresses connectors never reach. See below           |
-| `KEERA_AGENTS_UPSTREAM_PRIVATE`     | `none`                       | Hosts inside the network connectors may reach         |
+| Variable                            | Default                      | What it does                                               |
+| ----------------------------------- | ---------------------------- | ---------------------------------------------------------- |
+| `KEERA_AGENTS_PUBLIC_URL`           | `http://127.0.0.1:<port>`    | keera-agents as browsers and chat services reach it        |
+| `KEERA_AGENTS_ADDR`                 | `:8070`                      | The listener: panel, API, webhooks and runtime API         |
+| `KEERA_AGENTS_GATEWAY_INTERNAL_URL` | `KEERA_AGENTS_GATEWAY_URL`   | The gateway as keera-agents reaches it                     |
+| `KEERA_AGENTS_SECURE_COOKIES`       | on for an `https` public URL | Off allows plain HTTP on localhost                         |
+| `KEERA_AGENTS_TASK_TIMEOUT`         | `30m`                        | The longest a task may run                                 |
+| `KEERA_AGENTS_WATCH_INTERVAL`       | `5m`                         | How often watched folders are checked; at least `30s`      |
+| `KEERA_AGENTS_LOG_LEVEL`            | `info`                       | `debug`, `info`, `warn` or `error`                         |
+| `KEERA_AGENTS_LOG_FORMAT`           | `text`                       | `text` or `json`                                           |
+| `KEERA_AGENTS_METRICS_TOKEN`        | unset: `/metrics` is off     | Reads `/metrics` and nothing else. See [Metrics](#metrics) |
+| `KEERA_AGENTS_UPSTREAM_DENY`        | loopback and cloud metadata  | Addresses connectors never reach. See below                |
+| `KEERA_AGENTS_UPSTREAM_PRIVATE`     | `none`                       | Hosts inside the network connectors may reach              |
 
 keera-agents refuses to start with a missing required setting, a service key
 under 32 characters or a secret key under 16, an unknown driver, log level or
@@ -109,7 +110,7 @@ The check applies to the address a name resolves to, so a public name that
 points into the network is blocked too. Behind a proxy, the proxy must filter.
 Calls to the gateway are not checked: the operator sets its address.
 
-## One listener, four surfaces
+## One listener, five surfaces
 
 | Path                  | What it is                                | Who calls it             |
 | --------------------- | ----------------------------------------- | ------------------------ |
@@ -117,6 +118,7 @@ Calls to the gateway are not checked: the operator sets its address.
 | `/hooks`              | Chat services' webhooks                   | Microsoft, Google, Slack |
 | `/runtime`            | The runtime API                           | agents' containers       |
 | `/healthz`, `/readyz` | Liveness, and readiness with the database | the orchestrator         |
+| `/metrics`            | Prometheus metrics                        | Prometheus               |
 
 **Publish `/runtime` only inside the cluster.** It authenticates every call
 with a runtime token, but nothing outside needs it. The chat services need
@@ -127,6 +129,57 @@ through `/api/v1/workspaces/{id}/connect`, which takes the connection over as
 a WebSocket does ([workspaces.md](workspaces.md#how-a-connection-travels)). A
 proxy in front of keera-agents must let it, over HTTP/1.1, and not cut idle
 connections short.
+
+## Metrics
+
+`/metrics` is the Prometheus exposition. It is off until
+`KEERA_AGENTS_METRICS_TOKEN` is set, and then it needs that token as
+`Authorization: Bearer <token>`. Generate one with `openssl rand -hex 32`.
+Nothing on it names an organisation, agent or person.
+
+```yaml
+scrape_configs:
+  - job_name: keera-agents
+    authorization:
+      credentials_file: /etc/prometheus/keera-agents-token
+    static_configs:
+      - targets: ["keera-agents.keera.svc:8070"]
+```
+
+**Counters** count what one replica did, so sum them across replicas:
+
+| Metric                                    | Labels          | What it counts                                                       |
+| ----------------------------------------- | --------------- | -------------------------------------------------------------------- |
+| `keera_agents_tasks_total`                | source, state   | finished tasks, counted when their result is handed back             |
+| `keera_agents_task_duration_seconds`      | source, state   | how long a task ran                                                  |
+| `keera_agents_task_wait_seconds`          | source          | how long a task waited in the queue                                  |
+| `keera_agents_deliveries_total`           | source, outcome | results handed back: `ok`, `error`, or `retry` when nothing was sent |
+| `keera_agents_tool_calls_total`           | kind, outcome   | platform and connector tool calls, such as `jira` or `board`         |
+| `keera_agents_tool_call_duration_seconds` | kind, outcome   | how long a tool call took                                            |
+| `keera_agents_webhooks_total`             | kind, outcome   | webhooks: `accepted`, `unverified`, `unreadable` or `unconfigured`   |
+| `keera_agents_machine_starts_total`       | kind, outcome   | containers created for agents and workspaces                         |
+| `keera_agents_folder_checks_total`        | kind, outcome   | checks of watched folders                                            |
+
+**Gauges** are read from the database at each scrape, so every replica shows
+the same values. Take the max, not the sum:
+
+| Metric                                    | Labels      | What it shows                                     |
+| ----------------------------------------- | ----------- | ------------------------------------------------- |
+| `keera_agents_machines`                   | kind, state | agents and workspaces in each state               |
+| `keera_agents_tasks_queued`               |             | tasks waiting for their agent                     |
+| `keera_agents_tasks_running`              |             | tasks an agent is working on                      |
+| `keera_agents_oldest_queued_task_seconds` |             | how long the oldest queued task has waited        |
+| `keera_agents_results_undelivered`        |             | finished tasks whose result has not gone back yet |
+| `keera_agents_build_info`                 | version     | always 1                                          |
+
+Worth an alert: `keera_agents_oldest_queued_task_seconds` over a few minutes,
+since a task fails after an hour of waiting; `keera_agents_machines` with
+`state="failed"` above zero; a rise in `keera_agents_webhooks_total` with
+`outcome="unverified"`, which may be someone probing, or a changed secret at
+the chat service; and `keera_agents_results_undelivered` that keeps growing.
+
+Model calls, tokens and spend are on Keera Gateway's own `/metrics`. Each task
+is one session there, so its Sessions screen shows the model side of a task.
 
 ## Shapes
 

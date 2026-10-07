@@ -399,3 +399,41 @@ func (s *Store) PruneTasks(ctx context.Context, before time.Time) (int64, error)
 	tag, err := s.pool.Exec(ctx, `DELETE FROM tasks WHERE finished_at < $1`, before)
 	return tag.RowsAffected(), err
 }
+
+// Gauges is the state /metrics reports, as the database has it now.
+type Gauges struct {
+	// Machines counts agents and workspaces that are not deleted, by kind
+	// and state.
+	Machines map[[2]string]int
+	Queued   int
+	Running  int
+	// OldestQueued is when the oldest queued task came in, if any is.
+	OldestQueued *time.Time
+	Undelivered  int
+}
+
+// Gauges reads the state /metrics reports. Each count is its own query, so
+// each uses its partial index.
+func (s *Store) Gauges(ctx context.Context) (Gauges, error) {
+	g := Gauges{Machines: map[[2]string]int{}}
+	rows, err := s.pool.Query(ctx,
+		`SELECT kind, state, count(*) FROM agents WHERE deleted_at IS NULL GROUP BY 1, 2`)
+	if err != nil {
+		return g, err
+	}
+	var kind, state string
+	var n int
+	if _, err := pgx.ForEachRow(rows, []any{&kind, &state, &n}, func() error {
+		g.Machines[[2]string{kind, state}] = n
+		return nil
+	}); err != nil {
+		return g, err
+	}
+	err = s.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM tasks WHERE state = 'queued'),
+		(SELECT count(*) FROM tasks WHERE state = 'running'),
+		(SELECT min(created_at) FROM tasks WHERE state = 'queued'),
+		(SELECT count(*) FROM tasks WHERE NOT delivered AND state IN ('succeeded', 'failed', 'cancelled'))`).
+		Scan(&g.Queued, &g.Running, &g.OldestQueued, &g.Undelivered)
+	return g, err
+}
