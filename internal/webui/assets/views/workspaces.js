@@ -120,7 +120,7 @@ function workspaceTable(ctx, workspaces, all) {
 }
 
 /** openNewWorkspace asks for a new workspace and opens it once created. */
-export async function openNewWorkspace(ctx) {
+async function openNewWorkspace(ctx) {
   let form;
   try {
     form = await workspaceForm(ctx, null);

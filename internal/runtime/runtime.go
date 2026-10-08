@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	// ErrNotFound is Suspend, Resume or Logs finding no container.
+	// ErrNotFound is Suspend, Resume, Logs or Address finding no container.
 	ErrNotFound = errors.New("runtime: not found")
 	// ErrTier is a class asking for an isolation tier this deployment has
 	// not mapped. It is refused, never run with less.

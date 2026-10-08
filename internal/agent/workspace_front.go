@@ -68,7 +68,7 @@ func (r *runner) front(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	stream.Join(context.Background(), conn, inside)
+	stream.Join(conn, inside)
 }
 
 // frontPort resolves the port a connection names.

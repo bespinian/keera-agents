@@ -28,9 +28,9 @@ import (
 const DefaultDeny = "127.0.0.0/8,::1/128,169.254.0.0/16,fe80::/10,0.0.0.0/8,::/128," +
 	"fd00:ec2::254/128,100.100.100.200/32,168.63.129.16/32"
 
-// InsideNetwork are the addresses not on the public internet, including
+// insideNetwork are the addresses not on the public internet, including
 // carrier-grade NAT, which Tailscale uses.
-var InsideNetwork = []netip.Prefix{
+var insideNetwork = []netip.Prefix{
 	netip.MustParsePrefix("127.0.0.0/8"),
 	netip.MustParsePrefix("::1/128"),
 	netip.MustParsePrefix("0.0.0.0/8"),
@@ -124,7 +124,7 @@ func (p Policy) Dial() func(ctx context.Context, network, addr string) (net.Conn
 	if len(p.PrivateHosts) > 0 {
 		why = "inside this network, connectors may only reach " + strings.Join(p.PrivateHosts, ", ")
 	}
-	closed := newDialer(denyDial(append(slices.Clone(p.Deny), InsideNetwork...),
+	closed := newDialer(denyDial(append(slices.Clone(p.Deny), insideNetwork...),
 		why+"; see KEERA_AGENTS_UPSTREAM_PRIVATE"))
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, _, err := net.SplitHostPort(addr)

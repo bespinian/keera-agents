@@ -28,6 +28,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/runtime"
 	"github.com/bespinian/keera-agents/internal/secret"
 	"github.com/bespinian/keera-agents/internal/store"
+	"github.com/jackc/pgx/v5"
 )
 
 // This test runs the control plane against a real Postgres, a stand-in
@@ -202,14 +203,20 @@ func TestEndToEnd(t *testing.T) {
 		t.Skip("KEERA_AGENTS_TEST_DATABASE_URL is not set")
 	}
 	ctx := context.Background()
+	db, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`)
+	_ = db.Close(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	st, err := store.Open(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if _, err := st.Pool().Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}

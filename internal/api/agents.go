@@ -78,7 +78,7 @@ func (s *Server) loadAgent(w http.ResponseWriter, r *http.Request, p Principal, 
 func (s *Server) editableMachine(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
 	a, err := s.st.Agent(r.Context(), id)
 	if err == nil && a.Kind == store.KindWorkspace {
-		return s.editableWorkspace(w, r, p, id)
+		return s.loadWorkspace(w, r, p, id)
 	}
 	return s.editableAgent(w, r, p, id)
 }
@@ -117,10 +117,6 @@ func agentStopped(w http.ResponseWriter, p Principal, a store.Agent) {
 		then = "ask " + a.OwnerEmail + " to start it"
 	}
 	writeError(w, http.StatusConflict, "agent_stopped", a.Name+" is stopped; "+then)
-}
-
-func nameTaken(w http.ResponseWriter, name string) {
-	writeError(w, http.StatusConflict, "name_taken", "another agent in this organisation is called "+name)
 }
 
 func runtimeFailed(w http.ResponseWriter, err error) {
@@ -374,12 +370,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 		return
 	}
 	out, err := s.st.CreateAgent(r.Context(), a)
-	if errors.Is(err, store.ErrConflict) {
-		nameTaken(w, a.Name)
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
+	if !s.saved(w, err, "name_taken", "another agent in this organisation is called "+a.Name) {
 		return
 	}
 	s.record(r.Context(), p, "agent.create", out.ID, map[string]any{"name": out.Name, "model": out.Model})
@@ -418,12 +409,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 		return
 	}
 	out, err := s.st.UpdateAgent(r.Context(), a)
-	if errors.Is(err, store.ErrConflict) {
-		nameTaken(w, a.Name)
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
+	if !s.saved(w, err, "name_taken", "another agent in this organisation is called "+a.Name) {
 		return
 	}
 	s.record(r.Context(), p, "agent.update", out.ID, map[string]any{"name": out.Name})
@@ -709,12 +695,7 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 		Label: trim(in.Label, 200), Mode: in.Mode, Prompt: trim(in.Prompt, 8<<10),
 		CreatedBy: p.Email, CreatedByID: p.UserID,
 	})
-	if errors.Is(err, store.ErrConflict) {
-		writeError(w, http.StatusConflict, "exists", a.Name+" is already connected there")
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
+	if !s.saved(w, err, "exists", a.Name+" is already connected there") {
 		return
 	}
 	s.record(r.Context(), p, "binding.create", b.ID, map[string]string{

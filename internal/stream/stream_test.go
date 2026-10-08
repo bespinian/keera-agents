@@ -2,7 +2,6 @@ package stream
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -68,7 +67,7 @@ func TestJoinEndsWhenOneSideEnds(t *testing.T) {
 	b1, b2 := net.Pipe()
 	done := make(chan struct{})
 	go func() {
-		Join(context.Background(), a2, b1)
+		Join(a2, b1)
 		close(done)
 	}()
 	go func() { _, _ = a1.Write([]byte("x")) }()

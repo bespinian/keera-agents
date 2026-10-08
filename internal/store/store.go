@@ -1,5 +1,6 @@
-// Package store keeps keera-agents' state in Postgres: agents, connections,
-// bindings, schedules, boards, tasks and the audit log. People,
+// Package store keeps keera-agents' state in Postgres: agents and
+// workspaces, connections, bindings, schedules, boards, tasks, SSH keys and
+// the audit log. People,
 // organisations, projects, models and keys live in Keera Gateway; rows here
 // name them by the gateway's ids.
 package store
@@ -53,9 +54,6 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 func (s *Store) Close() { s.pool.Close() }
 
 func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
-
-// Pool is for tests that set up rows directly.
-func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 // Migrate applies any embedded migration the database has not seen, under an
 // advisory lock so several replicas can start at once. A migration file is

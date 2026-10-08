@@ -42,19 +42,11 @@ func viewWorkspace(p Principal, a store.Agent, connectors int) workspaceView {
 
 // loadWorkspace finds a workspace the caller may see. Another member's is
 // not found, as another organisation's is, so ids and names say nothing.
+// Only the owner and administrators see it, so whoever does may change it.
 func (s *Server) loadWorkspace(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
 	a, err := s.st.Agent(r.Context(), id)
-	if err == nil && a.Kind == store.KindAgent {
-		err = store.ErrNotFound
-	}
-	visible := a.OrgID == p.OrgID && (a.OwnerID == p.UserID || p.CanAdmin())
+	visible := a.Kind == store.KindWorkspace && a.OrgID == p.OrgID && (a.OwnerID == p.UserID || p.CanAdmin())
 	return a, s.found(w, err, visible, "workspace")
-}
-
-// editableWorkspace is loadWorkspace for a change: the owner and
-// administrators, who are the only ones who see it.
-func (s *Server) editableWorkspace(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
-	return s.loadWorkspace(w, r, p, id)
 }
 
 // workspaceRef finds a workspace by its id, or by name among the caller's
@@ -188,12 +180,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		return
 	}
 	out, err := s.st.CreateAgent(r.Context(), a)
-	if errors.Is(err, store.ErrConflict) {
-		writeError(w, http.StatusConflict, "name_taken", "you already have a workspace called "+a.Name)
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
+	if !s.saved(w, err, "name_taken", "you already have a workspace called "+a.Name) {
 		return
 	}
 	s.record(r.Context(), p, "workspace.create", out.ID, map[string]any{
@@ -218,12 +205,7 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		return
 	}
 	out, err := s.st.UpdateAgent(r.Context(), a)
-	if errors.Is(err, store.ErrConflict) {
-		writeError(w, http.StatusConflict, "name_taken", "you already have a workspace called "+a.Name)
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
+	if !s.saved(w, err, "name_taken", "you already have a workspace called "+a.Name) {
 		return
 	}
 	s.record(r.Context(), p, "workspace.update", out.ID, map[string]any{"name": out.Name})
@@ -362,9 +344,7 @@ func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Prin
 			}
 		}
 	}()
-	// The request's context ends once the handler returns, and a hijacked
-	// connection is no longer the server's to cancel.
-	stream.Join(context.WithoutCancel(ctx), client, front)
+	stream.Join(client, front)
 	close(done)
 	_ = s.st.TouchAgent(context.WithoutCancel(ctx), a.ID)
 }

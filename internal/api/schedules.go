@@ -137,19 +137,18 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, p Princi
 	writeJSON(w, http.StatusCreated, viewSchedule(out))
 }
 
-func (s *Server) loadSchedule(w http.ResponseWriter, r *http.Request, p Principal) (store.Schedule, bool) {
+// loadSchedule finds a schedule the caller may change, and its agent.
+func (s *Server) loadSchedule(w http.ResponseWriter, r *http.Request, p Principal) (store.Schedule, store.Agent, bool) {
 	sc, err := s.st.Schedule(r.Context(), r.PathValue("id"))
 	if !s.found(w, err, sc.OrgID == p.OrgID, "schedule") {
-		return sc, false
+		return sc, store.Agent{}, false
 	}
-	if _, ok := s.editableAgent(w, r, p, sc.AgentID); !ok {
-		return sc, false
-	}
-	return sc, true
+	a, ok := s.editableAgent(w, r, p, sc.AgentID)
+	return sc, a, ok
 }
 
 func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request, p Principal) {
-	sc, ok := s.loadSchedule(w, r, p)
+	sc, _, ok := s.loadSchedule(w, r, p)
 	if !ok {
 		return
 	}
@@ -178,7 +177,7 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request, p Princi
 }
 
 func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, p Principal) {
-	sc, ok := s.loadSchedule(w, r, p)
+	sc, _, ok := s.loadSchedule(w, r, p)
 	if !ok {
 		return
 	}
@@ -191,13 +190,8 @@ func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, p Princi
 }
 
 func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request, p Principal) {
-	sc, ok := s.loadSchedule(w, r, p)
+	sc, a, ok := s.loadSchedule(w, r, p)
 	if !ok {
-		return
-	}
-	a, err := s.st.Agent(r.Context(), sc.AgentID)
-	if err != nil {
-		s.fail(w, err)
 		return
 	}
 	if !a.Enabled {

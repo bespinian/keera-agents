@@ -71,7 +71,7 @@ func (s *Server) taskFacets(w http.ResponseWriter, r *http.Request, p Principal)
 
 func (s *Server) loadTask(w http.ResponseWriter, r *http.Request, p Principal) (store.Task, bool) {
 	t, err := s.st.Task(r.Context(), r.PathValue("id"))
-	return t, s.found(w, err, err == nil && canSeeTask(p, t), "task")
+	return t, s.found(w, err, canSeeTask(p, t), "task")
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request, p Principal) {

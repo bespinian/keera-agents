@@ -58,16 +58,18 @@ func configFromEnv(getenv func(string) string) (config, error) {
 // reports the task in hand as failed and exits cleanly, which the drivers
 // read as suspended.
 func Run(ctx context.Context, log *slog.Logger) error {
-	return start(ctx, log, os.Getenv, true)
+	return start(ctx, log, os.Getenv, true, (*runner).run)
 }
 
 // Serve is Run with the environment read from getenv and without hardening
 // the process, so tests can run agents inside the test binary.
 func Serve(ctx context.Context, log *slog.Logger, getenv func(string) string) error {
-	return start(ctx, log, getenv, false)
+	return start(ctx, log, getenv, false, (*runner).run)
 }
 
-func start(ctx context.Context, log *slog.Logger, getenv func(string) string, harden bool) error {
+func start(ctx context.Context, log *slog.Logger, getenv func(string) string, harden bool,
+	loop func(*runner, context.Context),
+) error {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -76,17 +78,18 @@ func start(ctx context.Context, log *slog.Logger, getenv func(string) string, ha
 		return err
 	}
 	if harden {
-		// Commands the model runs inherit the environment; the token stays out.
+		// What runs beside the runtime inherits the environment, and must not
+		// read the token or the key.
 		_ = os.Unsetenv(protocol.EnvRuntimeToken)
 		if err := hideProcess(); err != nil {
-			log.Warn("agent: could not hide the runtime's memory from its commands", "error", err)
+			log.Warn("runtime: could not hide its memory from what runs beside it", "error", err)
 		}
 	}
 	r, err := newRunner(cfg, log)
 	if err != nil {
 		return err
 	}
-	r.run(ctx)
+	loop(r, ctx)
 	return nil
 }
 

@@ -485,6 +485,20 @@ func (s *Server) found(w http.ResponseWriter, err error, sameOrg bool, what stri
 	return false
 }
 
+// saved answers a write: a conflict is 409 with code and msg, and any other
+// error is ours.
+func (s *Server) saved(w http.ResponseWriter, err error, code, msg string) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, code, msg)
+	default:
+		s.fail(w, err)
+	}
+	return false
+}
+
 func forbid(w http.ResponseWriter, msg string) {
 	writeError(w, http.StatusForbidden, "forbidden", msg)
 }

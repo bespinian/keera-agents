@@ -1,5 +1,5 @@
 // Package google signs in to Google APIs as a service account and reads
-// their errors, for the Google Chat and Google Drive adapters.
+// their errors, for the Google adapters.
 package google
 
 import (
@@ -26,8 +26,8 @@ func NewAuth(opts channels.Options) *Auth {
 	return &Auth{hc: web.Client(opts), tokenURL: web.Endpoint(opts, "token", "https://oauth2.googleapis.com/token")}
 }
 
-// Token returns a cached token for the key file, scope and subject.
-func (a *Auth) Token(ctx context.Context, keyJSON, scope, subject string) (string, error) {
+// token returns a cached token for the key file, scope and subject.
+func (a *Auth) token(ctx context.Context, keyJSON, scope, subject string) (string, error) {
 	sa, err := oauth.ParseServiceAccount(keyJSON)
 	if err != nil {
 		return "", err
@@ -53,9 +53,9 @@ func (a *Auth) Check(ctx context.Context, keyJSON, scope, subject string) error 
 	return nil
 }
 
-// Forget drops a token after Google refused it, so the next call gets a new
+// forget drops a token after Google refused it, so the next call gets a new
 // one.
-func (a *Auth) Forget(keyJSON, scope, subject string) {
+func (a *Auth) forget(keyJSON, scope, subject string) {
 	a.cache.Forget(web.Fingerprint(keyJSON, scope, subject))
 }
 
@@ -63,16 +63,16 @@ func (a *Auth) Forget(keyJSON, scope, subject string) {
 // the body of a 2xx answer, of at most limit bytes. A refused token is
 // forgotten.
 func (a *Auth) Do(req *http.Request, keyJSON, scope, subject string, limit int64) ([]byte, error) {
-	token, err := a.Token(req.Context(), keyJSON, scope, subject)
+	token, err := a.token(req.Context(), keyJSON, scope, subject)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	return web.Do(a.hc, req, "Google", limit, func(status int, body []byte) error {
 		if status == http.StatusUnauthorized {
-			a.Forget(keyJSON, scope, subject)
+			a.forget(keyJSON, scope, subject)
 		}
-		return Error(status, body)
+		return apiError(status, body)
 	})
 }
 
@@ -84,8 +84,8 @@ func (a *Auth) fetch(ctx context.Context, sa *oauth.ServiceAccount, scope, subje
 	return oauth.JWTBearer(ctx, a.hc, a.tokenURL, assertion)
 }
 
-// Error describes a failed API call from its status and body.
-func Error(status int, body []byte) *web.APIError {
+// apiError describes a failed API call from its status and body.
+func apiError(status int, body []byte) *web.APIError {
 	var e struct {
 		Error struct {
 			Message string `json:"message"`

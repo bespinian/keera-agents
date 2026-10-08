@@ -30,15 +30,15 @@ func TestAuth(t *testing.T) {
 	a := NewAuth(channels.Options{HTTP: srv.Client(), Endpoints: map[string]string{"login": srv.URL + "/login"}})
 	app := App{Tenant: "tenant-1", ClientID: "c", Secret: "pw", Scope: "s"}
 	for range 2 {
-		if tok, err := a.Token(context.Background(), app); err != nil || tok != "m" {
+		if tok, err := a.token(context.Background(), app); err != nil || tok != "m" {
 			t.Fatalf("Token = %q, %v", tok, err)
 		}
 	}
 	if calls.Load() != 1 {
 		t.Errorf("token fetched %d times", calls.Load())
 	}
-	a.Forget(app)
-	_, _ = a.Token(context.Background(), app)
+	a.forget(app)
+	_, _ = a.token(context.Background(), app)
 	if calls.Load() != 2 {
 		t.Errorf("forgotten token reused")
 	}
@@ -50,7 +50,7 @@ func TestAuth(t *testing.T) {
 }
 
 func TestError(t *testing.T) {
-	err := Error("Microsoft Graph", 404, []byte(`{"error":{"code":"itemNotFound","message":"The resource could not be found."}}`))
+	err := apiError("Microsoft Graph", 404, []byte(`{"error":{"code":"itemNotFound","message":"The resource could not be found."}}`))
 	if err.Error() != "Microsoft Graph answered 404 Not Found itemNotFound: The resource could not be found." {
 		t.Errorf("err = %v", err)
 	}

@@ -12,7 +12,6 @@ package stream
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -110,9 +109,8 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("stream refused: %d %s", e.Status, http.StatusText(e.Status))
 }
 
-// Join copies a to b and b to a until either side ends or ctx does, then
-// closes both.
-func Join(ctx context.Context, a, b io.ReadWriteCloser) {
+// Join copies a to b and b to a until either side ends, then closes both.
+func Join(a, b io.ReadWriteCloser) {
 	var once sync.Once
 	closeBoth := func() {
 		once.Do(func() {
@@ -120,8 +118,6 @@ func Join(ctx context.Context, a, b io.ReadWriteCloser) {
 			_ = b.Close()
 		})
 	}
-	stop := context.AfterFunc(ctx, closeBoth)
-	defer stop()
 	done := make(chan struct{}, 2)
 	pipe := func(dst io.Writer, src io.Reader) {
 		_, _ = io.Copy(dst, src)

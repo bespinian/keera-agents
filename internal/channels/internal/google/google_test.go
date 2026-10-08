@@ -30,15 +30,15 @@ func TestAuth(t *testing.T) {
 	a := NewAuth(channels.Options{HTTP: srv.Client(), Endpoints: map[string]string{"token": srv.URL}})
 	sa := key.ServiceAccountJSON("sa@p.iam.gserviceaccount.com")
 	for range 2 {
-		if tok, err := a.Token(context.Background(), sa, "s", ""); err != nil || tok != "g" {
+		if tok, err := a.token(context.Background(), sa, "s", ""); err != nil || tok != "g" {
 			t.Fatalf("Token = %q, %v", tok, err)
 		}
 	}
 	if calls.Load() != 1 {
 		t.Errorf("token fetched %d times", calls.Load())
 	}
-	a.Forget(sa, "s", "")
-	_, _ = a.Token(context.Background(), sa, "s", "")
+	a.forget(sa, "s", "")
+	_, _ = a.token(context.Background(), sa, "s", "")
 	if calls.Load() != 2 {
 		t.Error("forgotten token reused")
 	}
@@ -49,17 +49,17 @@ func TestAuth(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "Google refused the credentials (unauthorized_client") {
 		t.Errorf("err = %v", err)
 	}
-	if _, err := a.Token(context.Background(), "{}", "s", ""); err == nil {
+	if _, err := a.token(context.Background(), "{}", "s", ""); err == nil {
 		t.Error("empty key accepted")
 	}
 }
 
 func TestError(t *testing.T) {
-	err := Error(http.StatusForbidden, []byte(`{"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}`))
+	err := apiError(http.StatusForbidden, []byte(`{"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}`))
 	if err.Error() != "Google answered 403 Forbidden PERMISSION_DENIED: The caller does not have permission" {
 		t.Errorf("err = %v", err)
 	}
-	err = Error(http.StatusForbidden, []byte(`{"error":{"errors":[{"reason":"insufficientFilePermissions"}],"message":"no"}}`))
+	err = apiError(http.StatusForbidden, []byte(`{"error":{"errors":[{"reason":"insufficientFilePermissions"}],"message":"no"}}`))
 	if err.Error() != "Google answered 403 Forbidden insufficientFilePermissions: no" {
 		t.Errorf("err = %v", err)
 	}

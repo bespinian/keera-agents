@@ -10,6 +10,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -45,9 +46,9 @@ func main() {
 	case "", "serve":
 		err = server.Run()
 	case "agent":
-		err = runAgent()
+		err = runtime(agent.Run)
 	case "workspace":
-		err = runWorkspace()
+		err = runtime(agent.RunWorkspace)
 	case "health":
 		err = health()
 	case "version", "--version":
@@ -64,16 +65,11 @@ func main() {
 	}
 }
 
-func runAgent() error {
+// runtime runs an agent's or a workspace's runtime until SIGTERM.
+func runtime(run func(context.Context, *slog.Logger) error) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return agent.Run(ctx, server.NewLogger(os.Getenv("KEERA_AGENT_LOG_LEVEL"), "text"))
-}
-
-func runWorkspace() error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return agent.RunWorkspace(ctx, server.NewLogger(os.Getenv("KEERA_AGENT_LOG_LEVEL"), "text"))
+	return run(ctx, server.NewLogger(os.Getenv("KEERA_AGENT_LOG_LEVEL"), "text"))
 }
 
 // health asks this machine's /readyz, for a container healthcheck in an

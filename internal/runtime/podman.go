@@ -24,9 +24,9 @@ import (
 // no network policy, and an unsized volume.
 //
 // An agent is one container and one named volume. Suspend stops the
-// container and Resume starts it again; the volume stays. Create replaces the
-// container when its spec changed, since a container's image and
-// environment are fixed once it exists.
+// container and Resume starts it again; the volume stays. Create always
+// replaces the container, since a container's environment, and so its
+// runtime token, is fixed once it exists.
 
 type PodmanOptions struct {
 	Binary string
@@ -73,12 +73,7 @@ func (p *Podman) Create(ctx context.Context, spec Spec) (Status, error) {
 	// Every start brings a new runtime token, so a container that is there is
 	// always replaced. The volume is named, so removing the container keeps
 	// it, and the new container mounts it again.
-	switch _, err := p.inspect(ctx, spec.AgentID); {
-	case err == nil:
-		if err := p.removeContainer(ctx, containerName(spec.AgentID)); err != nil {
-			return Status{}, err
-		}
-	case !errors.Is(err, ErrNotFound):
+	if err := p.removeContainer(ctx, containerName(spec.AgentID)); err != nil {
 		return Status{}, err
 	}
 

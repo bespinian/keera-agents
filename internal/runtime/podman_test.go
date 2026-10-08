@@ -105,6 +105,7 @@ const noSuchContainer = "if [ \"$1\" = inspect ]; then echo 'Error: no such cont
 
 func TestPodmanCreateRunsANewContainer(t *testing.T) {
 	p, log := scriptedPodman(t, noSuchContainer+
+		"if [ \"$1\" = rm ]; then echo 'Error: no such container' >&2; exit 1; fi\n"+
 		"if [ \"$1\" = run ]; then exit 0; fi\n")
 	st, err := p.Create(context.Background(), Spec{AgentID: "agt_1", Image: "img", Class: standardClass})
 	if err != nil {

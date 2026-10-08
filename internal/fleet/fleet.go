@@ -148,8 +148,8 @@ func keyName(a store.Agent) string {
 // moved onto another's row.
 func keySealName(agentID string) string { return "agent-key:" + agentID }
 
-// EnsureKey mints the agent's gateway key if it has none.
-func (m *Manager) EnsureKey(ctx context.Context, a *store.Agent) error {
+// ensureKey mints the agent's gateway key if it has none.
+func (m *Manager) ensureKey(ctx context.Context, a *store.Agent) error {
 	if a.GatewayKeyID != "" && len(a.GatewayKey) > 0 {
 		return nil
 	}
@@ -176,7 +176,7 @@ func (m *Manager) Rekey(ctx context.Context, a store.Agent) error {
 	defer m.lock(a.ID)()
 	old := a.GatewayKeyID
 	a.GatewayKeyID, a.GatewayKey = "", nil
-	if err := m.EnsureKey(ctx, &a); err != nil {
+	if err := m.ensureKey(ctx, &a); err != nil {
 		return err
 	}
 	if old != "" {
@@ -211,7 +211,7 @@ func (m *Manager) RecoverKey(ctx context.Context, agentID string) (string, error
 	if key, err := m.OpenKey(a); err == nil {
 		return key, nil
 	}
-	if err := m.EnsureKey(ctx, &a); err != nil {
+	if err := m.ensureKey(ctx, &a); err != nil {
 		return "", err
 	}
 	return m.OpenKey(a)
@@ -243,7 +243,7 @@ func (m *Manager) start(ctx context.Context, a store.Agent) (err error) {
 		_ = m.st.SetAgentState(ctx, a.ID, store.AgentFailed, err.Error())
 		return err
 	}
-	if err := m.EnsureKey(ctx, &a); err != nil {
+	if err := m.ensureKey(ctx, &a); err != nil {
 		_ = m.st.SetAgentState(ctx, a.ID, store.AgentFailed, err.Error())
 		return err
 	}

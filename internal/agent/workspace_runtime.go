@@ -5,8 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"time"
-
-	"github.com/bespinian/keera-agents/internal/protocol"
 )
 
 // The workspace runtime (`keera-agents workspace`) runs in a workspace: a
@@ -27,29 +25,11 @@ const BridgeURL = "http://127.0.0.1:7418"
 
 // RunWorkspace serves a workspace until ctx ends.
 func RunWorkspace(ctx context.Context, log *slog.Logger) error {
-	if log == nil {
-		log = slog.Default()
-	}
-	cfg, err := configFromEnv(os.Getenv)
-	if err != nil {
-		return err
-	}
-	// As for an agent: what the engineer and their coding agent run must
-	// not read the token or the key.
-	_ = os.Unsetenv(protocol.EnvRuntimeToken)
-	if err := hideProcess(); err != nil {
-		log.Warn("workspace: could not hide the runtime's memory from what runs beside it", "error", err)
-	}
-	r, err := newRunner(cfg, log)
-	if err != nil {
-		return err
-	}
-	r.log = log.With("workspace", cfg.AgentID)
-	r.runWorkspace(ctx)
-	return nil
+	return start(ctx, log, os.Getenv, true, (*runner).runWorkspace)
 }
 
 func (r *runner) runWorkspace(ctx context.Context) {
+	r.log = r.log.With("workspace", r.cfg.AgentID)
 	r.log.Info("workspace: starting", "workspace", r.cfg.Workspace)
 	if !r.bootstrapUntilReady(ctx) {
 		return

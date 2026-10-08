@@ -1,6 +1,7 @@
 // Package oauth gets and caches the access tokens adapters call services
 // with: client credentials for Microsoft, and a signed service account
-// assertion for Google.
+// assertion for Google. Other adapters, such as Salesforce, use its cache
+// and errors with their own sign-in.
 package oauth
 
 import (

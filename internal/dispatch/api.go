@@ -163,18 +163,20 @@ func (d *Dispatcher) toolAPI(ctx context.Context, a store.Agent, name string, ra
 }
 
 // cutResult keeps a tool's result within maxAPIResult and says when it was
-// cut, so the model asks for less instead of trusting a partial answer.
+// cut, so the model asks for less instead of trusting a partial answer. The
+// note fits within the bound too, or the agent's own cap would cut it off.
 func cutResult(s string) string {
 	if len(s) <= maxAPIResult {
 		return s
 	}
+	note := fmt.Sprintf("\n[Cut at %d KiB of %d KiB. Ask for less, such as with a narrower query or a smaller limit.]",
+		maxAPIResult>>10, len(s)>>10)
 	// Not in the middle of a character.
-	n := maxAPIResult
+	n := maxAPIResult - len(note)
 	for n > 0 && !utf8.RuneStart(s[n]) {
 		n--
 	}
-	return s[:n] + fmt.Sprintf("\n[Cut at %d KiB of %d KiB. Ask for less, such as with a narrower query or a smaller limit.]",
-		maxAPIResult>>10, len(s)>>10)
+	return s[:n] + note
 }
 
 // LookupTarget checks an API connection reaches a binding's target, and

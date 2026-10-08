@@ -44,12 +44,7 @@ func (s *Server) addSSHKey(w http.ResponseWriter, r *http.Request, p Principal) 
 		ID: id.New("ssh"), OrgID: p.OrgID, UserID: p.UserID,
 		Name: trim(cmp.Or(strings.TrimSpace(in.Name), comment), 100), PublicKey: line, Fingerprint: fingerprint,
 	})
-	if errors.Is(err, store.ErrConflict) {
-		writeError(w, http.StatusConflict, "exists", "you added this key already")
-		return
-	}
-	if err != nil {
-		s.fail(w, err)
+	if !s.saved(w, err, "exists", "you added this key already") {
 		return
 	}
 	s.record(r.Context(), p, "ssh_key.add", k.ID, map[string]string{"fingerprint": fingerprint})

@@ -319,7 +319,7 @@ const serviceMarks = {
 };
 
 /** serviceMark is a connector kind's mark at text size, or null. */
-export function serviceMark(kind) {
+function serviceMark(kind) {
   return drawMark(serviceMarks[kind]);
 }
 
@@ -1378,7 +1378,7 @@ export function banner(tone, ...children) {
 
 /** showError shows a failure in a dialog's error host and scrolls to it, as
  *  it is out of sight in a tall dialog. No message clears the host. */
-export function showError(host, message) {
+function showError(host, message) {
   if (!message) {
     replace(host);
     return;

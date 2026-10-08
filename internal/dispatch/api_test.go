@@ -99,8 +99,8 @@ func TestCutResult(t *testing.T) {
 	long := strings.Repeat("é", maxAPIResult)
 	got := cutResult(long)
 	head, note, ok := strings.Cut(got, "\n[Cut")
-	if !ok || !strings.Contains(note, "Ask for less") || len(head) > maxAPIResult {
-		t.Fatalf("cut to %d bytes: %q", len(head), note)
+	if !ok || !strings.Contains(note, "Ask for less") || len(got) > maxAPIResult {
+		t.Fatalf("cut to %d bytes: %q", len(got), note)
 	}
 	if !strings.HasSuffix(head, "é") {
 		t.Error("cut in the middle of a character")
