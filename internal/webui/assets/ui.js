@@ -222,6 +222,10 @@ export const icons = {
   code: "M16 18l6-6-6-6M8 6l-6 6 6 6",
   folder: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
   file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6",
+  // A cylinder, as databases are drawn.
+  database:
+    "M4 6c0-1.66 3.58-3 8-3s8 1.34 8 3-3.58 3-8 3-8-1.34-8-3zM4 6v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6" +
+    "M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3",
   calendar: "M8 2v4M16 2v4M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM3 10h18",
   person: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8z",
   // A wrench, for a tool the agent called.
@@ -334,6 +338,7 @@ const categoryIcons = {
   Documents: icons.file,
   "Email and calendar": icons.calendar,
   CRM: icons.person,
+  Data: icons.database,
   Cloud: icons.cloud,
 };
 

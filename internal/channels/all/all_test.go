@@ -33,6 +33,7 @@ func TestRegister(t *testing.T) {
 		{channels.Outlook, "api"},
 		{channels.HubSpot, "api"},
 		{channels.Salesforce, "api"},
+		{channels.Postgres, "api"},
 		{channels.Kubernetes, "api"},
 		{channels.AWS, "api"},
 		{channels.Azure, "api"},

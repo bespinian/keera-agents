@@ -76,7 +76,10 @@ func Run() error {
 		log.Warn("KEERA_AGENTS_DRIVER is not set, so agents can be set up but not run")
 	}
 
-	all.Register(channels.Options{HTTP: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Egress.Transport()}})
+	all.Register(channels.Options{
+		HTTP: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Egress.Transport()},
+		Dial: cfg.Egress.Dial(),
+	})
 	app, err := New(cfg, st, gw, driver, box, log)
 	if err != nil {
 		return err

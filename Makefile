@@ -32,7 +32,7 @@ PG_IMAGE ?= docker.io/library/postgres:18
 PG_CONTAINER ?= keera-agents-test-pg
 PG_PORT ?= 55433
 PG_DSN ?= postgres://keera:keera@127.0.0.1:$(PG_PORT)/keera_agents_test?sslmode=disable
-INTEGRATION_TESTS = $(GO) test -race -count=1 -p 1 ./internal/store/... ./internal/server/...
+INTEGRATION_TESTS = $(GO) test -race -count=1 -p 1 ./internal/store/... ./internal/server/... ./internal/channels/postgres/...
 
 .PHONY: test-integration
 test-integration:

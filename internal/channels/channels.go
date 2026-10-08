@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -41,6 +42,7 @@ const (
 	Outlook        Kind = "outlook"
 	HubSpot        Kind = "hubspot"
 	Salesforce     Kind = "salesforce"
+	Postgres       Kind = "postgres"
 	Kubernetes     Kind = "kubernetes"
 	AWS            Kind = "aws"
 	Azure          Kind = "azure"
@@ -364,6 +366,9 @@ type PerUser interface {
 // fake service.
 type Options struct {
 	HTTP *http.Client
+	// Dial connects as HTTP does, for a service that is not HTTP, such as
+	// a database. Nil dials directly, as tests need.
+	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// Endpoints overrides a service's base URLs by name, as each adapter
 	// documents. Empty uses the real service.
 	Endpoints map[string]string
@@ -374,7 +379,7 @@ type Options struct {
 var order = []Kind{
 	Teams, GoogleChat, Slack, GoogleDrive, OneDrive, GitHub, GitLab,
 	Jira, Confluence, GoogleDocs, GoogleSheets, GoogleSlides, GoogleCalendar, Gmail, Outlook,
-	HubSpot, Salesforce, Kubernetes, AWS, Azure, GCP,
+	HubSpot, Salesforce, Postgres, Kubernetes, AWS, Azure, GCP,
 }
 
 var (

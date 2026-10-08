@@ -45,7 +45,7 @@ calls its control API and never imports its code.
 ```sh
 make build             # the binary, to build/
 make check             # test + vet + fmt-check, and check-js when node is there
-make test-integration  # store and end-to-end tests, against a throwaway Postgres
+make test-integration  # store, PostgreSQL connector and end-to-end tests, against a throwaway Postgres
 make check-all         # check + test-integration
 make lint              # golangci-lint
 make dev               # Postgres in a container, keera-agents under air, podman driver

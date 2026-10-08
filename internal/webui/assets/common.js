@@ -119,6 +119,7 @@ const KIND_LABELS = {
   outlook: "Outlook",
   hubspot: "HubSpot",
   salesforce: "Salesforce",
+  postgres: "PostgreSQL",
   kubernetes: "Kubernetes",
   aws: "AWS",
   azure: "Azure",

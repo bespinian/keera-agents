@@ -28,6 +28,7 @@ panel shows the same setup steps next to the form.
 | Outlook                 | `outlook`    | mail and calendar tools                | an Entra app (Microsoft Graph)        |
 | HubSpot                 | `hubspot`    | CRM record tools                       | a private app's access token          |
 | Salesforce              | `salesforce` | CRM record tools                       | an app's client credentials           |
+| PostgreSQL              | `postgres`   | SQL queries, tables, changes           | a database role and its password      |
 | Kubernetes              | `kubernetes` | workloads, logs, events, apply         | a service account token               |
 | AWS                     | `aws`        | EC2, S3, CloudWatch, logs, costs       | an access key, and a role to assume   |
 | Azure                   | `azure`      | resource, cost and VM tools            | an Entra app (Resource Manager)       |
@@ -210,12 +211,12 @@ Most services can also act as each person instead of one shared account; see
 ## Each person's own account
 
 A connector usually holds one account, and every agent connected to it acts as
-that account, whoever gives it work. Every connector but the chats and HubSpot
-can instead let **each person sign in with their own account**. An agent then
+that account, whoever gives it work. Every connector but the chats, HubSpot and
+PostgreSQL can instead let **each person sign in with their own account**. An agent then
 works there as the person the task is for, and reaches only what they may. A
 chat's bot stays the organisation's: who may talk to an agent is decided by the
 sender. HubSpot's OAuth tokens reach the whole account, whoever signs in, so
-they would not narrow anything.
+they would not narrow anything. PostgreSQL has no sign-in of this kind.
 
 The administrator chooses this when adding the connector, and enters an OAuth
 client instead of a shared account. Its redirect URI, or callback URL, is
@@ -601,6 +602,44 @@ Agents get these tools:
 
 A Salesforce connector has nothing to narrow to: a binding reaches whatever
 the run-as user may, so that user's permission set is the limit.
+
+## PostgreSQL
+
+Settings: `host`, `port` (empty for 5432), `database`, `user`, `password`,
+`sslmode` (empty or `verify-full`, or `disable`), `ca_cert` (optional).
+
+1. Create a role for your agents, and grant it only what they may see:
+   `USAGE` on the schemas and `SELECT` on the tables. Grant `INSERT`, `UPDATE`
+   or `DELETE` only on the tables agents may change. Never use a superuser:
+   the connector refuses one.
+2. Best, point the connector at a read replica, so a heavy query does not slow
+   the primary.
+3. A server inside your network works only once the operator names its host in
+   `KEERA_AGENTS_UPSTREAM_PRIVATE`; see
+   [Where connectors may connect](install.md#where-connectors-may-connect).
+
+**The role's grants are the limit.** A binding names nothing: it reaches what
+the role may. **A channel that only reads** runs every statement in a read-only
+transaction, in a session whose transactions are read-only too, so PostgreSQL
+itself refuses a write.
+
+**One statement per call.** Each call opens its own connection and runs one
+statement, which may run for 30 seconds. PostgreSQL's extended protocol takes
+one statement only, so a query cannot end its transaction and go on. TLS is
+required and the certificate checked, unless `sslmode` is `disable`. Rows
+come back as text, as `psql` shows them, with each value cut at 2,000
+characters.
+
+Agents get these tools:
+
+- `postgres_list_tables`: the tables and views the role may read, with
+  estimated row counts and comments.
+- `postgres_describe_table`: a table's columns, types, defaults and comments,
+  and its keys and checks.
+- `postgres_query`: run one read-only statement, up to 1,000 rows, 100 by
+  default.
+- `postgres_execute`: run one statement that changes data and commit it, with
+  the rows it changed and those of a `RETURNING` clause. Needs write.
 
 ## Kubernetes
 
