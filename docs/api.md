@@ -26,6 +26,8 @@ answer 404.
 - A task is seen by whoever asked, the agent's owner and administrators.
 - Only administrators manage connectors, read the audit log, take an agent
   over, and choose an agent's project or image.
+- Everyone connects and disconnects their own account to a connector people
+  sign in to, and only their own.
 - A workspace is its owner's. Administrators also see, change, stop and
   delete it. Nobody else sees it: it answers 404. Only the owner connects.
 
@@ -174,13 +176,14 @@ What Keera Chat calls, with the person's gateway sign-in. See
 
 The panel calls them connectors; the API keeps the name connections.
 
-Kind descriptor (`GET /api/v1/connection-kinds` → `{data:[Descriptor]}`):
+Kind descriptor (`GET /api/v1/connection-kinds` → `{data:[Descriptor],callback_url}`):
 
 ```
 {kind,label,vendor,category,summary,chat:bool,files:bool,code:bool,api:bool,
  tools:[{name,description,write}] (API kinds),
  fields:[{name,label,help,secret,required,multiline,endpoint}],setup (text; "{webhook}" placeholder),
- target_label,target_help,any_target:bool}
+ target_label,target_help,any_target:bool,
+ sign_in:{fields,setup} (kinds people may sign in to; setup has a "{callback}" placeholder)}
 ```
 
 The kinds are listed in [channels.md](channels.md).
@@ -189,15 +192,23 @@ Connection:
 
 ```
 {id,kind,name,config:{...non-secret fields},secrets_set:["field",...],webhook_url (chat kinds),
+ per_user:bool,account:{account,created_at,updated_at} (the caller's own sign-in, when per_user),
  created_by,created_at,updated_at,bindings:int}
 ```
 
-- `GET /api/v1/connections` → `{data:[Connection]}`
-- `POST /api/v1/connections {kind,name,config:{},secrets:{}}` → 201 Connection (checked with the service first; 400 with the service's reason)
+`per_user` connectors act as each person, who signs in with their own account
+(see [channels.md](channels.md#each-persons-own-account)). It is set when the
+connector is created, from `sign_in.fields` instead of `fields`, and kept.
+
+- `GET /api/v1/connections` → `{data:[Connection], sign_in_result?:{connection_id,error}}` (how the caller's last sign-in went, shown once)
+- `POST /api/v1/connections {kind,name,config:{},secrets:{},per_user}` → 201 Connection (checked with the service first; 400 with the service's reason)
 - `PATCH /api/v1/connections/{id} {name,config,secrets}` (a secret left out or empty keeps its value, unless an `endpoint` field changes; then 400 until it is sent again)
 - `DELETE /api/v1/connections/{id}` → 204
 - `POST /api/v1/connections/{id}/check` → `{ok:true}` or 400
 - `GET /api/v1/connections/{id}/folders?parent=<id>` → `{data:[{id,name,folder,web_url,modified}]}` (file kinds; for a folder picker)
+- `POST /api/v1/connections/{id}/account` → `{url}`: where the browser goes to sign in. The service sends it back to
+  `GET /auth/connector/callback`, which keeps the sign-in and redirects to `/connectors`.
+- `DELETE /api/v1/connections/{id}/account` → 204 (404 when the caller has not connected one)
 
 ## Workspaces
 

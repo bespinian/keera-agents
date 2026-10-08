@@ -1,8 +1,9 @@
 // Package salesforce lets agents work in a Salesforce org: query it with
 // SOQL, search it, read, describe, create and update records. It signs in
 // with an External Client App's or Connected App's client credentials, as
-// the integration user the app runs as, whose permissions are the limit of
-// what agents may do.
+// the integration user the app runs as, or as each person who signs in with
+// their own account. That user's permissions are the limit of what agents
+// may do.
 //
 // The org's My Domain URL is a connection setting, so there are no
 // endpoints to override: tests point the setting at a fake server.
@@ -51,12 +52,57 @@ type Adapter struct {
 	hc     *http.Client
 	tokens oauth.Cache
 	set    apitool.Set
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
 	a := &Adapter{hc: web.SameServerClient(opts)}
 	a.set = a.tools()
+	a.Accounts = oauth.NewAccounts(oauth.AccountsConfig{
+		Service: "Salesforce",
+		HTTP:    a.hc,
+		SignIn: channels.SignIn{
+			Fields: fields(),
+			Setup: "1. In Salesforce Setup, create an **External Client App** with OAuth enabled, the callback URL {callback}, " +
+				"and the scopes **Manage user data via APIs (api)**, **Perform requests at any time (refresh_token, offline_access)**, " +
+				"**Access unique user identifiers (openid)** and **Access your email address (email)**.\n" +
+				"2. In its policies, let the people who use agents sign in, and keep refresh tokens valid until revoked.\n" +
+				"3. Copy the app's consumer key and secret, and your org's My Domain URL, here. " +
+				"Then each person connects their own Salesforce account under Connectors.\n" +
+				"4. Agents can do what that person may, through their profile, permission sets and sharing.",
+		},
+		App: func(conn channels.Connection) (oauth.App, error) {
+			o, err := orgOf(conn)
+			if err != nil {
+				return oauth.App{}, err
+			}
+			return oauth.App{
+				AuthURL: o.domain + "/services/oauth2/authorize", TokenURL: o.domain + "/services/oauth2/token",
+				ClientID: o.clientID, Secret: o.secret,
+				Scopes: []string{"api", "refresh_token", "openid", "email"},
+			}, nil
+		},
+		// Salesforce does not say when a token expires.
+		Lifetime: lifetime,
+	})
 	return a
+}
+
+func fields() []channels.Field {
+	return []channels.Field{
+		{
+			Name: "domain_url", Label: "My Domain URL", Required: true, Endpoint: true,
+			Help: "Your org's address, such as https://acme.my.salesforce.com.",
+		},
+		{
+			Name: "client_id", Label: "Consumer key", Required: true,
+			Help: "The app's consumer key, or client ID.",
+		},
+		{
+			Name: "client_secret", Label: "Consumer secret", Secret: true, Required: true,
+			Help: "The app's consumer secret, or client secret.",
+		},
+	}
 }
 
 func (a *Adapter) Descriptor() channels.Descriptor {
@@ -66,20 +112,7 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		Vendor:   "Salesforce",
 		Category: "CRM",
 		Summary:  "Query, search, read, create and update records such as accounts, contacts, opportunities, leads and cases.",
-		Fields: []channels.Field{
-			{
-				Name: "domain_url", Label: "My Domain URL", Required: true, Endpoint: true,
-				Help: "Your org's address, such as https://acme.my.salesforce.com.",
-			},
-			{
-				Name: "client_id", Label: "Consumer key", Required: true,
-				Help: "The app's consumer key, or client ID.",
-			},
-			{
-				Name: "client_secret", Label: "Consumer secret", Secret: true, Required: true,
-				Help: "The app's consumer secret, or client secret.",
-			},
-		},
+		Fields:   fields(),
 		Setup: "1. In Salesforce Setup, create a user for your agents, best with the **Salesforce Integration** user licence.\n" +
 			"2. Give that user a permission set with **API Enabled** and access to only the objects and fields agents may read or change.\n" +
 			"3. Create an **External Client App** (or a Connected App) with OAuth enabled and the scope **Manage user data via APIs (api)**.\n" +
@@ -130,6 +163,18 @@ func (a *Adapter) session(ctx context.Context, o org) (session, error) {
 	}
 	instance, token, _ := strings.Cut(v, " ")
 	return session{token: token, instance: instance}, nil
+}
+
+// sessionFor is the session a call uses: the person's own, on a connector
+// people sign in to, on the org's own server, or the run-as user's.
+func (a *Adapter) sessionFor(ctx context.Context, conn channels.Connection, o org) (session, error) {
+	if !conn.PerUser {
+		return a.session(ctx, o)
+	}
+	if conn.Token == "" {
+		return session{}, oauth.ErrNoToken
+	}
+	return session{token: conn.Token, instance: o.domain}, nil
 }
 
 // signIn asks for a token with the client credentials flow. It posts the
@@ -199,7 +244,7 @@ func (a *Adapter) call(ctx context.Context, conn channels.Connection, method, pa
 	// A refused token has expired early; one more try with a new one is
 	// safe, since a 401 means nothing was done.
 	for try := 0; ; try++ {
-		s, err := a.session(ctx, o)
+		s, err := a.sessionFor(ctx, conn, o)
 		if err != nil {
 			return err
 		}
@@ -210,7 +255,7 @@ func (a *Adapter) call(ctx context.Context, conn channels.Connection, method, pa
 		req.Header.Set("Authorization", "Bearer "+s.token)
 		req.Header.Set("Accept", "application/json")
 		err = web.DoJSON(a.hc, req, "Salesforce", 16<<20, fail, out)
-		if web.Status(err) != http.StatusUnauthorized {
+		if web.Status(err) != http.StatusUnauthorized || conn.PerUser {
 			return err
 		}
 		a.tokens.Forget(o.key())
@@ -234,6 +279,9 @@ func fail(status int, b []byte) error {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
+	if conn.PerUser {
+		return a.CheckClient(ctx, conn)
+	}
 	o, err := orgOf(conn)
 	if err != nil {
 		return err

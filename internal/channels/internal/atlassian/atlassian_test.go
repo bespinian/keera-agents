@@ -1,7 +1,12 @@
 package atlassian
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/channels"
@@ -77,5 +82,86 @@ func TestCut(t *testing.T) {
 	}
 	if got := Cut("ääääää", 3); !strings.HasPrefix(got, "äää\n[") {
 		t.Fatalf("Cut = %q", got)
+	}
+}
+
+// gateway fakes Atlassian's sign-in and API gateway for a person's token.
+func gateway(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	var lookups atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth/token" {
+			_ = r.ParseForm()
+			switch {
+			case r.Form.Get("client_secret") != "pw":
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"access_denied","error_description":"Unauthorized"}`))
+			case r.Form.Get("grant_type") == "authorization_code":
+				_, _ = w.Write([]byte(`{"access_token":"user-tok","expires_in":3600,"refresh_token":"r1"}`))
+			default:
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"Unknown or invalid refresh token."}`))
+			}
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer user-tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/oauth/token/accessible-resources":
+			lookups.Add(1)
+			_, _ = w.Write([]byte(`[{"id":"other","url":"https://else.atlassian.net"},{"id":"cloud-1","url":"https://acme.atlassian.net/"}]`))
+		case "/me":
+			_, _ = w.Write([]byte(`{"email":"ada@acme.ch"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &lookups
+}
+
+func TestPerUser(t *testing.T) {
+	srv, lookups := gateway(t)
+	c := New(channels.Options{HTTP: srv.Client(), Endpoints: map[string]string{"auth": srv.URL, "api": srv.URL}}, "Jira")
+	ctx := context.Background()
+	conn := channels.Connection{
+		Kind: channels.Jira, PerUser: true,
+		Config:  map[string]string{"base_url": "https://acme.atlassian.net", "client_id": "cid"},
+		Secrets: map[string]string{"client_secret": "pw"},
+	}
+	accounts := c.Accounts("read:jira-work")
+
+	if err := accounts.CheckClient(ctx, conn); err != nil {
+		t.Errorf("CheckClient = %v", err)
+	}
+	u, err := accounts.SignInURL(conn, "https://k/cb", "st", "ch")
+	q, _ := url.Parse(u)
+	if err != nil || q.Query().Get("audience") != "api.atlassian.com" ||
+		q.Query().Get("scope") != "read:jira-work read:me offline_access" {
+		t.Errorf("SignInURL = %s, %v", u, err)
+	}
+	// Atlassian gives no ID token, so it is asked who signed in.
+	g, err := accounts.Exchange(ctx, conn, "https://k/cb", "code", "v")
+	if err != nil || g.Account != "ada@acme.ch" || g.Refresh != "r1" {
+		t.Fatalf("Exchange = %+v, %v", g, err)
+	}
+
+	if _, err := c.Open(ctx, conn); err == nil {
+		t.Error("opened without anyone's token")
+	}
+	conn.Token = "user-tok"
+	for range 2 {
+		s, err := c.Open(ctx, conn)
+		if err != nil || s.APIBase() != srv.URL+"/ex/jira/cloud-1" || s.Base != "https://acme.atlassian.net" || !s.Cloud() {
+			t.Fatalf("Open = %+v, %v", s, err)
+		}
+	}
+	if lookups.Load() != 1 {
+		t.Errorf("the cloud id was looked up %d times", lookups.Load())
+	}
+	conn.Config["base_url"] = "https://nope.atlassian.net"
+	if _, err := c.Open(ctx, conn); err == nil || !strings.Contains(err.Error(), "not given access to https://nope.atlassian.net") {
+		t.Errorf("a site not granted: %v", err)
 	}
 }

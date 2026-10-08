@@ -1,13 +1,14 @@
 // Package gcp lets agents look into one Google Cloud project as a service
-// account: its resources, VMs, logs, metrics and Cloud Storage, and start
-// and stop VMs.
+// account, or as each person who signs in with their own account: its
+// resources, VMs, logs, metrics and Cloud Storage, and start and stop VMs.
 //
 // Every call names the binding's project in its path or scope. A bucket is
 // used only after checking it belongs to that project, since bucket names
-// are global and the service account may reach buckets elsewhere.
+// are global and the connector may reach buckets elsewhere.
 //
 // Endpoints:
 //   - "token": Google's token endpoint, default https://oauth2.googleapis.com/token
+//   - "auth": where people sign in, default https://accounts.google.com/o/oauth2/v2/auth
 //   - "resourcemanager": default https://cloudresourcemanager.googleapis.com
 //   - "asset": Cloud Asset Inventory, default https://cloudasset.googleapis.com
 //   - "compute": default https://compute.googleapis.com
@@ -30,6 +31,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/google"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -52,6 +54,8 @@ type Adapter struct {
 	// numbers are projects' numbers, by key and project ID, and buckets'
 	// projects' numbers, by key and bucket. Neither changes.
 	numbers *web.Cache[string]
+
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
@@ -66,6 +70,8 @@ func New(opts channels.Options) *Adapter {
 		numbers:         web.NewCache[string](24*time.Hour, 1000),
 	}
 	a.tools = a.toolSet()
+	a.Accounts = a.auth.Accounts(scope,
+		"Cloud Resource Manager, Cloud Asset, Compute Engine, Cloud Logging and Cloud Monitoring APIs")
 	return a
 }
 
@@ -108,7 +114,30 @@ func key(conn channels.Connection) (string, error) {
 	return k, nil
 }
 
+// cacheKey keeps what one connector learnt apart from another's.
+func cacheKey(conn channels.Connection) string {
+	if conn.PerUser {
+		return "connection:" + conn.ID
+	}
+	k, _ := key(conn)
+	return k
+}
+
+// who says whose access a call has, for errors.
+func who(conn channels.Connection) string {
+	switch {
+	case !conn.PerUser:
+		return "the service account"
+	case conn.Account != "":
+		return conn.Account
+	}
+	return "the person the agent works for"
+}
+
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
+	if conn.PerUser {
+		return a.CheckClient(ctx, conn)
+	}
 	k, err := key(conn)
 	if err != nil {
 		return err
@@ -116,9 +145,15 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	return a.auth.Check(ctx, k, scope, "")
 }
 
-// send sends req as the service account and returns the body of a 2xx
-// answer.
+// send sends req as the service account, or the person the call is for,
+// and returns the body of a 2xx answer.
 func (a *Adapter) send(conn channels.Connection, req *http.Request, limit int64) ([]byte, error) {
+	if conn.PerUser {
+		if conn.Token == "" {
+			return nil, oauth.ErrNoToken
+		}
+		return a.auth.DoAs(req, conn.Token, limit)
+	}
 	k, err := key(conn)
 	if err != nil {
 		return nil, err
@@ -169,7 +204,7 @@ func (a *Adapter) lookup(ctx context.Context, conn channels.Connection, id strin
 	// Google answers 403 for a project that does not exist, too, so as not
 	// to say which IDs are taken.
 	if s := web.Status(err); s == http.StatusForbidden || s == http.StatusNotFound {
-		return "", fmt.Errorf("the service account cannot see project %s; check the ID and grant it the Viewer role there (%w)", id, err)
+		return "", fmt.Errorf("%s cannot see project %s; check the ID and grant the Viewer role there (%w)", who(conn), id, err)
 	}
 	if err != nil {
 		return "", err
@@ -181,18 +216,13 @@ func (a *Adapter) lookup(ctx context.Context, conn channels.Connection, id strin
 	if !ok || number == "" {
 		return "", fmt.Errorf("the Resource Manager did not say project %s's number", id)
 	}
-	k, _ := key(conn)
-	a.numbers.Put(web.Fingerprint(k, "project", id), number, time.Now())
+	a.numbers.Put(web.Fingerprint(cacheKey(conn), "project", id), number, time.Now())
 	return number, nil
 }
 
 // number is a project's number, cached.
 func (a *Adapter) number(ctx context.Context, conn channels.Connection, id string) (string, error) {
-	k, err := key(conn)
-	if err != nil {
-		return "", err
-	}
-	if n, ok := a.numbers.Get(web.Fingerprint(k, "project", id), time.Now()); ok {
+	if n, ok := a.numbers.Get(web.Fingerprint(cacheKey(conn), "project", id), time.Now()); ok {
 		return n, nil
 	}
 	return a.lookup(ctx, conn, id)
@@ -203,7 +233,7 @@ func (a *Adapter) number(ctx context.Context, conn channels.Connection, id strin
 var validBucket = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$`)
 
 // bucketIn checks that bucket belongs to project id. Bucket names are
-// global, so the service account may reach buckets of other projects.
+// global, so the connector may reach buckets of other projects.
 func (a *Adapter) bucketIn(ctx context.Context, conn channels.Connection, id, bucket string) error {
 	if err := apitool.Need("bucket", bucket); err != nil {
 		return err
@@ -215,22 +245,21 @@ func (a *Adapter) bucketIn(ctx context.Context, conn channels.Connection, id, bu
 	if err != nil {
 		return err
 	}
-	k, _ := key(conn)
-	cacheKey := web.Fingerprint(k, "bucket", bucket)
-	got, ok := a.numbers.Get(cacheKey, time.Now())
+	bucketKey := web.Fingerprint(cacheKey(conn), "bucket", bucket)
+	got, ok := a.numbers.Get(bucketKey, time.Now())
 	if !ok {
 		var b struct {
 			ProjectNumber string `json:"projectNumber"`
 		}
 		err := a.call(ctx, conn, http.MethodGet, a.storage+"/storage/v1/b/"+url.PathEscape(bucket)+"?fields=projectNumber", nil, &b)
 		if s := web.Status(err); s == http.StatusForbidden || s == http.StatusNotFound {
-			return fmt.Errorf("the service account cannot see bucket %s (%w)", bucket, err)
+			return fmt.Errorf("%s cannot see bucket %s (%w)", who(conn), bucket, err)
 		}
 		if err != nil {
 			return err
 		}
 		got = b.ProjectNumber
-		a.numbers.Put(cacheKey, got, time.Now())
+		a.numbers.Put(bucketKey, got, time.Now())
 	}
 	if got != want {
 		return fmt.Errorf("bucket %s is not in project %s, and this connector works only within it", bucket, id)

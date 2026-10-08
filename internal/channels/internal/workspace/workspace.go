@@ -1,6 +1,7 @@
 // Package workspace holds what the Google Workspace API adapters share: the
-// service account settings, signing in, calling an API as JSON, and finding,
-// checking and creating Docs, Sheets and Slides files through Drive.
+// service account settings, signing in, as the service account or as each
+// person, calling an API as JSON, and finding, checking and creating Docs,
+// Sheets and Slides files through Drive.
 package workspace
 
 import (
@@ -49,12 +50,21 @@ func Fields(api string) []channels.Field {
 	}
 }
 
-// Settings are a connection's key file and the user it acts as.
+// Settings are a connection's key file and the user it acts as, or, for a
+// connector people sign in to, the access token of the person a call is
+// for.
 type Settings struct {
-	Key, Subject string
+	Key, Subject   string
+	Token, Account string
 }
 
 func SettingsOf(conn channels.Connection) (Settings, error) {
+	if conn.PerUser {
+		if conn.Token == "" {
+			return Settings{}, oauth.ErrNoToken
+		}
+		return Settings{Token: conn.Token, Account: conn.Account}, nil
+	}
 	s := Settings{Key: web.Value(conn, "service_account_json"), Subject: web.Value(conn, "subject")}
 	if s.Key == "" {
 		return s, errors.New("the service account key is missing")
@@ -64,6 +74,12 @@ func SettingsOf(conn channels.Connection) (Settings, error) {
 
 // Who says whose access a call has, for errors that ask to share something.
 func (s Settings) Who() string {
+	if s.Token != "" {
+		if s.Account != "" {
+			return s.Account
+		}
+		return "the person the agent works for"
+	}
 	if s.Subject != "" {
 		return s.Subject
 	}
@@ -97,7 +113,12 @@ func (c *Client) Do(ctx context.Context, s Settings, method, u string, in, out a
 	if err != nil {
 		return err
 	}
-	b, err := c.auth.Do(req, s.Key, c.scope, s.Subject, maxBody)
+	var b []byte
+	if s.Token != "" {
+		b, err = c.auth.DoAs(req, s.Token, maxBody)
+	} else {
+		b, err = c.auth.Do(req, s.Key, c.scope, s.Subject, maxBody)
+	}
 	if err != nil || out == nil || len(b) == 0 {
 		return err
 	}
@@ -108,8 +129,13 @@ func (c *Client) Do(ctx context.Context, s Settings, method, u string, in, out a
 }
 
 // Check signs in and makes one cheap call, probe, to prove the key works and
-// the API is enabled. A nil probe asks Drive who the connector is.
+// the API is enabled. A nil probe asks Drive who the connector is. A
+// connector people sign in to has nobody signed in yet, so only its OAuth
+// client is checked.
 func (c *Client) Check(ctx context.Context, conn channels.Connection, api string, probe func(context.Context, Settings) error) error {
+	if conn.PerUser {
+		return c.auth.Accounts(c.scope, api).CheckClient(ctx, conn)
+	}
 	s, err := SettingsOf(conn)
 	if err != nil {
 		return err
@@ -134,6 +160,16 @@ func (c *Client) Check(ctx context.Context, conn channels.Connection, api string
 		return fmt.Errorf("signed in, but %w; check that the %s is enabled in the service account's project", err, api)
 	}
 	return fmt.Errorf("signed in, but %w", err)
+}
+
+// Accounts lets people sign in to a kind's connectors with their own
+// accounts. An adapter embeds it to implement channels.PerUser.
+type Accounts = oauth.Accounts
+
+// NewAccounts signs people in for client's scopes. apis names the APIs to
+// enable, as in Setup.
+func NewAccounts(client *Client, apis string) Accounts {
+	return client.auth.Accounts(client.scope, apis)
 }
 
 // File is a Docs, Sheets or Slides file, as tools return it.

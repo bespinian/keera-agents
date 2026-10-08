@@ -276,3 +276,37 @@ y := 2]]></ac:plain-text-body></ac:structured-macro>` +
 		t.Fatalf("broken = %q", got)
 	}
 }
+
+// A person's calls go through Atlassian's gateway, under /wiki, and links
+// still point at the site.
+func TestPerUser(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer user-tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/oauth/token/accessible-resources":
+			_, _ = w.Write([]byte(`[{"id":"cloud-1","url":"https://acme.atlassian.net"}]`))
+		case "/ex/confluence/cloud-1/wiki/rest/api/space/DOCS":
+			_, _ = w.Write([]byte(`{"key":"DOCS","name":"Docs","type":"global","_links":{"webui":"/spaces/DOCS"}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	a := New(channels.Options{HTTP: srv.Client(), Endpoints: map[string]string{"api": srv.URL}})
+	conn := channels.Connection{
+		Kind: channels.Confluence, PerUser: true, Token: "user-tok",
+		Config:  map[string]string{"base_url": "https://acme.atlassian.net", "client_id": "cid"},
+		Secrets: map[string]string{"client_secret": "pw"},
+	}
+	if got, err := a.Target(context.Background(), conn, "DOCS"); err != nil || got != "DOCS" {
+		t.Fatalf("Target = %q, %v", got, err)
+	}
+	out, err := a.Call(context.Background(), conn, "DOCS", "list_spaces", json.RawMessage(`{}`))
+	b, _ := json.Marshal(out)
+	if err != nil || !strings.Contains(string(b), "https://acme.atlassian.net/wiki/spaces/DOCS") {
+		t.Errorf("list_spaces = %s, %v", b, err)
+	}
+}

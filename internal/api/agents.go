@@ -672,18 +672,26 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 		badRequest(w, "name the "+strings.ToLower(cmp.Or(desc.TargetLabel, "target"))+"; * is not allowed here")
 		return
 	}
+	// A connector people sign in to works for whoever adds the channel, as
+	// for a folder watch, so they must have signed in.
+	if c.PerUser {
+		if _, err := s.disp.ConnFor(r.Context(), c, p.UserID); err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+	}
 	// Checked now, so a typo, or credentials that cannot reach it, fail
 	// here and not in the middle of a task.
 	switch {
 	case in.Mode == store.ModeRepo:
-		repo, err := s.disp.LookupRepo(r.Context(), c, in.Target)
+		repo, err := s.disp.LookupRepo(r.Context(), c, in.Target, p.UserID)
 		if err != nil {
 			badRequest(w, err.Error())
 			return
 		}
 		in.Target = repo.Path
 	case apiMode:
-		target, err := s.disp.LookupTarget(r.Context(), c, in.Target)
+		target, err := s.disp.LookupTarget(r.Context(), c, in.Target, p.UserID)
 		if err != nil {
 			badRequest(w, err.Error())
 			return

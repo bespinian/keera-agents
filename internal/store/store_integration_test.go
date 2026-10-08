@@ -701,3 +701,68 @@ func TestGauges(t *testing.T) {
 		t.Fatalf("delivered: %+v", g)
 	}
 }
+
+func TestAccounts(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	c, err := st.CreateConnection(ctx, Connection{
+		ID: id.New("con"), OrgID: "org_a", Kind: "gdocs", Name: "Docs", Config: map[string]string{},
+		PerUser: true, CreatedBy: "ada",
+	})
+	if err != nil || !c.PerUser {
+		t.Fatalf("CreateConnection = %+v, %v", c, err)
+	}
+	// Changing a connector keeps whom it acts as.
+	c.PerUser = false
+	if c, err = st.UpdateConnection(ctx, c); err != nil || !c.PerUser {
+		t.Fatalf("UpdateConnection = %+v, %v", c, err)
+	}
+	if _, err := st.Account(ctx, c.ID, "usr_1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Account before signing in: %v", err)
+	}
+	for _, a := range []Account{
+		{ConnectionID: c.ID, UserID: "usr_1", Account: "old@acme.ch", Token: []byte("t0")},
+		{ConnectionID: c.ID, UserID: "usr_1", Account: "ada@acme.ch", Token: []byte("t1")},
+		{ConnectionID: c.ID, UserID: "usr_2", Account: "bob@acme.ch", Token: []byte("t2")},
+	} {
+		if err := st.SaveAccount(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := st.Account(ctx, c.ID, "usr_1")
+	if err != nil || a.Account != "ada@acme.ch" || string(a.Token) != "t1" || a.OrgID != "org_a" {
+		t.Fatalf("Account = %+v, %v", a, err)
+	}
+	if err := st.SetAccountToken(ctx, c.ID, "usr_1", []byte("t3")); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := st.Account(ctx, c.ID, "usr_1"); string(a.Token) != "t3" {
+		t.Errorf("rotated token = %q", a.Token)
+	}
+	if mine, _ := st.UserAccounts(ctx, "org_a", "usr_1"); len(mine) != 1 || mine[0].ConnectionID != c.ID {
+		t.Errorf("UserAccounts = %+v", mine)
+	}
+	if other, _ := st.UserAccounts(ctx, "org_b", "usr_1"); len(other) != 0 {
+		t.Errorf("another organisation's accounts: %+v", other)
+	}
+	if holders, _ := st.AccountHolders(ctx); len(holders) != 2 {
+		t.Errorf("AccountHolders = %+v", holders)
+	}
+	if n, err := st.DeleteUserAccounts(ctx, "org_a", "usr_2"); err != nil || n != 1 {
+		t.Errorf("DeleteUserAccounts = %d, %v", n, err)
+	}
+	if err := st.DeleteAccount(ctx, c.ID, "usr_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteAccount(ctx, c.ID, "usr_1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second DeleteAccount: %v", err)
+	}
+	// Deleting the connector forgets everyone's sign-in.
+	_ = st.SaveAccount(ctx, Account{ConnectionID: c.ID, UserID: "usr_1", Token: []byte("t")})
+	if err := st.DeleteConnection(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if holders, _ := st.AccountHolders(ctx); len(holders) != 0 {
+		t.Errorf("accounts outlived their connector: %+v", holders)
+	}
+}

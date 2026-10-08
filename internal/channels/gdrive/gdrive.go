@@ -1,8 +1,10 @@
 // Package gdrive lets agents work in Google Drive folders as a service
-// account, or as a user of the domain through domain-wide delegation.
+// account, as a user of the domain through domain-wide delegation, or as
+// each person who signs in with their own account.
 //
 // Endpoints:
 //   - "token": Google's token endpoint, default https://oauth2.googleapis.com/token
+//   - "auth": where people sign in, default https://accounts.google.com/o/oauth2/v2/auth
 //   - "drive": the base of the Drive API and its uploads, default
 //     https://www.googleapis.com
 package gdrive
@@ -26,6 +28,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/google"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -54,13 +57,22 @@ var validID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 type Adapter struct {
 	auth *google.Auth
 	base string
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
-	return &Adapter{
+	a := &Adapter{
 		auth: google.NewAuth(opts),
 		base: web.Endpoint(opts, "drive", "https://www.googleapis.com"),
 	}
+	a.Accounts = a.auth.Accounts(scope, "Google Drive API").WithFields(sharedDrive)
+	return a
+}
+
+// sharedDrive is a setting of both kinds of connector.
+var sharedDrive = channels.Field{
+	Name: "shared_drive_id", Label: "Shared drive ID",
+	Help: "To work in a shared drive: the ID at the end of its URL. Leave empty for My Drive.",
 }
 
 func (a *Adapter) Descriptor() channels.Descriptor {
@@ -80,10 +92,7 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 				Help: "An email in your domain to act as, through domain-wide delegation. " +
 					"Leave empty to act as the service account, and share the folders with it.",
 			},
-			{
-				Name: "shared_drive_id", Label: "Shared drive ID",
-				Help: "To work in a shared drive: the ID at the end of its URL. Leave empty for My Drive.",
-			},
+			sharedDrive,
 		},
 		Setup: "1. In a Google Cloud project, enable the Google Drive API.\n" +
 			"2. Create a service account with a JSON key.\n" +
@@ -91,12 +100,15 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 			"grant the service account's client ID domain-wide delegation for the scope https://www.googleapis.com/auth/drive " +
 			"and enter the user to act as.",
 		TargetLabel: "Folder",
-		TargetHelp:  "A folder's ID, the last part of its URL, or root.",
+		TargetHelp: "A folder's ID, the last part of its URL, or root. On a connector people sign in to, " +
+			"root is the My Drive of whoever the agent works for.",
 	}
 }
 
+// settings are a connection's key file and the user it acts as, or the
+// token of the person a call is for, and the drive.
 type settings struct {
-	key, subject, drive string
+	key, subject, token, drive string
 }
 
 func settingsOf(conn channels.Connection) (settings, error) {
@@ -104,6 +116,12 @@ func settingsOf(conn channels.Connection) (settings, error) {
 		key:     web.Value(conn, "service_account_json"),
 		subject: web.Value(conn, "subject"),
 		drive:   web.Value(conn, "shared_drive_id"),
+	}
+	if conn.PerUser {
+		if conn.Token == "" {
+			return s, oauth.ErrNoToken
+		}
+		s.key, s.subject, s.token = "", "", conn.Token
 	}
 	if s.drive != "" && !validID.MatchString(s.drive) {
 		return s, errors.New("the shared drive ID is not valid")
@@ -157,6 +175,9 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, q u
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
+	if s.token != "" {
+		return a.auth.DoAs(req, s.token, limit)
+	}
 	return a.auth.Do(req, s.key, scope, s.subject, limit)
 }
 
@@ -169,6 +190,9 @@ func (a *Adapter) getJSON(ctx context.Context, s settings, path string, q url.Va
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
+	if conn.PerUser {
+		return a.CheckClient(ctx, conn)
+	}
 	s, err := settingsOf(conn)
 	if err != nil {
 		return err

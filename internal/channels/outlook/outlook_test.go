@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/channels/internal/jwttest"
 )
 
 const box = "ada@example.com"
@@ -247,5 +248,81 @@ func TestStaysInMailbox(t *testing.T) {
 		if tool.Write != write {
 			t.Errorf("%s: Write = %v", tool.Name, tool.Write)
 		}
+	}
+}
+
+// A connector people sign in to works as each of them, in their own mailbox
+// or one shared with them.
+func TestPerUser(t *testing.T) {
+	key := jwttest.NewKey(t, "k")
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /login/tenant-1/oauth2/v2.0/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		switch {
+		case r.Form.Get("client_secret") != "pw":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"AADSTS7000215: Invalid client secret provided."}`))
+		case r.Form.Get("grant_type") == "authorization_code":
+			// Microsoft may name the account only by its user name.
+			id := key.Sign(t, map[string]any{"preferred_username": "ada@example.com"})
+			_, _ = w.Write([]byte(`{"access_token":"user-tok","expires_in":3600,"refresh_token":"r1","id_token":"` + id + `"}`))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"AADSTS9002313: Invalid request."}`))
+		}
+	})
+	asUser := func(status int, body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer user-tok" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(body))
+		}
+	}
+	mux.HandleFunc("GET /graph/me/mailFolders/inbox", asUser(200, `{"id":"AAMkInbox"}`))
+	mux.HandleFunc("GET /graph/me/mailFolders", asUser(200, `{"value":[{"id":"f1","displayName":"Inbox"}]}`))
+	mux.HandleFunc("GET /graph/users/boss@example.com/mailFolders/inbox", asUser(403,
+		`{"error":{"code":"ErrorAccessDenied","message":"Access is denied."}}`))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	a := New(channels.Options{Endpoints: map[string]string{"login": srv.URL + "/login", "graph": srv.URL + "/graph"}})
+	ctx := context.Background()
+	client := conn("pw")
+	client.PerUser = true
+
+	if err := a.Check(ctx, client); err != nil {
+		t.Errorf("Check = %v", err)
+	}
+	if err := a.Check(ctx, func() channels.Connection { c := conn("wrong"); c.PerUser = true; return c }()); err == nil {
+		t.Error("a wrong secret passed")
+	}
+	u, err := a.SignInURL(client, "https://k/cb", "st", "ch")
+	if err != nil || !strings.HasPrefix(u, srv.URL+"/login/tenant-1/oauth2/v2.0/authorize?") ||
+		!strings.Contains(u, "Mail.ReadWrite") || !strings.Contains(u, "offline_access") {
+		t.Errorf("SignInURL = %s, %v", u, err)
+	}
+	g, err := a.Exchange(ctx, client, "https://k/cb", "code", "v")
+	if err != nil || g.Account != "ada@example.com" {
+		t.Fatalf("Exchange = %+v, %v", g, err)
+	}
+
+	user := client
+	user.Token = "user-tok"
+	if got, err := a.Target(ctx, user, "Me"); err != nil || got != me {
+		t.Errorf("Target(me) = %q, %v", got, err)
+	}
+	if _, err := a.Target(ctx, user, "boss@example.com"); err == nil || !strings.Contains(err.Error(), "shared with you") {
+		t.Errorf("a mailbox not shared: %v", err)
+	}
+	if _, err := a.Target(ctx, conn("pw"), "me"); err == nil {
+		t.Error("me passed on a shared connector")
+	}
+	if out, err := a.Call(ctx, user, me, "list_folders", nil); err != nil || out == nil {
+		t.Errorf("list_folders = %v, %v", out, err)
+	}
+	if _, err := a.Call(ctx, client, me, "list_folders", nil); err == nil {
+		t.Error("a call for nobody passed")
 	}
 }

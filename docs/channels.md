@@ -171,8 +171,9 @@ for a person to review. It can also list and read issues and comment on them.
 The token never enters the agent's machine. Git there talks to
 `http://127.0.0.1:7417`, which the agent's runtime serves and passes on to the
 control plane with its runtime token. The control plane checks the agent is
-connected to the repository and is running a task, adds the token, and passes
-the request on to GitHub or GitLab.
+connected to the repository and is running a task, adds the token, or that of
+the person the task is for ([Each person's own account](#each-persons-own-account)),
+and passes the request on to GitHub or GitLab.
 
 **Agents push only to branches starting with `keera/`.** The control plane
 reads the start of every push and refuses it if it names any other branch, or a
@@ -201,6 +202,90 @@ connector's credentials no more than the agents should have too: the service
 enforces those itself.
 
 A tool's answer is cut at 64 KiB, and the agent is told to ask for less.
+
+Most services can also act as each person instead of one shared account; see
+[Each person's own account](#each-persons-own-account).
+
+## Each person's own account
+
+A connector usually holds one account, and every agent connected to it acts as
+that account, whoever gives it work. Every connector but the chats and HubSpot
+can instead let **each person sign in with their own account**. An agent then
+works there as the person the task is for, and reaches only what they may. A
+chat's bot stays the organisation's: who may talk to an agent is decided by the
+sender. HubSpot's OAuth tokens reach the whole account, whoever signs in, so
+they would not narrow anything.
+
+The administrator chooses this when adding the connector, and enters an OAuth
+client instead of a shared account. Its redirect URI, or callback URL, is
+`<KEERA_AGENTS_PUBLIC_URL>/auth/connector/callback`. The panel shows the full
+steps; in short:
+
+- **Google** (Drive, Docs, Sheets, Slides, Calendar, Google Cloud): enable the
+  APIs the kind needs, set the Google Auth Platform's audience to **Internal**,
+  and create an OAuth client of type **Web application**.
+- **Microsoft** (OneDrive and SharePoint, Outlook, Azure): register an app for
+  your tenant with the platform **Web**, and add the delegated permissions the
+  panel names: `Files.ReadWrite.All` for OneDrive, `Mail.ReadWrite`,
+  `Mail.Send` and `Calendars.ReadWrite` and their `.Shared` forms for Outlook,
+  `user_impersonation` of Azure Service Management for Azure.
+- **Atlassian** (Jira, Confluence): create an OAuth 2.0 integration in the
+  developer console, add the product's scopes and `read:me`, and set its
+  distribution to **Sharing**. Only Atlassian Cloud signs people in. Their
+  calls go through `api.atlassian.com`, not the site.
+- **Salesforce**: create an External Client App with the scopes `api`,
+  `refresh_token`, `openid` and `email`, and let people sign in to it. Agents
+  then have the person's profile, permission sets and sharing.
+- **GitHub**: create a GitHub App with **Expire user authorization tokens**
+  on, Contents, Issues and Pull requests set to Read and write, and install it
+  on the repositories. Agents reach what both the app and the person may.
+- **GitLab**: add an OAuth application with the scopes `api`, `openid` and
+  `email`.
+- **Your own identity provider** (Kubernetes, AWS), such as Entra ID, Okta,
+  Keycloak or Google: register a web app there, and enter its issuer URL. The
+  person's **ID token** is what the service gets, so it must trust that
+  provider. A Kubernetes API server takes it with `--oidc-issuer-url` and
+  `--oidc-client-id` (or an OIDC identity provider on EKS), and its RBAC then
+  decides what each person may. AWS takes it as an IAM OpenID Connect provider:
+  each person assumes the connector's role with `AssumeRoleWithWebIdentity`, in
+  a session named after their email, so CloudTrail shows them. The role's trust
+  policy decides who may, but everyone who may gets the role's permissions;
+  narrow them per person with conditions on the token's claims or with session
+  tags.
+
+Then each person presses **Connect your account** on the connector, signs in,
+and agrees to what agents may do. **Disconnect** forgets it. The panel shows
+who you are connected as.
+
+An Outlook channel on such a connector may name the mailbox `me`: the mailbox
+of whoever the task is for. A named mailbox must be shared with that person.
+A OneDrive connector still names one drive, since a folder's ID belongs to it,
+so use one people share, such as a SharePoint library. On Google Drive, the
+folder `root` is the My Drive of whoever the task is for.
+
+**Code is pushed as the person.** On GitHub and GitLab, git and the issue
+tools use the person's token, so their pushes, comments and pull or merge
+requests show as theirs. Commits are still authored as the agent, and agents
+still push only to branches starting with `keera/`.
+
+**Who a task is for.** Whoever asked in a chat, in Keera Chat or in the panel;
+whoever last set up a schedule or gave a card; whoever added a folder watch. A
+folder watch also reads the folder as whoever added it. A workspace acts as its
+owner. A person who has not connected their account gets an error from the
+tool, which the agent passes on.
+
+**Adding a channel** to such a connector works as you: you must have connected
+your own account first, its target is checked as you, and the panel's folder
+picker shows your folders.
+
+**The tokens stay in the control plane.** Each person's refresh token is
+sealed with `KEERA_AGENTS_SECRET_KEY`, and access tokens are only kept in
+memory. Neither reaches an agent. When someone leaves the organisation or is
+disabled, their sign-ins are forgotten within ten minutes.
+
+The channel's target and read-only mode still apply on top. Remember that the
+agent's owner wrote its instructions: give work only to agents you trust to
+act as you.
 
 ## Jira
 

@@ -279,3 +279,26 @@ func TestTools(t *testing.T) {
 		t.Fatalf("tools = %v", writes)
 	}
 }
+
+// A person's calls carry their token, and errors name them.
+func TestPerUser(t *testing.T) {
+	_, a := newFake(t)
+	ctx := context.Background()
+	user := channels.Connection{
+		ID: "con_1", Kind: channels.GCP, PerUser: true, Token: "g", Account: "ada@acme.ch",
+		Config: map[string]string{"client_id": "cid"}, Secrets: map[string]string{"client_secret": "pw"},
+	}
+	if got, err := a.Target(ctx, user, "acme-prod"); err != nil || got != "acme-prod" {
+		t.Fatalf("Target = %q, %v", got, err)
+	}
+	if _, err := a.Target(ctx, user, "other-proj"); err == nil || !strings.Contains(err.Error(), "ada@acme.ch cannot see project") {
+		t.Errorf("a project not shared: %v", err)
+	}
+	if _, err := call(t, a, user, "acme-prod", "list_objects", `{"bucket":"foreign"}`); err == nil {
+		t.Error("a bucket of another project passed")
+	}
+	user.Token = ""
+	if _, err := a.Target(ctx, user, "acme-prod"); err == nil {
+		t.Error("a call for nobody passed")
+	}
+}

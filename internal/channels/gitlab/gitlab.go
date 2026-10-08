@@ -1,6 +1,8 @@
 // Package gitlab lets agents work in GitLab projects with an access token: a
 // project or group access token, or a personal one of a user made for the
-// agents. It works with gitlab.com and with GitLab run on your own servers.
+// agents, or the token of each person who signs in through an OAuth
+// application. It works with gitlab.com and with GitLab run on your own
+// servers.
 //
 // The token reaches the REST API for issues and merge requests, and git over
 // HTTPS, through the control plane's git proxy. It never reaches an agent.
@@ -14,6 +16,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -22,6 +25,7 @@ import (
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -38,10 +42,47 @@ const maxComments = 100
 type Adapter struct {
 	hc   *http.Client
 	base string
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
-	return &Adapter{hc: web.SameServerClient(opts), base: web.Endpoint(opts, "base", "https://gitlab.com")}
+	a := &Adapter{hc: web.SameServerClient(opts), base: web.Endpoint(opts, "base", "https://gitlab.com")}
+	a.Accounts = oauth.NewAccounts(oauth.AccountsConfig{
+		Service: "GitLab",
+		HTTP:    a.hc,
+		SignIn: channels.SignIn{
+			Fields: []channels.Field{
+				{Name: "client_id", Label: "Application ID", Required: true},
+				{Name: "client_secret", Label: "Secret", Secret: true, Required: true},
+				selfManaged,
+			},
+			Setup: "1. In your group's or instance's settings, under Applications, add an **OAuth application**.\n" +
+				"2. Set its redirect URI to {callback}, keep it confidential, and give it the scopes api, openid and email.\n" +
+				"3. Enter its application ID and secret here. Then each person connects their own GitLab account under Connectors. " +
+				"Agents reach what that person may, and push and open merge requests as them.",
+		},
+		App: func(conn channels.Connection) (oauth.App, error) {
+			base, err := a.baseOf(conn)
+			id, secret := web.Value(conn, "client_id"), web.Value(conn, "client_secret")
+			switch {
+			case err != nil:
+				return oauth.App{}, err
+			case id == "" || secret == "":
+				return oauth.App{}, errors.New("the application ID or secret is missing")
+			}
+			return oauth.App{
+				AuthURL: base + "/oauth/authorize", TokenURL: base + "/oauth/token", ClientID: id, Secret: secret,
+				Scopes: []string{"api", "openid", "email"},
+			}, nil
+		},
+	})
+	return a
+}
+
+// selfManaged is a setting of both kinds of connector.
+var selfManaged = channels.Field{
+	Name: "base_url", Label: "GitLab URL", Endpoint: true,
+	Help: "Only for GitLab on your own servers, such as https://gitlab.example.com. Empty for gitlab.com.",
 }
 
 func (a *Adapter) Descriptor() channels.Descriptor {
@@ -56,10 +97,7 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 				Name: "token", Label: "Access token", Secret: true, Required: true,
 				Help: "A project, group or personal access token, starting with glpat-.",
 			},
-			{
-				Name: "base_url", Label: "GitLab URL", Endpoint: true,
-				Help: "Only for GitLab on your own servers, such as https://gitlab.example.com. Empty for gitlab.com.",
-			},
+			selfManaged,
 		},
 		Setup: "1. Create a group or project access token with the role Developer and the scopes api and " +
 			"write_repository. A personal access token of a user made for the agents works too.\n" +
@@ -69,13 +107,42 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	}
 }
 
+// settings are the token to call with, and where. person is a token of
+// someone who signed in.
 type settings struct {
 	token, base string
+	person      bool
+}
+
+const badBase = "the GitLab URL must be https://, such as https://gitlab.example.com"
+
+// baseOf is gitlab.com, or the connection's own GitLab.
+func (a *Adapter) baseOf(conn channels.Connection) (string, error) {
+	base, ok := web.BaseURL(web.Value(conn, "base_url"))
+	if !ok {
+		return "", errors.New(badBase)
+	}
+	return cmp.Or(base, a.base), nil
 }
 
 func (a *Adapter) settingsOf(conn channels.Connection) (settings, error) {
-	token, base, err := web.TokenAndBaseURL(conn, "the GitLab URL must be https://, such as https://gitlab.example.com")
+	if conn.PerUser {
+		base, err := a.baseOf(conn)
+		if err == nil && conn.Token == "" {
+			err = oauth.ErrNoToken
+		}
+		return settings{token: conn.Token, base: base, person: true}, err
+	}
+	token, base, err := web.TokenAndBaseURL(conn, badBase)
 	return settings{token: token, base: cmp.Or(base, a.base)}, err
+}
+
+// who names whose access a call has, for errors.
+func (s settings) who() string {
+	if s.person {
+		return "the GitLab account"
+	}
+	return "the token"
 }
 
 // open reads the connection's settings and checks the project's path.
@@ -99,7 +166,13 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, in,
 	if err != nil {
 		return err
 	}
-	req.Header.Set("PRIVATE-TOKEN", s.token)
+	if s.person {
+		// An OAuth token goes as a bearer token; PRIVATE-TOKEN is for the
+		// access tokens people create.
+		req.Header.Set("Authorization", "Bearer "+s.token)
+	} else {
+		req.Header.Set("PRIVATE-TOKEN", s.token)
+	}
 	req.Header.Set("Accept", "application/json")
 	return web.DoJSON(a.hc, req, "GitLab", 16<<20, func(status int, b []byte) error {
 		// GitLab's message is a string, a list or an object of lists.
@@ -121,6 +194,9 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, in,
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
+	if conn.PerUser {
+		return a.CheckClient(ctx, conn)
+	}
 	s, err := a.settingsOf(conn)
 	if err != nil {
 		return err
@@ -154,7 +230,7 @@ func (a *Adapter) Repo(ctx context.Context, conn channels.Connection, path strin
 	}
 	err = a.call(ctx, s, http.MethodGet, project(path), nil, &p)
 	if web.Status(err) == http.StatusNotFound {
-		return channels.Repo{}, fmt.Errorf("the token cannot see %s; check the path and the token's projects", path)
+		return channels.Repo{}, fmt.Errorf("%s cannot see %s; check the path and its projects", s.who(), path)
 	}
 	if err != nil {
 		return channels.Repo{}, err
@@ -167,7 +243,7 @@ func (a *Adapter) Repo(ctx context.Context, conn channels.Connection, path strin
 		}
 	}
 	if (p.Permissions.Project != nil || p.Permissions.Group != nil) && level < developer {
-		return channels.Repo{}, fmt.Errorf("the token may read %s but not push to it; give it the role Developer", p.PathWithNamespace)
+		return channels.Repo{}, fmt.Errorf("%s may read %s but not push to it; it needs the role Developer", s.who(), p.PathWithNamespace)
 	}
 	return channels.Repo{Path: p.PathWithNamespace, DefaultBranch: p.DefaultBranch}, nil
 }

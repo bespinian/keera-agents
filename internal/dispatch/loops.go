@@ -157,6 +157,10 @@ func (d *Dispatcher) checkWatch(ctx context.Context, b store.Binding) error {
 	if err != nil {
 		return err
 	}
+	// A watch works for whoever added it, as its tasks do.
+	if conn, err = d.asPerson(ctx, conn, b.ConnectionName, b.CreatedByID, b.CreatedBy); err != nil {
+		return err
+	}
 	files, cursor, err := adapter.Changes(ctx, conn, b.Target, b.Cursor)
 	if err != nil {
 		return err

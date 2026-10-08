@@ -306,3 +306,30 @@ func TestTools(t *testing.T) {
 		}
 	}
 }
+
+// A person's ID token goes to the cluster as theirs, so its RBAC decides,
+// and errors name them.
+func TestPerUser(t *testing.T) {
+	f := newFake(t)
+	a := New(channels.Options{})
+	ctx := context.Background()
+	user := f.conn("")
+	user.PerUser, user.Token, user.Account = true, "tok", "ada@acme.ch"
+	if got, err := a.Target(ctx, user, "shop"); err != nil || got != "shop" {
+		t.Fatalf("Target = %q, %v", got, err)
+	}
+	if _, err := a.Target(ctx, user, "locked"); err == nil || !strings.Contains(err.Error(), "ada@acme.ch may not read namespace locked") {
+		t.Errorf("a namespace without a role: %v", err)
+	}
+	user.Token = "expired"
+	if _, err := a.Target(ctx, user, "shop"); err == nil || !strings.Contains(err.Error(), "does not accept the ID token of ada@acme.ch") {
+		t.Errorf("a refused token: %v", err)
+	}
+	user.Token = ""
+	if _, err := a.Target(ctx, user, "shop"); err == nil {
+		t.Error("a call for nobody passed")
+	}
+	if fields := a.SignIn().Fields; fields[0].Name != "server" || fields[2].Name != "issuer_url" {
+		t.Errorf("sign-in fields = %+v", fields)
+	}
+}

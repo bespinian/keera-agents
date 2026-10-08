@@ -1,9 +1,10 @@
 // Package gsheets lets agents find, read and write Google Sheets as a
-// service account, or as a user of the domain through domain-wide
-// delegation.
+// service account, as a user of the domain through domain-wide delegation,
+// or as each person who signs in with their own account.
 //
 // Endpoints:
 //   - "token": Google's token endpoint, default https://oauth2.googleapis.com/token
+//   - "auth": where people sign in, default https://accounts.google.com/o/oauth2/v2/auth
 //   - "drive": the base of the Drive API, default https://www.googleapis.com
 //   - "sheets": the base of the Sheets API, default https://sheets.googleapis.com
 package gsheets
@@ -36,6 +37,7 @@ type Adapter struct {
 	files  workspace.Files
 	sheets string
 	tools  apitool.Set
+	workspace.Accounts
 }
 
 const idParam = `"spreadsheet_id":{"type":"string","description":"The spreadsheet's id or link. Optional when the connector is bound to one spreadsheet."}`
@@ -108,6 +110,7 @@ func New(opts channels.Options) *Adapter {
 			Run: a.create,
 		},
 	}
+	a.Accounts = workspace.NewAccounts(a.files.Client, "Google Sheets API and the Google Drive API")
 	return a
 }
 

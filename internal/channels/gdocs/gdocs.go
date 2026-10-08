@@ -1,8 +1,10 @@
 // Package gdocs lets agents find, read and write Google Docs as a service
-// account, or as a user of the domain through domain-wide delegation.
+// account, as a user of the domain through domain-wide delegation, or as
+// each person who signs in with their own account.
 //
 // Endpoints:
 //   - "token": Google's token endpoint, default https://oauth2.googleapis.com/token
+//   - "auth": where people sign in, default https://accounts.google.com/o/oauth2/v2/auth
 //   - "drive": the base of the Drive API, default https://www.googleapis.com
 //   - "docs": the base of the Docs API, default https://docs.googleapis.com
 package gdocs
@@ -32,6 +34,7 @@ type Adapter struct {
 	files workspace.Files
 	docs  string
 	tools apitool.Set
+	workspace.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
@@ -95,6 +98,7 @@ func New(opts channels.Options) *Adapter {
 			Run: a.create,
 		},
 	}
+	a.Accounts = workspace.NewAccounts(a.files.Client, "Google Docs API and the Google Drive API")
 	return a
 }
 

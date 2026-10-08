@@ -97,6 +97,22 @@ func (f *fake) verify(w http.ResponseWriter, r *http.Request, body []byte) (stri
 
 func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
+	// AssumeRoleWithWebIdentity alone is not signed: the person's ID token
+	// proves who asks.
+	if form, _ := url.ParseQuery(string(body)); r.Header.Get("Authorization") == "" &&
+		form.Get("Action") == "AssumeRoleWithWebIdentity" {
+		f.params["AssumeRoleWithWebIdentity"] = form
+		if form.Get("WebIdentityToken") != "id-token-ada" || form.Get("RoleArn") != roleARN {
+			xmlError(w, http.StatusForbidden, "AccessDenied", "Not authorized to perform sts:AssumeRoleWithWebIdentity")
+			return
+		}
+		f.assumed++
+		_, _ = fmt.Fprintf(w, `<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials>`+
+			`<AccessKeyId>ASIATEST</AccessKeyId><SecretAccessKey>sessionsecret</SecretAccessKey><SessionToken>session-token</SessionToken>`+
+			`<Expiration>%s</Expiration></Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>`,
+			f.now.Add(time.Hour).Format(time.RFC3339))
+		return
+	}
 	id, region, service, ok := f.verify(w, r, body)
 	if !ok {
 		return
@@ -614,5 +630,39 @@ func TestDescriptor(t *testing.T) {
 	}
 	if want := []string{"ec2_start", "ec2_stop", "ec2_reboot", "s3_write"}; !slices.Equal(writes, want) {
 		t.Fatalf("write tools = %v, want %v", writes, want)
+	}
+}
+
+// A person's ID token assumes the role, without any key, in a session named
+// after them, and the session signs their calls.
+func TestPerUser(t *testing.T) {
+	f, a := newFake(t)
+	ctx := context.Background()
+	user := channels.Connection{
+		Kind: channels.AWS, PerUser: true, Token: "id-token-ada", Account: "ada lovelace@acme.ch",
+		Config:  map[string]string{"issuer_url": "https://idp.example", "client_id": "cid", "role_arn": roleARN},
+		Secrets: map[string]string{"client_secret": "pw"},
+	}
+	for range 2 {
+		if got, err := a.Target(ctx, user, "eu-central-1"); err != nil || got != "eu-central-1" {
+			t.Fatalf("Target = %q, %v", got, err)
+		}
+	}
+	if f.assumed != 1 {
+		t.Errorf("assumed the role %d times", f.assumed)
+	}
+	if name := f.params["AssumeRoleWithWebIdentity"].Get("RoleSessionName"); name != "ada-lovelace@acme.ch" {
+		t.Errorf("session name = %q", name)
+	}
+	user.Token = "id-token-bob"
+	if _, err := a.Target(ctx, user, "eu-central-1"); err == nil || !strings.Contains(err.Error(), "AccessDenied") {
+		t.Errorf("a person the role does not trust: %v", err)
+	}
+	user.Token = ""
+	if _, err := a.Target(ctx, user, "eu-central-1"); err == nil {
+		t.Error("a call for nobody passed")
+	}
+	if got := sessionName(strings.Repeat("x", 80)); len(got) != 64 {
+		t.Errorf("a long name = %d characters", len(got))
 	}
 }

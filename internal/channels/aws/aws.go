@@ -3,6 +3,11 @@
 // region costs. It signs requests itself, with Signature Version 4, with an
 // IAM user's access key, or with a role that key assumes.
 //
+// On a connector people sign in to, each person signs in with the identity
+// provider the account trusts, and their ID token assumes the role in a
+// session named after them. The role's trust policy decides who may, and
+// CloudTrail shows who did what.
+//
 // Endpoints:
 //   - "aws": every service, default https://{service}.{region}.amazonaws.com.
 //     Requests are still signed for the real service and region, and S3 is
@@ -25,6 +30,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -63,6 +69,7 @@ type Adapter struct {
 	// buckets maps a bucket's name, unique across AWS, to its region.
 	buckets *web.Cache[string]
 	tools   apitool.Set
+	oauth.Accounts
 }
 
 type session struct {
@@ -83,6 +90,17 @@ func New(opts channels.Options) *Adapter {
 		buckets:  web.NewCache[string](time.Hour, 10000),
 	}
 	a.tools = a.toolSet()
+	a.Accounts = oauth.NewOIDC(a.hc).Accounts("the identity provider",
+		"1. In IAM, add your identity provider as an **OpenID Connect** provider, with the client ID as its audience.\n"+
+			"2. Create a role for web identity from that provider, with the permissions agents may use, as listed for a shared key. "+
+			"Its trust policy decides who may assume it: narrow it with conditions on the token's sub or email.\n"+
+			"3. In the provider, register a web app for that client ID, with the redirect URI {callback}, and create a secret.\n"+
+			"4. Enter the issuer, the client and the role's ARN here. Then each person connects their own account under Connectors. "+
+			"Each assumes the role in a session named after them, so CloudTrail shows who did what.",
+	).WithFields(channels.Field{
+		Name: "role_arn", Label: "Role ARN", Required: true,
+		Help: "The role people assume with their sign-in, such as arn:aws:iam::123456789012:role/keera-people.",
+	})
 	return a
 }
 
@@ -141,16 +159,50 @@ func settingsOf(conn channels.Connection) (creds, string, error) {
 
 // credsOf returns what a connection's calls are signed with.
 func (a *Adapter) credsOf(ctx context.Context, conn channels.Connection) (creds, error) {
+	if conn.PerUser {
+		return a.assumeAs(ctx, conn)
+	}
 	base, role, err := settingsOf(conn)
 	if err != nil || role == "" {
 		return base, err
 	}
-	return a.assume(ctx, base, role)
+	return a.assume(ctx, base, role, "AssumeRole", url.Values{"RoleSessionName": {"keera-agents"}})
 }
 
-// assume returns a session of role, from the cache while it lasts.
-func (a *Adapter) assume(ctx context.Context, base creds, role string) (creds, error) {
-	key := web.Fingerprint(base.id, base.secret, role)
+// assumeAs returns a session of the connection's role for the person a call
+// is for, with their ID token, named after them.
+func (a *Adapter) assumeAs(ctx context.Context, conn channels.Connection) (creds, error) {
+	role := web.Value(conn, "role_arn")
+	switch {
+	case conn.Token == "":
+		return creds{}, oauth.ErrNoToken
+	case !validRole.MatchString(role):
+		return creds{}, fmt.Errorf("%q is not a role's ARN; write one such as arn:aws:iam::123456789012:role/keera-people", web.Short(role, 100))
+	}
+	return a.assume(ctx, creds{}, role, "AssumeRoleWithWebIdentity", url.Values{
+		"RoleSessionName":  {sessionName(conn.Account)},
+		"WebIdentityToken": {conn.Token},
+	})
+}
+
+// invalidSession are the characters a session's name may not hold.
+var invalidSession = regexp.MustCompile(`[^\w+=,.@-]`)
+
+// sessionName is a person's email as a role session's name, which CloudTrail
+// shows: 2 to 64 of letters, digits and +=,.@_-.
+func sessionName(account string) string {
+	name := invalidSession.ReplaceAllString(account, "-")
+	if len(name) < 2 {
+		name = "keera-person"
+	}
+	return name[:min(len(name), 64)]
+}
+
+// assume returns a session of role, from the cache while it lasts. action
+// is AssumeRole, signed with base, or AssumeRoleWithWebIdentity, which is
+// not signed: the token in params proves who asks.
+func (a *Adapter) assume(ctx context.Context, base creds, role, action string, params url.Values) (creds, error) {
+	key := web.Fingerprint(base.id, base.secret, role, params.Get("WebIdentityToken"))
 	now := a.now()
 	a.mu.Lock()
 	s, ok := a.sessions[key]
@@ -158,28 +210,31 @@ func (a *Adapter) assume(ctx context.Context, base creds, role string) (creds, e
 	if ok && now.Before(s.exp.Add(-renewBefore)) {
 		return s.creds, nil
 	}
-	var out struct {
-		Creds struct {
-			ID         string    `xml:"AccessKeyId"`
-			Secret     string    `xml:"SecretAccessKey"`
-			Token      string    `xml:"SessionToken"`
-			Expiration time.Time `xml:"Expiration"`
-		} `xml:"AssumeRoleResult>Credentials"`
+	type credentials struct {
+		ID         string    `xml:"AccessKeyId"`
+		Secret     string    `xml:"SecretAccessKey"`
+		Token      string    `xml:"SessionToken"`
+		Expiration time.Time `xml:"Expiration"`
 	}
+	var out struct {
+		Role credentials `xml:"AssumeRoleResult>Credentials"`
+		Web  credentials `xml:"AssumeRoleWithWebIdentityResult>Credentials"`
+	}
+	params.Set("Action", action)
+	params.Set("RoleArn", role)
+	params.Set("DurationSeconds", fmt.Sprint(int(sessionLife.Seconds())))
 	c := client{a: a, creds: base, region: stsRegion}
-	err := c.query(ctx, "sts", stsVersion, url.Values{
-		"Action":          {"AssumeRole"},
-		"RoleArn":         {role},
-		"RoleSessionName": {"keera-agents"},
-		"DurationSeconds": {fmt.Sprint(int(sessionLife.Seconds()))},
-	}, &out)
-	if err != nil {
+	if err := c.query(ctx, "sts", stsVersion, params, &out); err != nil {
 		return creds{}, err
 	}
-	if out.Creds.ID == "" || out.Creds.Secret == "" {
-		return creds{}, errors.New("AWS STS answered AssumeRole without credentials")
+	got := out.Role
+	if action != "AssumeRole" {
+		got = out.Web
 	}
-	s = session{creds: creds{id: out.Creds.ID, secret: out.Creds.Secret, token: out.Creds.Token}, exp: out.Creds.Expiration}
+	if got.ID == "" || got.Secret == "" {
+		return creds{}, fmt.Errorf("AWS STS answered %s without credentials", action)
+	}
+	s = session{creds: creds{id: got.ID, secret: got.Secret, token: got.Token}, exp: got.Expiration}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for k, old := range a.sessions {
@@ -203,6 +258,13 @@ func (c client) identity(ctx context.Context) (identity, error) {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
+	if conn.PerUser {
+		// The role is first assumed when someone binds a region.
+		if role := web.Value(conn, "role_arn"); !validRole.MatchString(role) {
+			return fmt.Errorf("%q is not a role's ARN; write one such as arn:aws:iam::123456789012:role/keera-people", web.Short(role, 100))
+		}
+		return a.CheckClient(ctx, conn)
+	}
 	base, role, err := settingsOf(conn)
 	if err != nil {
 		return err
@@ -222,7 +284,7 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	if err != nil || role == "" {
 		return err
 	}
-	assumed, err := a.assume(ctx, base, role)
+	assumed, err := a.assume(ctx, base, role, "AssumeRole", url.Values{"RoleSessionName": {"keera-agents"}})
 	if web.Status(err) == http.StatusForbidden {
 		return fmt.Errorf("%s may not assume %s; allow it sts:AssumeRole on the role, and trust it in the role's trust policy (%w)",
 			me.ARN, role, err)
@@ -303,7 +365,10 @@ func (c client) request(ctx context.Context, service, method, u string, body []b
 	for k, v := range header {
 		req.Header[k] = v
 	}
-	sign(req, body, c.creds, c.region, service, c.a.now())
+	// Only AssumeRoleWithWebIdentity goes without credentials.
+	if c.creds.id != "" {
+		sign(req, body, c.creds, c.region, service, c.a.now())
+	}
 	return req, nil
 }
 

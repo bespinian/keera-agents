@@ -1,7 +1,8 @@
 // Package azure lets agents look into one Azure subscription through Azure
 // Resource Manager: its resources, activity log, metrics and costs, and
 // start and stop its virtual machines. It signs in as an Entra app with
-// client credentials; what the app may do is set by its Azure roles.
+// client credentials, or as each person who signs in with their own account;
+// what the app or the person may do is set by their Azure roles.
 //
 // Each binding names one subscription, and every resource id an agent
 // passes must be in it.
@@ -27,6 +28,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/microsoft"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -47,6 +49,7 @@ type Adapter struct {
 	// versions maps a resource type to the API version to read it with,
 	// which only changes when Azure releases one.
 	versions *web.Cache[string]
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
@@ -56,6 +59,8 @@ func New(opts channels.Options) *Adapter {
 		versions: web.NewCache[string](24*time.Hour, 1000),
 	}
 	a.set = a.tools()
+	a.Accounts = a.auth.Accounts([]string{"https://management.azure.com/user_impersonation"},
+		"Azure Service Management user_impersonation")
 	return a
 }
 
@@ -66,14 +71,7 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		Vendor:   "Microsoft",
 		Category: "Cloud",
 		Summary:  "Agents look into an Azure subscription's resources, activity log, metrics and costs, and start and stop its virtual machines.",
-		Fields: []channels.Field{
-			{Name: "tenant_id", Label: "Tenant ID", Required: true, Help: "Your Microsoft Entra tenant ID."},
-			{Name: "client_id", Label: "Client ID", Required: true, Help: "The application (client) ID of the app registration."},
-			{
-				Name: "client_secret", Label: "Client secret", Secret: true, Required: true,
-				Help: "A client secret of the app registration, from Certificates & secrets.",
-			},
-		},
+		Fields:   microsoft.Fields(),
 		Setup: "1. In Microsoft Entra, register an app and create a client secret.\n" +
 			"2. In each subscription agents work in, open Access control (IAM) and assign the app the Reader role.\n" +
 			"3. For costs, also assign it Cost Management Reader.\n" +
@@ -86,16 +84,19 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 }
 
 func appOf(conn channels.Connection) (microsoft.App, error) {
-	app := microsoft.App{
-		Tenant:   web.Value(conn, "tenant_id"),
-		ClientID: web.Value(conn, "client_id"),
-		Secret:   web.Value(conn, "client_secret"),
-		Scope:    scope,
+	app, err := microsoft.AppOf(conn, scope)
+	if err == nil && conn.PerUser && app.Token == "" {
+		err = oauth.ErrNoToken
 	}
-	if app.Tenant == "" || app.ClientID == "" || app.Secret == "" {
-		return app, errors.New("the tenant ID, client ID or client secret is missing")
+	return app, err
+}
+
+// who says whose access a call has, for errors.
+func who(app microsoft.App) string {
+	if app.Token != "" {
+		return "the person the agent works for"
 	}
-	return app, nil
+	return "the app"
 }
 
 // subscription checks a binding's target and returns it in lower case.
@@ -143,6 +144,9 @@ func (a *Adapter) call(ctx context.Context, app microsoft.App, method, u string,
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
+	if conn.PerUser {
+		return a.CheckClient(ctx, conn)
+	}
 	app, err := appOf(conn)
 	if err != nil {
 		return err
@@ -181,7 +185,7 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	err = a.call(ctx, app, http.MethodGet, a.arm+"/subscriptions/"+sub+query(map[string]string{"api-version": subscriptionsVersion}), nil, &r)
 	switch st := web.Status(err); {
 	case st == http.StatusNotFound || st == http.StatusForbidden || st == http.StatusUnauthorized:
-		return "", fmt.Errorf("the app cannot see subscription %s; assign it the Reader role on it (%w)", sub, err)
+		return "", fmt.Errorf("%s cannot see subscription %s; assign the Reader role on it (%w)", who(app), sub, err)
 	case err != nil:
 		return "", err
 	}

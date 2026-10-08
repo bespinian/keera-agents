@@ -597,7 +597,7 @@ func (a *Adapter) costs(ctx context.Context, app microsoft.App, sub string, args
 	u := a.arm + "/subscriptions/" + sub + "/providers/Microsoft.CostManagement/query" + query(map[string]string{"api-version": costVersion})
 	err = a.call(ctx, app, http.MethodPost, u, body, &r)
 	if web.Status(err) == http.StatusForbidden {
-		return nil, fmt.Errorf("the app may not read costs; assign it Cost Management Reader on the subscription (%w)", err)
+		return nil, fmt.Errorf("%s may not read costs; assign Cost Management Reader on the subscription (%w)", who(app), err)
 	}
 	if err != nil {
 		return nil, err
@@ -680,7 +680,7 @@ func (a *Adapter) vmAction(ctx context.Context, app microsoft.App, sub string, a
 	u := a.arm + id.path + "/" + action + query(map[string]string{"api-version": computeVersion})
 	err = a.call(ctx, app, http.MethodPost, u, nil, nil)
 	if web.Status(err) == http.StatusForbidden {
-		return nil, fmt.Errorf("the app may not %s %s; assign it Virtual Machine Contributor (%w)", action, id.name(), err)
+		return nil, fmt.Errorf("%s may not %s %s; assign Virtual Machine Contributor (%w)", who(app), action, id.name(), err)
 	}
 	if err != nil {
 		return nil, err

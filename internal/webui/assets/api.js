@@ -138,6 +138,9 @@ export const api = {
   deleteConnection: (id) => del(V1 + path`/connections/${id}`),
   checkConnection: (id) => post(V1 + path`/connections/${id}/check`),
   folders: (id, parent) => get(V1 + path`/connections/${id}/folders` + query({ parent })),
+  // Answers { url }, where the browser goes to sign in to the service.
+  connectAccount: (id) => post(V1 + path`/connections/${id}/account`),
+  disconnectAccount: (id) => del(V1 + path`/connections/${id}/account`),
 
   audit: (before) => get(V1 + "/audit" + query({ limit: 100, before })),
 

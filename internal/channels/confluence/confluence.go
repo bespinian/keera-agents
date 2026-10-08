@@ -1,12 +1,14 @@
 // Package confluence lets agents search, read, write and comment on
 // Confluence pages, with an API token on Confluence Cloud or a personal
-// access token on Confluence Data Center.
+// access token on Confluence Data Center, or, on Confluence Cloud, as each
+// person who signs in with their own account.
 //
 // It calls the REST API version 1 content API, which both have: on Cloud
 // at <site>/wiki/rest/api, on Data Center at <base>/rest/api. A binding
 // names a space; every call stays in it.
 //
-// It has no endpoints to override: it calls the connection's site URL.
+// It calls the connection's site URL, or for a person, Atlassian's API
+// gateway, whose endpoints package atlassian lists.
 package confluence
 
 import (
@@ -21,6 +23,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/atlassian"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -35,16 +38,22 @@ var (
 // model's context.
 const maxBody = 50000
 
-var _ channels.API = (*Adapter)(nil)
+var (
+	_ channels.API     = (*Adapter)(nil)
+	_ channels.PerUser = (*Adapter)(nil)
+)
 
 type Adapter struct {
 	c   *atlassian.Client
 	set apitool.Set
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
 	a := &Adapter{c: atlassian.New(opts, "Confluence")}
 	a.set = a.tools()
+	a.Accounts = a.c.Accounts("search:confluence", "read:confluence-content.all", "read:confluence-space.summary",
+		"write:confluence-content", "read:confluence-user")
 	return a
 }
 
@@ -85,11 +94,19 @@ func base(s atlassian.Site) string {
 }
 
 func (a *Adapter) call(ctx context.Context, s atlassian.Site, method, path string, in, out any) error {
-	return a.c.Call(ctx, s, method, base(s)+"/rest/api"+path, in, out)
+	api := base(s)
+	if s.API != "" {
+		// The gateway serves Confluence under /wiki too.
+		api = s.API + "/wiki"
+	}
+	return a.c.Call(ctx, s, method, api+"/rest/api"+path, in, out)
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	s, err := atlassian.Open(conn)
+	if conn.PerUser {
+		return a.CheckClient(ctx, conn)
+	}
+	s, err := a.c.Open(ctx, conn)
 	if err != nil {
 		return err
 	}
@@ -110,7 +127,7 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	if target == channels.AnyTarget {
 		return target, nil
 	}
-	s, err := atlassian.Open(conn)
+	s, err := a.c.Open(ctx, conn)
 	if err != nil {
 		return "", err
 	}

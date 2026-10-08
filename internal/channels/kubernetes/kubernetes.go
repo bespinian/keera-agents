@@ -1,5 +1,7 @@
 // Package kubernetes lets agents look at and change one namespace of a
-// Kubernetes cluster, with a service account's token.
+// Kubernetes cluster, with a service account's token, or as each person who
+// signs in with the identity provider the cluster trusts. A person's calls
+// carry their ID token, so the cluster's RBAC decides what they may.
 //
 // The API server's address is the connection's own setting, so the server
 // passes the egress-guarded client, redirects are followed only on that
@@ -15,6 +17,7 @@ package kubernetes
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -31,6 +34,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -57,6 +61,7 @@ type Adapter struct {
 	withCA map[string]*http.Client
 	// discovery is what kinds each server serves, by server and apiVersion.
 	discovery *web.Cache[[]resource]
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
@@ -66,8 +71,27 @@ func New(opts channels.Options) *Adapter {
 		discovery: web.NewCache[[]resource](10*time.Minute, 500),
 	}
 	a.tools = a.toolSet()
+	a.Accounts = oauth.NewOIDC(a.hc).Accounts("the identity provider",
+		"1. Configure the API server to trust your identity provider: --oidc-issuer-url, --oidc-client-id and "+
+			"--oidc-username-claim=email, or a structured AuthenticationConfiguration. On EKS, associate an OIDC identity provider.\n"+
+			"2. In the provider, register a web app for that client ID, with the redirect URI {callback}, and create a secret.\n"+
+			"3. Bind each person, or their groups, to roles in the namespaces agents work in, as for their own kubectl.\n"+
+			"4. Enter the API server, the issuer and the client here. Then each person connects their own account under Connectors.",
+		serverField, caField)
 	return a
 }
+
+// serverField and caField are settings of both kinds of connector.
+var (
+	serverField = channels.Field{
+		Name: "server", Label: "API server URL", Required: true, Endpoint: true,
+		Help: "The cluster's API server, such as https://k8s.example.com:6443.",
+	}
+	caField = channels.Field{
+		Name: "ca_cert", Label: "CA certificate", Multiline: true,
+		Help: "The cluster's CA certificate in PEM. Leave empty if the API server has a certificate from a public CA.",
+	}
+)
 
 func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
@@ -77,10 +101,7 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		Category: "Cloud",
 		Summary:  "Agents list, inspect and read the logs of workloads in a namespace, and can apply, scale and restart them.",
 		Fields: []channels.Field{
-			{
-				Name: "server", Label: "API server URL", Required: true, Endpoint: true,
-				Help: "The cluster's API server, such as https://k8s.example.com:6443.",
-			},
+			serverField,
 			{
 				Name: "token", Label: "Service account token", Secret: true, Required: true, Multiline: true,
 				Help: "The token of a service account, from a Secret of type kubernetes.io/service-account-token.",
@@ -125,7 +146,13 @@ func (a *Adapter) open(conn channels.Connection) (cluster, error) {
 		return cluster{}, errors.New("the API server URL is missing")
 	}
 	token := web.Value(conn, "token")
-	if token == "" {
+	if conn.PerUser {
+		token = conn.Token
+	}
+	switch {
+	case conn.PerUser && token == "":
+		return cluster{}, oauth.ErrNoToken
+	case token == "":
 		return cluster{}, errors.New("the service account token is missing")
 	}
 	hc, err := a.client(web.Value(conn, "ca_cert"))
@@ -219,6 +246,10 @@ func apiError(status int, body []byte) error {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
+	if conn.PerUser {
+		// The cluster is first reached when someone binds a namespace.
+		return a.CheckClient(ctx, conn)
+	}
 	c, err := a.open(conn)
 	if err != nil {
 		return err
@@ -238,6 +269,9 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	}
 	return err
 }
+
+// person names who a call is for, on a connector people sign in to.
+func person(conn channels.Connection) string { return cmp.Or(conn.Account, "the person") }
 
 // namespace checks a binding's target, which is always one namespace.
 func namespace(target string) (string, error) {
@@ -267,7 +301,15 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	case http.StatusNotFound:
 		return "", fmt.Errorf("the cluster has no namespace %s", ns)
 	case http.StatusForbidden:
+		if conn.PerUser {
+			return "", fmt.Errorf("%s may not read namespace %s; bind them to a role there (%w)", person(conn), ns, err)
+		}
 		return "", fmt.Errorf("the token may not read namespace %s; bind its service account to a role there (%w)", ns, err)
+	case http.StatusUnauthorized:
+		if conn.PerUser {
+			return "", fmt.Errorf("the cluster does not accept the ID token of %s; check it trusts the identity provider "+
+				"and the client ID (%w)", person(conn), err)
+		}
 	}
 	return ns, err
 }

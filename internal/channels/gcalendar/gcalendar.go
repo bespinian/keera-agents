@@ -1,9 +1,10 @@
 // Package gcalendar lets agents read and change one Google Calendar as a
-// service account, or as a user of the domain through domain-wide
-// delegation.
+// service account, as a user of the domain through domain-wide delegation,
+// or as each person who signs in with their own account.
 //
 // Endpoints:
 //   - "token": Google's token endpoint, default https://oauth2.googleapis.com/token
+//   - "auth": where people sign in, default https://accounts.google.com/o/oauth2/v2/auth
 //   - "calendar": the base of the Calendar API, default https://www.googleapis.com
 package gcalendar
 
@@ -46,6 +47,7 @@ type Adapter struct {
 	api    string
 	tools  apitool.Set
 	now    func() time.Time
+	workspace.Accounts
 }
 
 const timeHelp = "RFC 3339, such as 2026-11-04T09:00:00+01:00, or a date such as 2026-11-04 for an all-day event."
@@ -138,6 +140,7 @@ func New(opts channels.Options) *Adapter {
 			Run: a.deleteEvent,
 		},
 	}
+	a.Accounts = workspace.NewAccounts(a.client, "Google Calendar API")
 	return a
 }
 

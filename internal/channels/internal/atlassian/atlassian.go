@@ -1,6 +1,14 @@
 // Package atlassian holds what the Jira and Confluence adapters share: the
-// site and its credentials, calling the REST API, reading its errors, and
-// keeping a JQL or CQL query within a binding's project or space.
+// site and its credentials, signing people in with their own accounts,
+// calling the REST API, reading its errors, and keeping a JQL or CQL query
+// within a binding's project or space.
+//
+// A person's token is not for the site itself: calls go through Atlassian's
+// API gateway, at api.atlassian.com/ex/{product}/{cloud id}.
+//
+// Endpoints, for people who sign in:
+//   - "auth": Atlassian's sign-in, default https://auth.atlassian.com
+//   - "api": Atlassian's API gateway, default https://api.atlassian.com
 package atlassian
 
 import (
@@ -9,13 +17,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -44,13 +55,26 @@ type Site struct {
 	Base  string
 	Email string
 	token string
+	// API is where a person's calls go, through Atlassian's gateway. It is
+	// empty for a shared account, which calls the site itself.
+	API string
 }
 
 // Cloud is a site on Atlassian Cloud. Only Cloud pairs an email with its
-// API token; Data Center takes a personal access token alone.
-func (s Site) Cloud() bool { return s.Email != "" }
+// API token, or signs people in; Data Center takes a personal access token
+// alone.
+func (s Site) Cloud() bool { return s.Email != "" || s.API != "" }
 
-// Open reads a connection's site and credentials.
+// APIBase is where the REST API is called.
+func (s Site) APIBase() string {
+	if s.API != "" {
+		return s.API
+	}
+	return s.Base
+}
+
+// Open reads a connection's site and credentials. A connection people sign
+// in to also needs the site's cloud id, which Client.Open finds.
 func Open(conn channels.Connection) (Site, error) {
 	s := Site{Email: web.Value(conn, "email"), token: web.Value(conn, "api_token")}
 	if s.token == "" {
@@ -68,13 +92,111 @@ func Open(conn channels.Connection) (Site, error) {
 type Client struct {
 	hc *http.Client
 	// Service names the product in errors, such as "Jira".
-	Service string
+	Service   string
+	auth, api string
+	// clouds are sites' cloud ids, which never change.
+	clouds *web.Cache[string]
 }
 
 // New makes a client. The site is the organisation's own setting, so
 // redirects are followed only on it.
 func New(opts channels.Options, service string) *Client {
-	return &Client{hc: web.SameServerClient(opts), Service: service}
+	return &Client{
+		hc: web.SameServerClient(opts), Service: service,
+		auth:   web.Endpoint(opts, "auth", "https://auth.atlassian.com"),
+		api:    web.Endpoint(opts, "api", "https://api.atlassian.com"),
+		clouds: web.NewCache[string](24*time.Hour, 1000),
+	}
+}
+
+// Open reads a connection's site and credentials, and for a connection
+// people sign in to, where the person's calls go.
+func (c *Client) Open(ctx context.Context, conn channels.Connection) (Site, error) {
+	if !conn.PerUser {
+		return Open(conn)
+	}
+	if conn.Token == "" {
+		return Site{}, oauth.ErrNoToken
+	}
+	base, ok := web.BaseURL(web.Value(conn, "base_url"))
+	if !ok || base == "" {
+		return Site{}, errors.New("the site URL must be https://, such as https://acme.atlassian.net")
+	}
+	s := Site{Base: base, token: conn.Token}
+	id, ok := c.clouds.Get(base, time.Now())
+	if !ok {
+		var err error
+		if id, err = c.cloudID(ctx, s); err != nil {
+			return Site{}, err
+		}
+		c.clouds.Put(base, id, time.Now())
+	}
+	s.API = c.api + "/ex/" + strings.ToLower(c.Service) + "/" + url.PathEscape(id)
+	return s, nil
+}
+
+// cloudID finds the site among those the person let the app reach.
+func (c *Client) cloudID(ctx context.Context, s Site) (string, error) {
+	var sites []struct {
+		ID  string `json:"id"`
+		URL string `json:"url"`
+	}
+	if err := c.Call(ctx, s, http.MethodGet, c.api+"/oauth/token/accessible-resources", nil, &sites); err != nil {
+		return "", err
+	}
+	for _, site := range sites {
+		if strings.EqualFold(strings.TrimRight(site.URL, "/"), s.Base) && site.ID != "" {
+			return site.ID, nil
+		}
+	}
+	return "", fmt.Errorf("the Atlassian account was not given access to %s; connect it again under Connectors, and pick that site", s.Base)
+}
+
+// Accounts lets people sign in to the product's connectors with their own
+// Atlassian accounts. scopes are the product's.
+func (c *Client) Accounts(scopes ...string) oauth.Accounts {
+	return oauth.NewAccounts(oauth.AccountsConfig{
+		Service: "Atlassian",
+		HTTP:    c.hc,
+		SignIn: channels.SignIn{
+			Fields: []channels.Field{
+				{
+					Name: "base_url", Label: "Site URL", Required: true, Endpoint: true,
+					Help: "Your Atlassian Cloud site, such as https://acme.atlassian.net.",
+				},
+				{Name: "client_id", Label: "Client ID", Required: true, Help: "The OAuth 2.0 app's client ID."},
+				{Name: "client_secret", Label: "Secret", Secret: true, Required: true, Help: "The OAuth 2.0 app's secret."},
+			},
+			Setup: "1. In the Atlassian developer console, at https://developer.atlassian.com/console/myapps/, " +
+				"create an **OAuth 2.0 integration**.\n" +
+				"2. Under Permissions, add the " + c.Service + " API with the scopes " + strings.Join(scopes, ", ") +
+				", and the User identity API with read:me.\n" +
+				"3. Under Authorization, set the callback URL to {callback}.\n" +
+				"4. Under Distribution, set it to **Sharing**, so people other than you can sign in.\n" +
+				"5. Enter your site, and the app's client ID and secret from Settings, here. " +
+				"Then each person connects their own Atlassian account under Connectors. " +
+				"Only Atlassian Cloud signs people in.",
+		},
+		App: func(conn channels.Connection) (oauth.App, error) {
+			id, secret := web.Value(conn, "client_id"), web.Value(conn, "client_secret")
+			if id == "" || secret == "" {
+				return oauth.App{}, errors.New("the client ID or secret is missing")
+			}
+			return oauth.App{
+				AuthURL: c.auth + "/authorize", TokenURL: c.auth + "/oauth/token", ClientID: id, Secret: secret,
+				// offline_access gives a refresh token; read:me says who signed in.
+				Scopes: append(slices.Clone(scopes), "read:me", "offline_access"),
+				Params: url.Values{"audience": {"api.atlassian.com"}, "prompt": {"consent"}},
+			}, nil
+		},
+		Who: func(ctx context.Context, _ channels.Connection, access string) (string, error) {
+			var me struct {
+				Email string `json:"email"`
+			}
+			err := c.Call(ctx, Site{token: access, API: c.api}, http.MethodGet, c.api+"/me", nil, &me)
+			return web.Short(me.Email, 200), err
+		},
+	})
 }
 
 // Call sends in as JSON to the full URL u and decodes the answer into out,
@@ -84,7 +206,7 @@ func (c *Client) Call(ctx context.Context, s Site, method, u string, in, out any
 	if err != nil {
 		return err
 	}
-	if s.Cloud() {
+	if s.Email != "" && s.API == "" {
 		req.SetBasicAuth(s.Email, s.token)
 	} else {
 		req.Header.Set("Authorization", "Bearer "+s.token)
@@ -141,9 +263,9 @@ func (c *Client) CheckError(s Site, err error) error {
 
 // Run makes a tool's function from one that takes the site and the
 // decoded arguments.
-func Run[T any](f func(ctx context.Context, s Site, target string, in T) (any, error)) apitool.Run {
+func Run[T any](c *Client, f func(ctx context.Context, s Site, target string, in T) (any, error)) apitool.Run {
 	return func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-		s, err := Open(conn)
+		s, err := c.Open(ctx, conn)
 		if err != nil {
 			return nil, err
 		}

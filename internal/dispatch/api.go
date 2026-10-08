@@ -15,8 +15,9 @@ import (
 )
 
 // API connectors, such as Jira or AWS, give agents typed tools. They run
-// here with the connector's credentials, within the binding's target, and
-// a read-only binding cannot call a tool that writes.
+// here with the connector's credentials, or, for a connector people sign in
+// to, as the person the task is for. They stay within the binding's target,
+// and a read-only binding cannot call a tool that writes.
 
 // maxAPIResult bounds what one API tool returns to the model, so a large
 // answer does not fill its context.
@@ -123,8 +124,8 @@ func apiKindOf(name string) (channels.Kind, bool) {
 	return channels.Kind(kind), ok
 }
 
-// toolAPI runs an API connector's tool for the agent.
-func (d *Dispatcher) toolAPI(ctx context.Context, a store.Agent, name string, raw json.RawMessage) (any, error) {
+// toolAPI runs an API connector's tool for the agent's task.
+func (d *Dispatcher) toolAPI(ctx context.Context, a store.Agent, t store.Task, name string, raw json.RawMessage) (any, error) {
 	var args map[string]json.RawMessage
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &args); err != nil {
@@ -140,7 +141,7 @@ func (d *Dispatcher) toolAPI(ctx context.Context, a store.Agent, name string, ra
 	if connector == "" {
 		return nil, errors.New("give the connector to use, from the tool's list")
 	}
-	b, api, conn, err := bound(ctx, d, a, connector, "connectors", channels.APIFor, store.ModeRead, store.ModeWrite)
+	b, api, conn, err := bound(ctx, d, a, t, connector, "connectors", channels.APIFor, store.ModeRead, store.ModeWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -180,13 +181,14 @@ func cutResult(s string) string {
 }
 
 // LookupTarget checks an API connection reaches a binding's target, and
-// returns the target as it should be stored.
-func (d *Dispatcher) LookupTarget(ctx context.Context, c store.Connection, target string) (string, error) {
+// returns the target as it should be stored. A connector people sign in to
+// checks it as userID, who is binding it.
+func (d *Dispatcher) LookupTarget(ctx context.Context, c store.Connection, target, userID string) (string, error) {
 	api, ok := channels.APIFor(channels.Kind(c.Kind))
 	if !ok {
 		return "", fmt.Errorf("%s has no tools", c.Kind)
 	}
-	conn, err := d.Conn(c)
+	conn, err := d.ConnFor(ctx, c, userID)
 	if err != nil {
 		return "", err
 	}

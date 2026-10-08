@@ -1,7 +1,8 @@
 // Package oauth gets and caches the access tokens adapters call services
 // with: client credentials for Microsoft, and a signed service account
 // assertion for Google. Other adapters, such as Salesforce, use its cache
-// and errors with their own sign-in.
+// and errors with their own sign-in. App signs people in themselves, with an
+// authorization code.
 package oauth
 
 import (
@@ -25,10 +26,13 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
-// Token is an access token and when it stops working.
+// Token is an access token and when it stops working. Refresh and IDToken
+// are set only when the service sent them.
 type Token struct {
-	Access string
-	Expiry time.Time
+	Access  string
+	Expiry  time.Time
+	Refresh string
+	IDToken string
 }
 
 // Error is a token endpoint's refusal. It holds the service's error code and
@@ -87,6 +91,8 @@ func post(ctx context.Context, hc *http.Client, tokenURL string, form url.Values
 	var r struct {
 		AccessToken      string      `json:"access_token"`
 		ExpiresIn        json.Number `json:"expires_in"`
+		RefreshToken     string      `json:"refresh_token"`
+		IDToken          string      `json:"id_token"`
 		Error            string      `json:"error"`
 		ErrorDescription string      `json:"error_description"`
 	}
@@ -98,7 +104,119 @@ func post(ctx context.Context, hc *http.Client, tokenURL string, form url.Values
 	if err != nil || secs <= 0 {
 		secs = 3600
 	}
-	return Token{Access: r.AccessToken, Expiry: time.Now().Add(time.Duration(secs) * time.Second)}, nil
+	return Token{
+		Access: r.AccessToken, Expiry: time.Now().Add(time.Duration(secs) * time.Second),
+		Refresh: r.RefreshToken, IDToken: r.IDToken,
+	}, nil
+}
+
+// App is an OAuth client people sign in through themselves, with an
+// authorization code and PKCE.
+type App struct {
+	AuthURL, TokenURL string
+	ClientID, Secret  string
+	Scopes            []string
+	// Params go on the sign-in address too, such as Google's
+	// access_type=offline.
+	Params url.Values
+}
+
+// SignInURL is where the person's browser goes to sign in.
+func (a App) SignInURL(redirect, state, challenge string) string {
+	q := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {a.ClientID},
+		"redirect_uri":          {redirect},
+		"scope":                 {strings.Join(a.Scopes, " ")},
+		"state":                 {state},
+		"code_challenge":        {challenge},
+		"code_challenge_method": {"S256"},
+	}
+	for k, v := range a.Params {
+		q[k] = v
+	}
+	sep := "?"
+	if strings.Contains(a.AuthURL, "?") {
+		sep = "&"
+	}
+	return a.AuthURL + sep + q.Encode()
+}
+
+// Exchange redeems the code the person came back with.
+func (a App) Exchange(ctx context.Context, hc *http.Client, redirect, code, verifier string) (Token, error) {
+	return post(ctx, hc, a.TokenURL, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {redirect},
+		"client_id":     {a.ClientID},
+		"client_secret": {a.Secret},
+		"code_verifier": {verifier},
+	})
+}
+
+// Refresh gets a new access token with a refresh token.
+func (a App) Refresh(ctx context.Context, hc *http.Client, refresh string) (Token, error) {
+	return post(ctx, hc, a.TokenURL, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refresh},
+		"client_id":     {a.ClientID},
+		"client_secret": {a.Secret},
+	})
+}
+
+// Check proves the service knows the client and its secret, before anyone
+// has signed in, by refreshing a made-up token. A known client is told the
+// token is wrong: invalid_grant, or GitHub's bad_refresh_token. An unknown
+// one is refused itself.
+func (a App) Check(ctx context.Context, hc *http.Client) error {
+	_, err := a.Refresh(ctx, hc, "keera-agents-check")
+	if oe, ok := errors.AsType[*Error](err); ok && (oe.Code == "invalid_grant" || oe.Code == "bad_refresh_token") {
+		return nil
+	}
+	if err == nil {
+		return errors.New("the service accepted a made-up refresh token")
+	}
+	return err
+}
+
+// idClaims reads an ID token's claims. The token came straight from the
+// service's token endpoint over TLS, so it is not verified again, as OpenID
+// Connect allows.
+func idClaims(idToken string, out any) bool {
+	if idToken == "" {
+		return false
+	}
+	tok, err := jwt.ParseSigned(idToken, []jose.SignatureAlgorithm{
+		jose.RS256, jose.RS384, jose.RS512, jose.ES256, jose.ES384, jose.PS256,
+	})
+	return err == nil && tok.UnsafeClaimsWithoutVerification(out) == nil
+}
+
+// expiry is when an ID token stops working, or zero.
+func expiry(idToken string) time.Time {
+	var c struct {
+		Exp int64 `json:"exp"`
+	}
+	if !idClaims(idToken, &c) || c.Exp == 0 {
+		return time.Time{}
+	}
+	return time.Unix(c.Exp, 0)
+}
+
+// Email reads the email in an ID token, which says who signed in, or else
+// the user name, as Microsoft gives when the account has no email.
+func Email(idToken string) string {
+	var c struct {
+		Email    string `json:"email"`
+		Username string `json:"preferred_username"`
+	}
+	if !idClaims(idToken, &c) {
+		return ""
+	}
+	if c.Email == "" {
+		c.Email = c.Username
+	}
+	return web.Short(c.Email, 200)
 }
 
 // Cache keeps tokens until shortly before they expire. Each key is fetched

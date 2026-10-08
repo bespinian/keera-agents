@@ -26,7 +26,7 @@ func (a *Adapter) tools() apitool.Set {
 					"cql":{"type":"string","description":"A CQL query instead, such as type = page AND title ~ \"onboarding\""},
 					"limit":{"type":"integer","description":"At most this many results; default 25, up to 100"}}}`),
 			},
-			Run: atlassian.Run(a.search),
+			Run: atlassian.Run(a.c, a.search),
 		},
 		{
 			Tool: channels.Tool{
@@ -35,7 +35,7 @@ func (a *Adapter) tools() apitool.Set {
 				Parameters: apitool.Schema(`{"type":"object","properties":{
 					"id":{"type":"string","description":"The page's id, a number"}},"required":["id"]}`),
 			},
-			Run: atlassian.Run(a.getPage),
+			Run: atlassian.Run(a.c, a.getPage),
 		},
 		{
 			Tool: channels.Tool{
@@ -44,7 +44,7 @@ func (a *Adapter) tools() apitool.Set {
 				Parameters: apitool.Schema(`{"type":"object","properties":{
 					"limit":{"type":"integer","description":"At most this many spaces; default 25, up to 100"}}}`),
 			},
-			Run: atlassian.Run(a.listSpaces),
+			Run: atlassian.Run(a.c, a.listSpaces),
 		},
 		{
 			Tool: channels.Tool{
@@ -57,7 +57,7 @@ func (a *Adapter) tools() apitool.Set {
 					"parent_id":{"type":"string","description":"The id of the page to put it under; empty for the top of the space"}},"required":["title","body"]}`),
 				Write: true,
 			},
-			Run: atlassian.Run(a.createPage),
+			Run: atlassian.Run(a.c, a.createPage),
 		},
 		{
 			Tool: channels.Tool{
@@ -69,7 +69,7 @@ func (a *Adapter) tools() apitool.Set {
 					"body":{"type":"string","description":"The whole new content in Confluence storage format (XHTML); leave out to keep it"}},"required":["id"]}`),
 				Write: true,
 			},
-			Run: atlassian.Run(a.updatePage),
+			Run: atlassian.Run(a.c, a.updatePage),
 		},
 		{
 			Tool: channels.Tool{
@@ -80,7 +80,7 @@ func (a *Adapter) tools() apitool.Set {
 					"body":{"type":"string","description":"Plain text, or Confluence storage format (XHTML)"}},"required":["page_id","body"]}`),
 				Write: true,
 			},
-			Run: atlassian.Run(a.comment),
+			Run: atlassian.Run(a.c, a.comment),
 		},
 	}
 }

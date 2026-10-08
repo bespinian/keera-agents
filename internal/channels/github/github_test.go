@@ -149,3 +149,32 @@ func TestOpenChange(t *testing.T) {
 		t.Fatalf("sent %v", sent)
 	}
 }
+
+// A person's token is used for the API and for git, and errors name their
+// account.
+func TestPerUser(t *testing.T) {
+	_, a := newFake(t)
+	ctx := context.Background()
+	user := channels.Connection{
+		Kind: channels.GitHub, PerUser: true, Token: "tok",
+		Config: map[string]string{"client_id": "Iv1.x"}, Secrets: map[string]string{"client_secret": "pw"},
+	}
+	if r, err := a.Repo(ctx, user, "acme/web"); err != nil || r.DefaultBranch != "main" {
+		t.Fatalf("Repo = %+v, %v", r, err)
+	}
+	if _, err := a.Repo(ctx, user, "acme/docs"); err == nil || !strings.Contains(err.Error(), "the GitHub account may read") {
+		t.Errorf("no push: %v", err)
+	}
+	if r, err := a.Remote(ctx, user, "acme/web"); err != nil || r.Password != "tok" {
+		t.Errorf("Remote = %+v, %v", r, err)
+	}
+	user.Config["base_url"] = "https://ghe.example"
+	u, err := a.SignInURL(user, "https://k/cb", "st", "ch")
+	if err != nil || !strings.HasPrefix(u, "https://ghe.example/login/oauth/authorize?") {
+		t.Errorf("SignInURL = %s, %v", u, err)
+	}
+	user.Token = ""
+	if _, err := a.Remote(ctx, user, "acme/web"); err == nil {
+		t.Error("a remote for nobody")
+	}
+}

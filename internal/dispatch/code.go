@@ -14,8 +14,9 @@ import (
 
 // Agents work in repositories with git, through the control plane's git
 // proxy, and with these tools for issues and pull or merge requests. Both
-// use the connection's token, which never reaches the container, and both
-// reach only the repositories an agent is bound to.
+// use the connection's token, or the token of the person the task is for,
+// which never reaches the container, and both reach only the repositories
+// an agent is bound to.
 
 // cloneURL is where git in an agent's container clones a repository from:
 // the runtime's local proxy, which passes it on to the control plane.
@@ -70,13 +71,14 @@ func codeTools(bindings []store.Binding) []protocol.ToolSpec {
 	}
 }
 
-// LookupRepo checks a connection reaches a repository and may push to it.
-func (d *Dispatcher) LookupRepo(ctx context.Context, c store.Connection, target string) (channels.Repo, error) {
+// LookupRepo checks a connection reaches a repository and may push to it,
+// as userID, who is binding it, when people sign in to it.
+func (d *Dispatcher) LookupRepo(ctx context.Context, c store.Connection, target, userID string) (channels.Repo, error) {
 	adapter, ok := channels.CodeFor(channels.Kind(c.Kind))
 	if !ok {
 		return channels.Repo{}, fmt.Errorf("no code host for %s", c.Kind)
 	}
-	conn, err := d.Conn(c)
+	conn, err := d.ConnFor(ctx, c, userID)
 	if err != nil {
 		return channels.Repo{}, err
 	}
@@ -84,15 +86,15 @@ func (d *Dispatcher) LookupRepo(ctx context.Context, c store.Connection, target 
 }
 
 // repo returns the agent's repository binding, its adapter and its
-// connection.
-func (d *Dispatcher) repo(ctx context.Context, a store.Agent, bindingID string) (store.Binding, channels.Code, channels.Connection, error) {
-	return bound(ctx, d, a, bindingID, "repositories", channels.CodeFor, store.ModeRepo)
+// connection, for task t.
+func (d *Dispatcher) repo(ctx context.Context, a store.Agent, t store.Task, bindingID string) (store.Binding, channels.Code, channels.Connection, error) {
+	return bound(ctx, d, a, t, bindingID, "repositories", channels.CodeFor, store.ModeRepo)
 }
 
 // GitRemote is where the git proxy sends an agent's request for one of its
-// repositories, with the credentials to add.
-func (d *Dispatcher) GitRemote(ctx context.Context, a store.Agent, bindingID string) (channels.Remote, error) {
-	b, adapter, conn, err := d.repo(ctx, a, bindingID)
+// repositories, during task t, with the credentials to add.
+func (d *Dispatcher) GitRemote(ctx context.Context, a store.Agent, t store.Task, bindingID string) (channels.Remote, error) {
+	b, adapter, conn, err := d.repo(ctx, a, t, bindingID)
 	if err != nil {
 		return channels.Remote{}, err
 	}
@@ -120,7 +122,7 @@ func issueState(state string) (string, error) {
 	return "", fmt.Errorf("state must be open, closed or all, not %q", state)
 }
 
-func (d *Dispatcher) toolRepoList(ctx context.Context, a store.Agent, in toolArgs) (any, error) {
+func (d *Dispatcher) toolRepoList(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
 	change, err := isChange(in.Kind)
 	if err != nil {
 		return nil, err
@@ -129,14 +131,14 @@ func (d *Dispatcher) toolRepoList(ctx context.Context, a store.Agent, in toolArg
 	if err != nil {
 		return nil, err
 	}
-	b, adapter, conn, err := d.repo(ctx, a, in.Repo)
+	b, adapter, conn, err := d.repo(ctx, a, t, in.Repo)
 	if err != nil {
 		return nil, err
 	}
 	return adapter.Issues(ctx, conn, b.Target, state, change)
 }
 
-func (d *Dispatcher) toolRepoRead(ctx context.Context, a store.Agent, in toolArgs) (any, error) {
+func (d *Dispatcher) toolRepoRead(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
 	change, err := isChange(in.Kind)
 	if err != nil {
 		return nil, err
@@ -144,14 +146,14 @@ func (d *Dispatcher) toolRepoRead(ctx context.Context, a store.Agent, in toolArg
 	if in.Number < 1 {
 		return nil, errors.New("give the number of the issue or change")
 	}
-	b, adapter, conn, err := d.repo(ctx, a, in.Repo)
+	b, adapter, conn, err := d.repo(ctx, a, t, in.Repo)
 	if err != nil {
 		return nil, err
 	}
 	return adapter.Issue(ctx, conn, b.Target, in.Number, change)
 }
 
-func (d *Dispatcher) toolRepoComment(ctx context.Context, a store.Agent, in toolArgs) (any, error) {
+func (d *Dispatcher) toolRepoComment(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
 	change, err := isChange(in.Kind)
 	if err != nil {
 		return nil, err
@@ -160,7 +162,7 @@ func (d *Dispatcher) toolRepoComment(ctx context.Context, a store.Agent, in tool
 	if in.Number < 1 || body == "" {
 		return nil, errors.New("give the number of the issue or change, and the comment")
 	}
-	b, adapter, conn, err := d.repo(ctx, a, in.Repo)
+	b, adapter, conn, err := d.repo(ctx, a, t, in.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +172,7 @@ func (d *Dispatcher) toolRepoComment(ctx context.Context, a store.Agent, in tool
 	return "commented", nil
 }
 
-func (d *Dispatcher) toolRepoOpenChange(ctx context.Context, a store.Agent, in toolArgs) (any, error) {
+func (d *Dispatcher) toolRepoOpenChange(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
 	c := channels.Change{
 		Branch: in.Branch, Base: in.Base, Title: value(in.Title), Body: value(in.Body), Draft: in.Draft,
 	}
@@ -180,7 +182,7 @@ func (d *Dispatcher) toolRepoOpenChange(ctx context.Context, a store.Agent, in t
 	if c.Title == "" {
 		return nil, errors.New("give the change a title")
 	}
-	b, adapter, conn, err := d.repo(ctx, a, in.Repo)
+	b, adapter, conn, err := d.repo(ctx, a, t, in.Repo)
 	if err != nil {
 		return nil, err
 	}

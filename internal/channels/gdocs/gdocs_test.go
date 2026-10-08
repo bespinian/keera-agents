@@ -74,6 +74,53 @@ func TestCheck(t *testing.T) {
 	}
 }
 
+// A connector people sign in to works as each of them, with their token.
+func TestPerUser(t *testing.T) {
+	f, a, _ := setup(t)
+	ctx := context.Background()
+	var _ channels.PerUser = a
+
+	// Before anyone signs in, a check proves the OAuth client is known.
+	client := f.UserConn(channels.GoogleDocs, "")
+	if err := a.Check(ctx, client); err != nil {
+		t.Fatalf("Check = %v", err)
+	}
+	wrong := f.UserConn(channels.GoogleDocs, "")
+	wrong.Secrets["client_secret"] = "nope"
+	if err := a.Check(ctx, wrong); err == nil || !strings.Contains(err.Error(), "invalid_client") {
+		t.Errorf("wrong secret: %v", err)
+	}
+
+	u, err := a.SignInURL(client, "https://k/cb", "st", "ch")
+	if err != nil || !strings.HasPrefix(u, "https://accounts.example/auth?") ||
+		!strings.Contains(u, "access_type=offline") || !strings.Contains(u, "auth%2Fdocuments") ||
+		!strings.Contains(u, "openid+email") {
+		t.Errorf("SignInURL = %s, %v", u, err)
+	}
+	g, err := a.Exchange(ctx, client, "https://k/cb", workspacetest.Code, "verifier")
+	if err != nil || g.Refresh != workspacetest.Refresh || g.Access != "ws-token" || g.Account != "ada@acme.com" {
+		t.Fatalf("Exchange = %+v, %v", g, err)
+	}
+	if g, err := a.Refresh(ctx, client, workspacetest.Refresh); err != nil || g.Access != "ws-token" {
+		t.Fatalf("Refresh = %+v, %v", g, err)
+	}
+	if _, err := a.Refresh(ctx, client, "revoked"); err == nil || !strings.Contains(err.Error(), "invalid_grant") {
+		t.Errorf("revoked refresh: %v", err)
+	}
+
+	// Calls carry the person's token, and errors name them.
+	conn := f.UserConn(channels.GoogleDocs, "ws-token")
+	if out, err := call(t, a, conn, "*", "find", `{}`); err != nil || !strings.Contains(out, "Plan") {
+		t.Errorf("find = %s, %v", out, err)
+	}
+	if _, err := a.Target(ctx, conn, "GONE"); err == nil || !strings.Contains(err.Error(), "ada@acme.com") {
+		t.Errorf("missing: %v", err)
+	}
+	if _, err := call(t, a, client, "*", "find", `{}`); err == nil {
+		t.Error("a call without anyone's token passed")
+	}
+}
+
 func TestTarget(t *testing.T) {
 	f, a, _ := setup(t)
 	conn := f.Conn(channels.GoogleDocs, "")

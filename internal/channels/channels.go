@@ -57,6 +57,14 @@ type Connection struct {
 	Kind    Kind
 	Config  map[string]string
 	Secrets map[string]string
+	// PerUser is a connection each person signs in to with their own
+	// account. Its secrets are then only the OAuth client's. A call made for
+	// someone carries their access Token, and Account, who they are at the
+	// service; without one, as when the connector is checked, it has
+	// neither.
+	PerUser bool
+	Token   string
+	Account string
 }
 
 // Field is one setting of a kind, for the panel's form and for checking a
@@ -107,6 +115,20 @@ type Descriptor struct {
 	// AnyTarget is an API kind whose binding may be AnyTarget: everything
 	// the connection reaches.
 	AnyTarget bool `json:"any_target,omitempty"`
+	// SignIn is set for a kind whose connectors may let each person sign
+	// in with their own account. Register sets it from the PerUser
+	// interface.
+	SignIn *SignIn `json:"sign_in,omitempty"`
+}
+
+// SignIn describes the OAuth client an administrator registers so that
+// people can sign in to a service themselves.
+type SignIn struct {
+	// Fields replace the Descriptor's for a connector people sign in to.
+	Fields []Field `json:"fields"`
+	// Setup is like the Descriptor's. It may name {callback}, which the
+	// panel replaces with the address to register.
+	Setup string `json:"setup"`
 }
 
 // Person is who sent a message. Email is what maps them to a Keera user, so
@@ -312,6 +334,31 @@ type API interface {
 	Call(ctx context.Context, conn Connection, target, tool string, args json.RawMessage) (any, error)
 }
 
+// Grant is what signing someone in gives: a refresh token to get access
+// tokens with, the first access token, and who they are at the service.
+type Grant struct {
+	Refresh string
+	Access  string
+	Expiry  time.Time
+	Account string
+}
+
+// PerUser is an adapter whose connectors may let each person sign in with
+// their own account, through OAuth with an authorization code and PKCE.
+// Each takes a connection with PerUser set and the client in its secrets.
+type PerUser interface {
+	Adapter
+	SignIn() SignIn
+	// SignInURL is where the person's browser goes to sign in. redirect is
+	// where the service sends them back with a code.
+	SignInURL(conn Connection, redirect, state, challenge string) (string, error)
+	// Exchange redeems the code they came back with.
+	Exchange(ctx context.Context, conn Connection, redirect, code, verifier string) (Grant, error)
+	// Refresh gets a new access token. Its Refresh is set only when the
+	// service replaced the refresh token.
+	Refresh(ctx context.Context, conn Connection, refresh string) (Grant, error)
+}
+
 // Options are what every adapter is built with, so tests can point it at a
 // fake service.
 type Options struct {
@@ -337,6 +384,7 @@ var (
 	files    = map[Kind]Files{}
 	codes    = map[Kind]Code{}
 	apis     = map[Kind]API{}
+	perUsers = map[Kind]PerUser{}
 )
 
 // Register makes an adapter available. Adapters are created by the server at
@@ -357,6 +405,10 @@ func Register(a Adapter) {
 	}
 	if x, ok := a.(API); ok {
 		apis[d.Kind], d.API, d.Tools = x, true, x.Tools()
+	}
+	if p, ok := a.(PerUser); ok {
+		signIn := p.SignIn()
+		perUsers[d.Kind], d.SignIn = p, &signIn
 	}
 	descs[d.Kind] = d
 }
@@ -395,6 +447,14 @@ func APIFor(k Kind) (API, bool) {
 	defer mu.RUnlock()
 	x, ok := apis[k]
 	return x, ok
+}
+
+// PerUserFor returns the adapter of a kind people may sign in to.
+func PerUserFor(k Kind) (PerUser, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	p, ok := perUsers[k]
+	return p, ok
 }
 
 // Descriptors lists the registered kinds in order.

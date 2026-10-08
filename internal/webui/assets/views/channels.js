@@ -183,6 +183,7 @@ function addChannel(ctx, agent, connections, kinds) {
   });
 
   const targetHint = h("div", { class: "hint" });
+  const actsAs = h("div", { class: "hint" });
   const targetLabel = h("label", {}, "Target");
   const browse = h(
     "button",
@@ -206,6 +207,16 @@ function addChannel(ctx, agent, connections, kinds) {
 
   function syncConnection() {
     const kind = kindOf(chosen());
+    const c = chosen() || {};
+    actsAs.hidden = !c.per_user;
+    replace(
+      actsAs,
+      c.per_user
+        ? "It acts as each person who gives the agent work, with their own account, and a folder watch as you. " +
+            "Each needs to connect theirs under Connectors" +
+            (c.account ? "." : ", you too, before adding it.")
+        : "",
+    );
     const keep = mode.value;
     const modes = modesFor(kind, agent.kind === "workspace");
     replace(
@@ -335,7 +346,7 @@ function addChannel(ctx, agent, connections, kinds) {
     body: h(
       "form",
       {},
-      field("Connector", connection),
+      field("Connector", connection, actsAs),
       field("Mode", mode),
       targetField,
       browser,

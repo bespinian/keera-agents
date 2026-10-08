@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/dispatch"
 	"github.com/bespinian/keera-agents/internal/egress"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
@@ -43,8 +44,12 @@ func (rn *Runner) git(w http.ResponseWriter, r *http.Request, a store.Agent) {
 	ctx := r.Context()
 	// An agent works on a repository only for a task. A workspace's owner
 	// works in it whenever they are connected.
+	// It works as the person the task is for, on a connector people sign in
+	// to.
+	t := dispatch.WorkspaceTask(a)
 	if a.Kind != store.KindWorkspace {
-		if _, err := rn.st.RunningTask(ctx, a.ID); err != nil {
+		var err error
+		if t, err = rn.st.RunningTask(ctx, a.ID); err != nil {
 			gitError(w, http.StatusConflict, "git works only during a task")
 			return
 		}
@@ -64,7 +69,7 @@ func (rn *Runner) git(w http.ResponseWriter, r *http.Request, a store.Agent) {
 		gitError(w, http.StatusNotFound, "only git's smart HTTP protocol is served here")
 		return
 	}
-	remote, err := rn.disp.GitRemote(ctx, a, r.PathValue("binding"))
+	remote, err := rn.disp.GitRemote(ctx, a, t, r.PathValue("binding"))
 	if err != nil {
 		gitError(w, http.StatusNotFound, err.Error())
 		return

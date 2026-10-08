@@ -1,6 +1,8 @@
 // Package onedrive lets agents work in a OneDrive or a SharePoint document
 // library through Microsoft Graph, signed in as an app with client
-// credentials.
+// credentials, or as each person who signs in with their own account. A
+// folder's id belongs to one drive, so people who sign in share the drive
+// the connector names, such as a SharePoint library.
 //
 // Endpoints:
 //   - "login": Microsoft Entra, default https://login.microsoftonline.com
@@ -24,6 +26,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/microsoft"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -46,13 +49,24 @@ var validID = regexp.MustCompile(`^[A-Za-z0-9!_.-]+$`)
 type Adapter struct {
 	auth  *microsoft.Auth
 	graph string
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
-	return &Adapter{
+	a := &Adapter{
 		auth:  microsoft.NewAuth(opts),
 		graph: web.Endpoint(opts, "graph", "https://graph.microsoft.com/v1.0"),
 	}
+	a.Accounts = a.auth.Accounts([]string{"https://graph.microsoft.com/Files.ReadWrite.All"},
+		"Files.ReadWrite.All").WithFields(driveField)
+	return a
+}
+
+// driveField is a setting of both kinds of connector.
+var driveField = channels.Field{
+	Name: "drive_id", Label: "Drive ID", Required: true,
+	Help: "The drive to work in, starting with b!. In Graph Explorer, a user's OneDrive is " +
+		"GET /users/{email}/drive, and a SharePoint site's libraries are GET /sites/{host}:/sites/{site}:/drives.",
 }
 
 func (a *Adapter) Descriptor() channels.Descriptor {
@@ -62,19 +76,7 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		Vendor:   "Microsoft",
 		Category: "Files",
 		Summary:  "Agents watch folders in OneDrive or a SharePoint library, and read and write files in them.",
-		Fields: []channels.Field{
-			{Name: "tenant_id", Label: "Tenant ID", Required: true, Help: "Your Microsoft Entra tenant ID."},
-			{Name: "client_id", Label: "Client ID", Required: true, Help: "The application (client) ID of the app registration."},
-			{
-				Name: "client_secret", Label: "Client secret", Secret: true, Required: true,
-				Help: "A client secret of the app registration, from Certificates & secrets.",
-			},
-			{
-				Name: "drive_id", Label: "Drive ID", Required: true,
-				Help: "The drive to work in, starting with b!. In Graph Explorer, a user's OneDrive is " +
-					"GET /users/{email}/drive, and a SharePoint site's libraries are GET /sites/{host}:/sites/{site}:/drives.",
-			},
-		},
+		Fields:   append(microsoft.Fields(), driveField),
 		Setup: "1. In Microsoft Entra, register an app and create a client secret.\n" +
 			"2. Under API permissions, add the Microsoft Graph application permission Files.ReadWrite.All " +
 			"(or Sites.ReadWrite.All, or Sites.Selected with access to one site).\n" +
@@ -91,18 +93,13 @@ type settings struct {
 }
 
 func settingsOf(conn channels.Connection) (settings, error) {
-	s := settings{
-		app: microsoft.App{
-			Tenant:   web.Value(conn, "tenant_id"),
-			ClientID: web.Value(conn, "client_id"),
-			Secret:   web.Value(conn, "client_secret"),
-			Scope:    scope,
-		},
-		drive: web.Value(conn, "drive_id"),
-	}
+	app, err := microsoft.AppOf(conn, scope)
+	s := settings{app: app, drive: web.Value(conn, "drive_id")}
 	switch {
-	case s.app.Tenant == "" || s.app.ClientID == "" || s.app.Secret == "":
-		return s, errors.New("the tenant ID, client ID or client secret is missing")
+	case err != nil:
+		return s, err
+	case conn.PerUser && app.Token == "":
+		return s, oauth.ErrNoToken
 	case s.drive == "":
 		return s, errors.New("the drive ID is missing")
 	case !validID.MatchString(s.drive):
@@ -183,6 +180,9 @@ func (a *Adapter) driveURL(s settings, path string, q url.Values) string {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
+	if conn.PerUser {
+		return a.CheckClient(ctx, conn)
+	}
 	s, err := settingsOf(conn)
 	if err != nil {
 		return err

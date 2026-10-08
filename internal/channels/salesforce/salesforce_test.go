@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
 const api = "/services/data/" + apiVersion
@@ -276,5 +277,37 @@ func TestDomain(t *testing.T) {
 	}})
 	if err != nil || o.domain != "https://acme.my.salesforce.com" {
 		t.Fatalf("org = %+v, %v", o, err)
+	}
+}
+
+// A person's token goes to the org's own server, and is never swapped for
+// the run-as user's.
+func TestPerUser(t *testing.T) {
+	f, a := newFake(t)
+	ctx := context.Background()
+	query := func(conn channels.Connection) error {
+		_, err := a.Call(ctx, conn, channels.AnyTarget, "query", json.RawMessage(`{"soql":"SELECT Id, Name FROM Account"}`))
+		return err
+	}
+	user := f.conn("secret")
+	user.PerUser, user.Token = true, "tok1"
+	if err := query(user); err != nil {
+		t.Fatalf("query = %v", err)
+	}
+	user.Token = "expired"
+	if err := query(user); web.Status(err) != http.StatusUnauthorized {
+		t.Errorf("a refused token: %v", err)
+	}
+	if n := f.tokens.Load(); n != 0 {
+		t.Errorf("signed in as the run-as user %d times", n)
+	}
+	client := f.conn("secret")
+	client.PerUser = true
+	if err := query(client); err == nil {
+		t.Error("a call for nobody passed")
+	}
+	u, err := a.SignInURL(client, "https://k/cb", "st", "ch")
+	if err != nil || !strings.HasPrefix(u, f.srv.URL+"/services/oauth2/authorize?") || !strings.Contains(u, "refresh_token") {
+		t.Errorf("SignInURL = %s, %v", u, err)
 	}
 }

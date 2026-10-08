@@ -15,13 +15,17 @@ import (
 
 // Connectors, called connections in the API, hold an organisation's
 // credentials for a service, so only its administrators create and change
-// them. Everyone sees their names, to connect their agents.
+// them. Everyone sees their names, to connect their agents. A connector may
+// instead let each person sign in with their own account: then its
+// credentials are only the OAuth client's, and everyone may sign in.
 
 type connectionView struct {
 	store.Connection
 	SecretsSet []string `json:"secrets_set"`
 	WebhookURL string   `json:"webhook_url,omitempty"`
 	Bindings   int      `json:"bindings"`
+	// Account is the caller's own sign-in, to a connector people sign in to.
+	Account *store.Account `json:"account,omitempty"`
 }
 
 func (s *Server) view(c store.Connection, bindings int) connectionView {
@@ -40,8 +44,12 @@ func (s *Server) view(c store.Connection, bindings int) connectionView {
 	return v
 }
 
+// connectionKinds lists the kinds, and the address a connector people sign
+// in to registers with the service.
 func (s *Server) connectionKinds(w http.ResponseWriter, _ *http.Request, _ Principal) {
-	writeJSON(w, http.StatusOK, map[string]any{"data": channels.Descriptors()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": channels.Descriptors(), "callback_url": s.disp.AccountCallbackURL(),
+	})
 }
 
 func (s *Server) listConnections(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -55,11 +63,29 @@ func (s *Server) listConnections(w http.ResponseWriter, r *http.Request, p Princ
 		s.fail(w, err)
 		return
 	}
+	accounts, err := s.st.UserAccounts(r.Context(), p.OrgID, p.UserID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	out := make([]connectionView, 0, len(list))
 	for _, c := range list {
-		out = append(out, s.view(c, counts[c.ID]))
+		v := s.view(c, counts[c.ID])
+		for _, a := range accounts {
+			if a.ConnectionID == c.ID && c.PerUser {
+				v.Account = &a
+			}
+		}
+		out = append(out, v)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+	res := map[string]any{"data": out}
+	// How the caller's last sign-in to a connector went, shown once.
+	var signIn signInResult
+	if s.readSealed(r, signInResultCookie, &signIn) {
+		s.clearCookie(w, signInResultCookie, signInResultPath)
+		res["sign_in_result"] = signIn
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 type connectionInput struct {
@@ -67,6 +93,9 @@ type connectionInput struct {
 	Name    *string           `json:"name"`
 	Config  map[string]string `json:"config"`
 	Secrets map[string]string `json:"secrets"`
+	// PerUser lets each person sign in with their own account. It is
+	// chosen when the connector is added, and kept.
+	PerUser *bool `json:"per_user"`
 }
 
 // fill splits a form into settings and secrets by the kind's fields, keeps
@@ -126,9 +155,14 @@ func (s *Server) createConnection(w http.ResponseWriter, r *http.Request, p Prin
 		badRequest(w, "there is no kind of connector called "+in.Kind)
 		return
 	}
+	perUser := in.PerUser != nil && *in.PerUser
+	if perUser && d.SignIn == nil {
+		badRequest(w, d.Label+" does not let people sign in with their own accounts")
+		return
+	}
 	c := store.Connection{
 		ID: id.New("con"), OrgID: p.OrgID, Kind: in.Kind, Name: d.Label, Config: map[string]string{},
-		CreatedBy: p.Email,
+		PerUser: perUser, CreatedBy: p.Email,
 	}
 	if err := s.prepare(r.Context(), d, &c, map[string]string{}, in); err != nil {
 		badRequest(w, err.Error())
@@ -150,11 +184,15 @@ func (s *Server) prepare(ctx context.Context, d channels.Descriptor, c *store.Co
 	if in.Name != nil && strings.TrimSpace(*in.Name) != "" {
 		c.Name = trim(*in.Name, 100)
 	}
+	// A connector people sign in to holds only its OAuth client.
+	if c.PerUser && d.SignIn != nil {
+		d.Fields = d.SignIn.Fields
+	}
 	if err := fill(d, c.Config, secrets, in.Config, in.Secrets); err != nil {
 		return err
 	}
 	if err := check(ctx, channels.Connection{
-		ID: c.ID, Kind: d.Kind, Config: c.Config, Secrets: secrets,
+		ID: c.ID, Kind: d.Kind, Config: c.Config, Secrets: secrets, PerUser: c.PerUser,
 	}); err != nil {
 		return err
 	}
@@ -194,6 +232,10 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Prin
 		badRequest(w, "a connector keeps its kind; create a new one")
 		return
 	}
+	if in.PerUser != nil && *in.PerUser != c.PerUser {
+		badRequest(w, "a connector keeps whom it acts as; create a new one")
+		return
+	}
 	d, _ := channels.Describe(channels.Kind(c.Kind))
 	secrets, err := s.disp.OpenSecrets(c)
 	if err != nil {
@@ -211,7 +253,11 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	s.record(r.Context(), p, "connection.update", out.ID, map[string]string{"name": out.Name})
 	counts, _ := s.st.BindingCounts(r.Context(), p.OrgID)
-	writeJSON(w, http.StatusOK, s.view(out, counts[out.ID]))
+	v := s.view(out, counts[out.ID])
+	if a, err := s.st.Account(r.Context(), out.ID, p.UserID); err == nil && out.PerUser {
+		v.Account = &a
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -243,9 +289,10 @@ func (s *Server) checkConnection(w http.ResponseWriter, r *http.Request, p Princ
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// connectionFolders lists a folder, for choosing one to connect an agent to.
-// A member sees folder names only: the connection may reach files they
-// could not open themselves.
+// connectionFolders lists a folder, for choosing one to connect an agent to,
+// as the caller when people sign in to the connector. A member sees folder
+// names only: the connection may reach files they could not open
+// themselves.
 func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Principal) {
 	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
 	if !ok {
@@ -256,7 +303,7 @@ func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Pri
 		badRequest(w, c.Name+" holds no files")
 		return
 	}
-	conn, err := s.disp.Conn(c)
+	conn, err := s.disp.ConnFor(r.Context(), c, p.UserID)
 	if err != nil {
 		badRequest(w, err.Error())
 		return

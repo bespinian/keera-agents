@@ -306,3 +306,36 @@ func TestCommentAndTransition(t *testing.T) {
 		t.Fatal("a transition in another project passed")
 	}
 }
+
+// A person's calls go through Atlassian's gateway, with their token, and
+// links still point at the site.
+func TestPerUser(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer user-tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/oauth/token/accessible-resources":
+			_, _ = w.Write([]byte(`[{"id":"cloud-1","url":"https://acme.atlassian.net"}]`))
+		case "/ex/jira/cloud-1/rest/api/2/project/WEB":
+			_, _ = w.Write([]byte(`{"key":"WEB","name":"Website","projectTypeKey":"software"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	a := New(channels.Options{HTTP: srv.Client(), Endpoints: map[string]string{"api": srv.URL}})
+	conn := channels.Connection{
+		Kind: channels.Jira, PerUser: true, Token: "user-tok",
+		Config:  map[string]string{"base_url": "https://acme.atlassian.net", "client_id": "cid"},
+		Secrets: map[string]string{"client_secret": "pw"},
+	}
+	if got, err := a.Target(context.Background(), conn, "WEB"); err != nil || got != "WEB" {
+		t.Fatalf("Target = %q, %v", got, err)
+	}
+	out, err := call(t, a, conn, "WEB", "list_projects", `{}`)
+	if err != nil || !strings.Contains(out, "https://acme.atlassian.net/browse/WEB") {
+		t.Errorf("list_projects = %s, %v", out, err)
+	}
+}

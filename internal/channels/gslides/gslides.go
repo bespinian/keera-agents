@@ -1,9 +1,11 @@
 // Package gslides lets agents find, read and change Google Slides
-// presentations as a service account, or as a user of the domain through
-// domain-wide delegation.
+// presentations as a service account, as a user of the domain through
+// domain-wide delegation, or as each person who signs in with their own
+// account.
 //
 // Endpoints:
 //   - "token": Google's token endpoint, default https://oauth2.googleapis.com/token
+//   - "auth": where people sign in, default https://accounts.google.com/o/oauth2/v2/auth
 //   - "drive": the base of the Drive API, default https://www.googleapis.com
 //   - "slides": the base of the Slides API, default https://slides.googleapis.com
 package gslides
@@ -38,6 +40,7 @@ type Adapter struct {
 	files  workspace.Files
 	slides string
 	tools  apitool.Set
+	workspace.Accounts
 }
 
 const idParam = `"presentation_id":{"type":"string","description":"The presentation's id or link. Optional when the connector is bound to one presentation."}`
@@ -87,6 +90,7 @@ func New(opts channels.Options) *Adapter {
 			Run: a.addSlide,
 		},
 	}
+	a.Accounts = workspace.NewAccounts(a.files.Client, "Google Slides API and the Google Drive API")
 	return a
 }
 

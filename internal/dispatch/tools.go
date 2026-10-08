@@ -239,7 +239,7 @@ func (d *Dispatcher) callTool(ctx context.Context, a store.Agent, t store.Task, 
 	// An API connector's tools have arguments of their own, which may not
 	// fit toolArgs.
 	if _, ok := apiKindOf(name); ok {
-		out, err := d.toolAPI(ctx, a, name, args)
+		out, err := d.toolAPI(ctx, a, t, name, args)
 		if err != nil {
 			return failed("%v", err)
 		}
@@ -269,13 +269,13 @@ func (d *Dispatcher) callTool(ctx context.Context, a store.Agent, t store.Task, 
 	case "files_write":
 		out, err = d.toolFilesWrite(ctx, a, t, in)
 	case "repo_list_issues":
-		out, err = d.toolRepoList(ctx, a, in)
+		out, err = d.toolRepoList(ctx, a, t, in)
 	case "repo_read_issue":
-		out, err = d.toolRepoRead(ctx, a, in)
+		out, err = d.toolRepoRead(ctx, a, t, in)
 	case "repo_comment":
-		out, err = d.toolRepoComment(ctx, a, in)
+		out, err = d.toolRepoComment(ctx, a, t, in)
 	case "repo_open_change":
-		out, err = d.toolRepoOpenChange(ctx, a, in)
+		out, err = d.toolRepoOpenChange(ctx, a, t, in)
 	default:
 		return failed("there is no tool called %s", name)
 	}
@@ -548,9 +548,10 @@ func (g *grants) has(taskID, bindingID, id string) bool {
 	return ok
 }
 
-// folder returns the agent's file binding, its adapter and its connection.
-func (d *Dispatcher) folder(ctx context.Context, a store.Agent, bindingID string) (store.Binding, channels.Files, channels.Connection, error) {
-	return bound(ctx, d, a, bindingID, "folders", channels.FilesFor, store.ModeWatch, store.ModeFiles)
+// folder returns the agent's file binding, its adapter and its connection,
+// for task t.
+func (d *Dispatcher) folder(ctx context.Context, a store.Agent, t store.Task, bindingID string) (store.Binding, channels.Files, channels.Connection, error) {
+	return bound(ctx, d, a, t, bindingID, "folders", channels.FilesFor, store.ModeWatch, store.ModeFiles)
 }
 
 // within resolves a subfolder the task has seen, or the bound folder.
@@ -565,7 +566,7 @@ func (d *Dispatcher) within(t store.Task, b store.Binding, sub string) (string, 
 }
 
 func (d *Dispatcher) toolFilesList(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
-	b, adapter, conn, err := d.folder(ctx, a, in.Folder)
+	b, adapter, conn, err := d.folder(ctx, a, t, in.Folder)
 	if err != nil {
 		return nil, err
 	}
@@ -584,7 +585,7 @@ func (d *Dispatcher) toolFilesList(ctx context.Context, a store.Agent, t store.T
 }
 
 func (d *Dispatcher) toolFilesRead(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
-	b, adapter, conn, err := d.folder(ctx, a, in.Folder)
+	b, adapter, conn, err := d.folder(ctx, a, t, in.Folder)
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +608,7 @@ func (d *Dispatcher) toolFilesWrite(ctx context.Context, a store.Agent, t store.
 	if len(in.Content) > channels.MaxFileBytes {
 		return nil, fmt.Errorf("the file is larger than %d MiB", channels.MaxFileBytes>>20)
 	}
-	b, adapter, conn, err := d.folder(ctx, a, in.Folder)
+	b, adapter, conn, err := d.folder(ctx, a, t, in.Folder)
 	if err != nil {
 		return nil, err
 	}

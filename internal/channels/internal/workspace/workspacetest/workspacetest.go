@@ -18,6 +18,14 @@ import (
 // Outsider is a user the fake refuses to sign in as.
 const Outsider = "outsider@x.ch"
 
+// The OAuth client people sign in through, and what signing in gives.
+const (
+	ClientID     = "cid.apps.googleusercontent.com"
+	ClientSecret = "client-secret"
+	Code         = "the-code"
+	Refresh      = "refresh-1"
+)
+
 type Fake struct {
 	Srv *httptest.Server
 	Key *jwttest.Key
@@ -38,6 +46,10 @@ func New(t *testing.T) *Fake {
 	f := &Fake{Key: jwttest.NewKey(t, "sa"), Files: map[string]map[string]any{}, mux: http.NewServeMux()}
 	f.mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
+		if grant := r.Form.Get("grant_type"); grant == "authorization_code" || grant == "refresh_token" {
+			f.signIn(t, w, r)
+			return
+		}
 		c := jwttest.Claims(t, r.Form.Get("assertion"), &f.Key.Private.PublicKey)
 		f.mu.Lock()
 		f.Scope, _ = c["scope"].(string)
@@ -84,6 +96,35 @@ func New(t *testing.T) *Fake {
 	return f
 }
 
+// signIn answers a person's sign-in with the code, and refreshes with the
+// refresh token, as Google does. Each gives the fake's token.
+func (f *Fake) signIn(t *testing.T, w http.ResponseWriter, r *http.Request) {
+	refuse := func(code string) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"` + code + `","error_description":"refused"}`))
+	}
+	if r.Form.Get("client_id") != ClientID || r.Form.Get("client_secret") != ClientSecret {
+		refuse("invalid_client")
+		return
+	}
+	if r.Form.Get("grant_type") == "refresh_token" {
+		if r.Form.Get("refresh_token") != Refresh {
+			refuse("invalid_grant")
+			return
+		}
+		_, _ = w.Write([]byte(`{"access_token":"ws-token","expires_in":3600}`))
+		return
+	}
+	if r.Form.Get("code") != Code || r.Form.Get("code_verifier") == "" {
+		refuse("invalid_grant")
+		return
+	}
+	idToken := f.Key.Sign(t, map[string]any{"email": "ada@acme.com"})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"access_token": "ws-token", "expires_in": 3600, "refresh_token": Refresh, "id_token": idToken,
+	})
+}
+
 // Handle serves pattern for callers with the fake's token, one at a time.
 func (f *Fake) Handle(pattern string, h http.HandlerFunc) {
 	f.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +145,18 @@ func (f *Fake) Options() channels.Options {
 		e[name] = f.Srv.URL
 	}
 	e["token"] = f.Srv.URL + "/token"
+	e["auth"] = "https://accounts.example/auth"
 	return channels.Options{HTTP: f.Srv.Client(), Endpoints: e}
+}
+
+// UserConn is a connection people sign in to, with the fake's client. With
+// a token, it is a call for the person it belongs to.
+func (f *Fake) UserConn(kind channels.Kind, token string) channels.Connection {
+	return channels.Connection{
+		Kind: kind, PerUser: true, Token: token, Account: "ada@acme.com",
+		Config:  map[string]string{"client_id": ClientID},
+		Secrets: map[string]string{"client_secret": ClientSecret},
+	}
 }
 
 // Conn is a connection with the fake's key, acting as subject if it is not

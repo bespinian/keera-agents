@@ -305,3 +305,24 @@ func TestCheck(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// A person's calls carry their token, without signing in as the service
+// account.
+func TestPerUser(t *testing.T) {
+	f := newFake(t)
+	a := f.adapter()
+	user := channels.Connection{
+		Kind: channels.GoogleDrive, PerUser: true, Token: "drive-token",
+		Config: map[string]string{"client_id": "cid"}, Secrets: map[string]string{"client_secret": "pw"},
+	}
+	if files, err := a.List(context.Background(), user, ""); err != nil || len(files) != 6 {
+		t.Fatalf("List = %+v, %v", files, err)
+	}
+	user.Token = ""
+	if _, err := a.List(context.Background(), user, ""); err == nil {
+		t.Error("a call for nobody passed")
+	}
+	if fields := a.SignIn().Fields; fields[len(fields)-1].Name != "shared_drive_id" {
+		t.Errorf("sign-in fields = %+v", fields)
+	}
+}

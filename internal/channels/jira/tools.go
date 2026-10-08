@@ -27,7 +27,7 @@ func (a *Adapter) tools() apitool.Set {
 					"jql":{"type":"string","description":"A JQL query, such as status = \"In Progress\" AND assignee = currentUser()"},
 					"limit":{"type":"integer","description":"At most this many issues; default 25, up to 100"}}}`),
 			},
-			Run: atlassian.Run(a.searchIssues),
+			Run: atlassian.Run(a.c, a.searchIssues),
 		},
 		{
 			Tool: channels.Tool{
@@ -36,7 +36,7 @@ func (a *Adapter) tools() apitool.Set {
 				Parameters: apitool.Schema(`{"type":"object","properties":{
 					"key":{"type":"string","description":"The issue's key, such as WEB-12"}},"required":["key"]}`),
 			},
-			Run: atlassian.Run(a.getIssue),
+			Run: atlassian.Run(a.c, a.getIssue),
 		},
 		{
 			Tool: channels.Tool{
@@ -46,7 +46,7 @@ func (a *Adapter) tools() apitool.Set {
 					"query":{"type":"string","description":"Only projects whose name or key contains this"},
 					"limit":{"type":"integer","description":"At most this many projects; default 25, up to 100"}}}`),
 			},
-			Run: atlassian.Run(a.listProjects),
+			Run: atlassian.Run(a.c, a.listProjects),
 		},
 		{
 			Tool: channels.Tool{
@@ -57,7 +57,7 @@ func (a *Adapter) tools() apitool.Set {
 					"project":{"type":"string","description":"Only people assignable in this project, by key"},
 					"limit":{"type":"integer","description":"At most this many people; default 25, up to 100"}},"required":["query"]}`),
 			},
-			Run: atlassian.Run(a.findUsers),
+			Run: atlassian.Run(a.c, a.findUsers),
 		},
 		{
 			Tool: channels.Tool{
@@ -72,7 +72,7 @@ func (a *Adapter) tools() apitool.Set {
 					"priority":{"type":"string","description":"Such as High"}},"required":["summary"]}`),
 				Write: true,
 			},
-			Run: atlassian.Run(a.createIssue),
+			Run: atlassian.Run(a.c, a.createIssue),
 		},
 		{
 			Tool: channels.Tool{
@@ -86,7 +86,7 @@ func (a *Adapter) tools() apitool.Set {
 					"assignee":{"type":"string","description":"A person's id from find_users or get_issue, or none to unassign"}},"required":["key"]}`),
 				Write: true,
 			},
-			Run: atlassian.Run(a.updateIssue),
+			Run: atlassian.Run(a.c, a.updateIssue),
 		},
 		{
 			Tool: channels.Tool{
@@ -97,7 +97,7 @@ func (a *Adapter) tools() apitool.Set {
 					"body":{"type":"string"}},"required":["key","body"]}`),
 				Write: true,
 			},
-			Run: atlassian.Run(a.comment),
+			Run: atlassian.Run(a.c, a.comment),
 		},
 		{
 			Tool: channels.Tool{
@@ -108,7 +108,7 @@ func (a *Adapter) tools() apitool.Set {
 					"to":{"type":"string","description":"The status, or the workflow transition's name"}},"required":["key","to"]}`),
 				Write: true,
 			},
-			Run: atlassian.Run(a.transition),
+			Run: atlassian.Run(a.c, a.transition),
 		},
 	}
 }

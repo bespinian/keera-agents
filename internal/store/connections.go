@@ -9,7 +9,9 @@ import (
 )
 
 // Connection is one organisation's credentials for one service. Secrets are
-// sealed here; the caller opens them with the connection's id.
+// sealed here; the caller opens them with the connection's id. A PerUser
+// connection's secrets are only its OAuth client's: each person signs in to
+// the service with their own Account.
 type Connection struct {
 	ID        string            `json:"id"`
 	OrgID     string            `json:"org_id"`
@@ -17,17 +19,18 @@ type Connection struct {
 	Name      string            `json:"name"`
 	Config    map[string]string `json:"config"`
 	Secrets   []byte            `json:"-"`
+	PerUser   bool              `json:"per_user"`
 	CreatedBy string            `json:"created_by"`
 	CreatedAt time.Time         `json:"created_at"`
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
-const connectionColumns = `id, org_id, kind, name, config, secrets, created_by, created_at, updated_at`
+const connectionColumns = `id, org_id, kind, name, config, secrets, per_user, created_by, created_at, updated_at`
 
 func scanConnection(row pgx.Row) (Connection, error) {
 	var c Connection
 	var cfg []byte
-	err := row.Scan(&c.ID, &c.OrgID, &c.Kind, &c.Name, &cfg, &c.Secrets, &c.CreatedBy,
+	err := row.Scan(&c.ID, &c.OrgID, &c.Kind, &c.Name, &cfg, &c.Secrets, &c.PerUser, &c.CreatedBy,
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return c, notFound(err)
@@ -42,10 +45,13 @@ func scanConnection(row pgx.Row) (Connection, error) {
 func (s *Store) CreateConnection(ctx context.Context, c Connection) (Connection, error) {
 	cfg, _ := json.Marshal(c.Config)
 	return scanConnection(s.pool.QueryRow(ctx, `INSERT INTO connections
-		(id, org_id, kind, name, config, secrets, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)
-		RETURNING `+connectionColumns, c.ID, c.OrgID, c.Kind, c.Name, cfg, c.Secrets, c.CreatedBy))
+		(id, org_id, kind, name, config, secrets, per_user, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		RETURNING `+connectionColumns, c.ID, c.OrgID, c.Kind, c.Name, cfg, c.Secrets, c.PerUser, c.CreatedBy))
 }
 
+// UpdateConnection changes a connection's name, settings and secrets. It
+// keeps PerUser: people's sign-ins belong to the kind of connector they
+// signed in to.
 func (s *Store) UpdateConnection(ctx context.Context, c Connection) (Connection, error) {
 	cfg, _ := json.Marshal(c.Config)
 	return scanConnection(s.pool.QueryRow(ctx, `UPDATE connections SET name = $2, config = $3,

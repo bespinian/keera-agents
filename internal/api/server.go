@@ -85,6 +85,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/login", s.login)
 	mux.HandleFunc("GET "+callbackPath, s.callback)
 	mux.HandleFunc("POST /auth/logout", s.logout)
+	mux.HandleFunc("GET "+dispatch.AccountCallbackPath, s.signInCallback)
 
 	route := func(pattern string, h handler) { mux.Handle(pattern, s.signedIn(h)) }
 	route("GET /api/v1/me", s.me)
@@ -158,6 +159,8 @@ func (s *Server) Handler() http.Handler {
 	route("DELETE /api/v1/connections/{id}", s.deleteConnection)
 	route("POST /api/v1/connections/{id}/check", s.checkConnection)
 	route("GET /api/v1/connections/{id}/folders", s.connectionFolders)
+	route("POST /api/v1/connections/{id}/account", s.startSignIn)
+	route("DELETE /api/v1/connections/{id}/account", s.disconnectAccount)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "there is no such API route")

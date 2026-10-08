@@ -28,16 +28,25 @@ import {
   plural,
   pill,
   stamp,
+  busyButton,
+  toast,
+  modeTiles,
 } from "../ui.js";
 import { render } from "../markdown.js";
 import { kindLabel, gives } from "../common.js";
 
 const catalogue = "/connectors/catalogue";
 
+// callbackURL is where a service sends people back after they sign in to a
+// connector. Its setup steps name it, so it is kept when the kinds load.
+let callbackURL = "";
+
 export async function connectorsView(ctx) {
   const [conns, kindsRes] = await Promise.all([api.connections(), api.connectionKinds().catch(() => ({ data: [] }))]);
   const connections = conns.data || [];
   const kinds = kindsRes.data || [];
+  callbackURL = kindsRes.callback_url || "";
+  signInResult(conns.sign_in_result, connections);
   const admin = isAdmin(ctx);
   ctx.setSubtitle(`${connections.length} ${plural(connections.length, "connector")}`);
   const kindOf = (c) => kinds.find((k) => k.kind === c.kind) || {};
@@ -97,6 +106,12 @@ export async function connectorsView(ctx) {
         shrink: true,
         sortKey: (c) => gives(kindOf(c)),
         cell: (c) => gives(kindOf(c)),
+      },
+      {
+        label: "Acts as",
+        shrink: true,
+        sortKey: (c) => (c.per_user ? 1 : 0),
+        cell: (c) => (c.per_user ? accountControl(ctx, c) : h("span", { class: "faint" }, "One shared account")),
       },
       { label: "Channels", num: true, shrink: true, sortKey: (c) => c.bindings, cell: (c) => num(c.bindings) },
       {
@@ -159,10 +174,51 @@ function tile(ctx, c, kinds, admin) {
       { class: "model-tile-facts" },
       h("div", {}, h("dt", {}, "Channels"), h("dd", {}, num(c.bindings))),
       h("div", {}, h("dt", {}, "Gives agents"), h("dd", {}, gives(kind))),
+      h("div", {}, h("dt", {}, "Acts as"), h("dd", {}, c.per_user ? "Each person" : "One shared account")),
       h("div", {}, h("dt", {}, "Added"), h("dd", {}, date(c.created_at))),
     ),
+    c.per_user ? accountControl(ctx, c) : null,
     admin ? actions(ctx, c, kinds) : null,
   );
+}
+
+/** accountControl connects the viewer's own account to a connector people
+ *  sign in to, or disconnects it. Agents act as that account for the work
+ *  the viewer gives them. */
+function accountControl(ctx, c) {
+  if (c.account) {
+    return h(
+      "div",
+      { class: "row" },
+      h(
+        "span",
+        { class: "small", title: "Agents act as this account in the work you give them" },
+        `You: ${c.account.account || "connected"}`,
+      ),
+      busyButton({ class: "btn btn-sm", title: "Agents stop acting as you here" }, "Disconnect", async () => {
+        await api.disconnectAccount(c.id);
+        toast(`Your account is disconnected from ${c.name}`, "good");
+        ctx.reload();
+      }),
+    );
+  }
+  return busyButton(
+    { class: "btn btn-sm btn-primary", title: "Sign in, so agents can work here as you" },
+    "Connect your account",
+    async () => {
+      const { url } = await api.connectAccount(c.id);
+      location.href = url;
+    },
+  );
+}
+
+/** signInResult says how the viewer's last sign-in to a connector went. */
+function signInResult(result, connections) {
+  if (!result) return;
+  const c = connections.find((x) => x.id === result.connection_id);
+  const name = c ? c.name : "the connector";
+  if (result.error) toast(`Your account was not connected to ${name}: ${result.error}`, "bad");
+  else toast(`Your account is connected to ${name}`, "good");
 }
 
 /** actions are an administrator's buttons for one connector. */
@@ -205,6 +261,7 @@ export async function catalogueView(ctx) {
   const admin = isAdmin(ctx);
   const [kindsRes, conns] = await Promise.all([api.connectionKinds(), api.connections().catch(() => ({ data: [] }))]);
   const kinds = kindsRes.data || [];
+  callbackURL = kindsRes.callback_url || "";
   const connections = conns.data || [];
   const rows = kinds.map((k) => ({ k, mine: connections.filter((c) => c.kind === k.kind) }));
   ctx.setSubtitle(`${rows.length} ${plural(rows.length, "service")}`);
@@ -342,15 +399,39 @@ function showKind(kind) {
       "div",
       {},
       toolList(kind),
-      banner("info", { style: { marginBottom: "0" } }, "An administrator adds connectors."),
+      banner(
+        "info",
+        { style: { marginBottom: "0" } },
+        "An administrator adds connectors.",
+        kind.sign_in ? " They can let each person sign in with their own account." : "",
+      ),
     ),
   });
 }
 
-/** setupText fills in the webhook URL, or says where it will be. */
-export function setupText(setup, webhook) {
-  return String(setup || "").replaceAll("{webhook}", webhook || "the webhook URL (shown once saved)");
+/** setupText fills in the webhook URL, or says where it will be, and the
+ *  address people come back to after signing in. */
+export function setupText(setup, webhook, callback = "") {
+  return String(setup || "")
+    .replaceAll("{webhook}", webhook || "the webhook URL (shown once saved)")
+    .replaceAll("{callback}", callback ? "`" + callback + "`" : "this panel's /auth/connector/callback");
 }
+
+// ACCESS is whom a connector of a kind people may sign in to acts as.
+const ACCESS = [
+  {
+    value: "shared",
+    icon: icons.orgs,
+    name: "One shared account",
+    what: "Agents act as one account you set up, such as a service account, whoever gives them work.",
+  },
+  {
+    value: "per_user",
+    icon: icons.person,
+    name: "Each person's own account",
+    what: "Each person signs in. Agents act as whoever gives them work, with only that person's access.",
+  },
+];
 
 /** openEditor adds a connector of kind, or changes conn. Secrets are never
  *  shown: one left empty keeps its value. */
@@ -359,20 +440,34 @@ function openEditor(ctx, kinds, conn, kind = null) {
   const name = h("input", { class: "input", value: conn ? conn.name : "" });
   const fieldsHost = h("div");
   const inputs = {};
+  // Whom it acts as is chosen once, when it is added.
+  let perUser = !!(conn && conn.per_user);
+  const access =
+    kind && kind.sign_in && !conn
+      ? modeTiles(ACCESS, null, (value) => {
+          perUser = value === "per_user";
+          drawFields();
+        })
+      : null;
 
   function drawFields() {
     for (const k of Object.keys(inputs)) delete inputs[k];
     name.placeholder = kind ? `My ${kind.label}` : "";
-    if (!kind) {
+    if (!kind || (access && access.tiles.hidden === false)) {
       replace(fieldsHost);
       return;
     }
     const config = (conn && conn.config) || {};
     const set = (conn && conn.secrets_set) || [];
+    const signIn = perUser && kind.sign_in;
+    const setup = signIn ? kind.sign_in.setup : kind.setup;
     replace(
       fieldsHost,
+      conn && conn.per_user
+        ? field("Acts as", h("div", {}, "Each person's own account"), "Each person connects theirs on the connector.")
+        : null,
       field("Name", name, "Shown when adding a channel to an agent."),
-      (kind.fields || []).map((f) => {
+      ((signIn ? kind.sign_in.fields : kind.fields) || []).map((f) => {
         const isSet = set.includes(f.name);
         const props = {
           class: "input" + (f.secret ? " mono" : ""),
@@ -393,12 +488,12 @@ function openEditor(ctx, kinds, conn, kind = null) {
         inputs[f.name] = { f, input, isSet };
         return field(f.label + (f.required ? "" : " (optional)"), input, f.help || null);
       }),
-      kind.setup
+      setup
         ? h(
             "div",
             { class: "field" },
             h("label", {}, `Setting up ${kind.label}`),
-            h("div", { class: "preview" }, render(setupText(kind.setup, conn && conn.webhook_url))),
+            h("div", { class: "preview" }, render(setupText(setup, conn && conn.webhook_url, callbackURL))),
             kind.chat && !conn
               ? h(
                   "div",
@@ -417,9 +512,16 @@ function openEditor(ctx, kinds, conn, kind = null) {
     title: conn ? `Edit ${conn.name}` : `Add ${kind.label}`,
     subtitle: conn ? kindLabel(conn.kind, kinds) : `${kind.label}. It is checked with the service before it is saved.`,
     wide: true,
-    body: h("form", {}, fieldsHost, toolList(kind)),
+    body: h(
+      "form",
+      {},
+      access ? h("div", { class: "field" }, h("label", {}, "Agents act as"), access.tiles, access.chosenRow) : null,
+      fieldsHost,
+      toolList(kind),
+    ),
     submitLabel: conn ? "Save" : "Add connector",
     submit: async () => {
+      if (access && !access.tiles.hidden) fail(access.tiles.firstChild, "Choose whom agents act as.");
       if (!name.value.trim()) fail(name, "Give the connector a name.");
       const config = {};
       const secrets = {};
@@ -432,7 +534,7 @@ function openEditor(ctx, kinds, conn, kind = null) {
       }
       return conn
         ? api.updateConnection(conn.id, { name: name.value.trim(), config, secrets })
-        : api.createConnection({ kind: kind.kind, name: name.value.trim(), config, secrets });
+        : api.createConnection({ kind: kind.kind, name: name.value.trim(), config, secrets, per_user: perUser });
     },
     done: (saved) => {
       // A new connector shows among the others.

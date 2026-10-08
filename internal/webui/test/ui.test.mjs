@@ -130,6 +130,14 @@ test("set-up text names the webhook before it exists", () => {
     setupText("Paste {webhook} in the app.", ""),
     /shown once saved/,
   );
+  assert.equal(
+    setupText(
+      "Add the redirect URI {callback}.",
+      "",
+      "https://k/auth/connector/callback",
+    ),
+    "Add the redirect URI `https://k/auth/connector/callback`.",
+  );
 });
 
 test("the log pane keeps the newest lines", () => {

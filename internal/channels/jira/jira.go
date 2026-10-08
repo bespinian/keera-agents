@@ -1,11 +1,13 @@
 // Package jira lets agents find, read, create and change Jira issues, with
-// an API token on Jira Cloud or a personal access token on Jira Data Center.
+// an API token on Jira Cloud or a personal access token on Jira Data Center,
+// or, on Jira Cloud, as each person who signs in with their own account.
 //
 // It calls REST API version 2, which both have, so text fields are plain
 // strings in Jira's wiki markup, not Atlassian Document Format. A binding
 // names a project; every call stays in it.
 //
-// It has no endpoints to override: it calls the connection's site URL.
+// It calls the connection's site URL, or for a person, Atlassian's API
+// gateway, whose endpoints package atlassian lists.
 package jira
 
 import (
@@ -20,6 +22,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/atlassian"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
@@ -37,16 +40,21 @@ const (
 	maxComment     = 4000
 )
 
-var _ channels.API = (*Adapter)(nil)
+var (
+	_ channels.API     = (*Adapter)(nil)
+	_ channels.PerUser = (*Adapter)(nil)
+)
 
 type Adapter struct {
 	c   *atlassian.Client
 	set apitool.Set
+	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
 	a := &Adapter{c: atlassian.New(opts, "Jira")}
 	a.set = a.tools()
+	a.Accounts = a.c.Accounts("read:jira-work", "write:jira-work", "read:jira-user")
 	return a
 }
 
@@ -77,11 +85,14 @@ func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, to
 }
 
 func (a *Adapter) call(ctx context.Context, s atlassian.Site, method, path string, in, out any) error {
-	return a.c.Call(ctx, s, method, s.Base+"/rest/api/2"+path, in, out)
+	return a.c.Call(ctx, s, method, s.APIBase()+"/rest/api/2"+path, in, out)
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	s, err := atlassian.Open(conn)
+	if conn.PerUser {
+		return a.CheckClient(ctx, conn)
+	}
+	s, err := a.c.Open(ctx, conn)
 	if err != nil {
 		return err
 	}
@@ -92,7 +103,7 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	if target == channels.AnyTarget {
 		return target, nil
 	}
-	s, err := atlassian.Open(conn)
+	s, err := a.c.Open(ctx, conn)
 	if err != nil {
 		return "", err
 	}

@@ -3,6 +3,7 @@ package all
 import (
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -73,6 +74,32 @@ func TestRegister(t *testing.T) {
 		if _, ok := channels.AdapterFor(d.Kind); !ok {
 			t.Errorf("no adapter for %s", d.Kind)
 		}
+		checkSignIn(t, d)
+	}
+}
+
+// signIns are the kinds people may sign in to with their own accounts.
+var signIns = []channels.Kind{
+	channels.GoogleDrive, channels.OneDrive, channels.GitHub, channels.GitLab,
+	channels.Jira, channels.Confluence,
+	channels.GoogleDocs, channels.GoogleSheets, channels.GoogleSlides, channels.GoogleCalendar, channels.Outlook,
+	channels.Salesforce, channels.Kubernetes, channels.AWS, channels.Azure, channels.GCP,
+}
+
+// checkSignIn checks a kind people sign in to says how to set it up. A chat
+// may not be one: its bot is the organisation's, and who may talk to an
+// agent is decided by the sender.
+func checkSignIn(t *testing.T, d channels.Descriptor) {
+	t.Helper()
+	_, perUser := channels.PerUserFor(d.Kind)
+	if want := slices.Contains(signIns, d.Kind); (d.SignIn != nil) != want || perUser != want {
+		t.Errorf("%s: sign_in %v, PerUser %v, want %v", d.Kind, d.SignIn != nil, perUser, want)
+	}
+	if d.SignIn == nil {
+		return
+	}
+	if d.Chat || len(d.SignIn.Fields) == 0 || !strings.Contains(d.SignIn.Setup, "{callback}") {
+		t.Errorf("%s: incomplete sign-in %+v", d.Kind, d.SignIn)
 	}
 }
 

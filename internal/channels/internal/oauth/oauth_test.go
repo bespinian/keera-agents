@@ -124,3 +124,64 @@ func TestCache(t *testing.T) {
 		t.Fatal("error not returned")
 	}
 }
+
+func TestApp(t *testing.T) {
+	key := jwttest.NewKey(t, "k")
+	idToken := key.Sign(t, map[string]any{"email": "ada@acme.ch", "sub": "1"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if r.Form.Get("client_id") != "cid" || r.Form.Get("client_secret") != "pw" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"The OAuth client was not found."}`))
+			return
+		}
+		switch r.Form.Get("grant_type") {
+		case "authorization_code":
+			if r.Form.Get("code") != "c" || r.Form.Get("code_verifier") != "v" || r.Form.Get("redirect_uri") != "https://k/cb" {
+				t.Errorf("form = %v", r.Form)
+			}
+			_, _ = w.Write([]byte(`{"access_token":"a1","expires_in":3600,"refresh_token":"r1","id_token":"` + idToken + `"}`))
+		case "refresh_token":
+			if r.Form.Get("refresh_token") != "r1" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"Bad Request"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"access_token":"a2","expires_in":3600}`))
+		}
+	}))
+	defer srv.Close()
+	app := App{
+		AuthURL: "https://accounts.example/auth", TokenURL: srv.URL, ClientID: "cid", Secret: "pw",
+		Scopes: []string{"s1", "s2"}, Params: map[string][]string{"access_type": {"offline"}},
+	}
+
+	u := app.SignInURL("https://k/cb", "st", "ch")
+	for _, want := range []string{
+		"https://accounts.example/auth?", "client_id=cid", "redirect_uri=https%3A%2F%2Fk%2Fcb", "scope=s1+s2",
+		"state=st", "code_challenge=ch", "code_challenge_method=S256", "response_type=code", "access_type=offline",
+	} {
+		if !strings.Contains(u, want) {
+			t.Errorf("SignInURL = %s, lacks %s", u, want)
+		}
+	}
+
+	ctx := context.Background()
+	tok, err := app.Exchange(ctx, srv.Client(), "https://k/cb", "c", "v")
+	if err != nil || tok.Access != "a1" || tok.Refresh != "r1" || Email(tok.IDToken) != "ada@acme.ch" {
+		t.Fatalf("Exchange = %+v, %v", tok, err)
+	}
+	if tok, err := app.Refresh(ctx, srv.Client(), "r1"); err != nil || tok.Access != "a2" || tok.Refresh != "" {
+		t.Fatalf("Refresh = %+v, %v", tok, err)
+	}
+	if err := app.Check(ctx, srv.Client()); err != nil {
+		t.Errorf("Check of a known client = %v", err)
+	}
+	app.Secret = "wrong"
+	if err := app.Check(ctx, srv.Client()); err == nil || !strings.Contains(err.Error(), "invalid_client") {
+		t.Errorf("Check of a wrong secret = %v", err)
+	}
+	if Email("not a token") != "" {
+		t.Error("Email read a broken token")
+	}
+}

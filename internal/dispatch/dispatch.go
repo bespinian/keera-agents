@@ -49,6 +49,8 @@ type Dispatcher struct {
 	opts  Options
 	log   *slog.Logger
 	files *grants
+	// tokens are people's access tokens, for connectors they sign in to.
+	tokens tokens
 }
 
 func New(st *store.Store, fl *fleet.Manager, gw *gateway.Client, box *secret.Box, opts Options) *Dispatcher {
@@ -98,7 +100,7 @@ func (d *Dispatcher) Conn(c store.Connection) (channels.Connection, error) {
 			c.Name, err)
 	}
 	return channels.Connection{
-		ID: c.ID, Kind: channels.Kind(c.Kind), Config: c.Config, Secrets: secrets,
+		ID: c.ID, Kind: channels.Kind(c.Kind), Config: c.Config, Secrets: secrets, PerUser: c.PerUser,
 	}, nil
 }
 
@@ -121,8 +123,9 @@ func (d *Dispatcher) binding(ctx context.Context, a store.Agent, id string, mode
 }
 
 // bound returns one of the agent's bindings in one of modes, with its
-// adapter and connection. noun names such bindings for the model.
-func bound[T any](ctx context.Context, d *Dispatcher, a store.Agent, id, noun string,
+// adapter and connection, as the person task t is for when people sign in
+// to the connector. noun names such bindings for the model.
+func bound[T any](ctx context.Context, d *Dispatcher, a store.Agent, t store.Task, id, noun string,
 	adapterFor func(channels.Kind) (T, bool), modes ...string,
 ) (store.Binding, T, channels.Connection, error) {
 	b, ok := d.binding(ctx, a, id, modes...)
@@ -131,6 +134,9 @@ func bound[T any](ctx context.Context, d *Dispatcher, a store.Agent, id, noun st
 		return b, none, channels.Connection{}, fmt.Errorf("%s is not one of your %s", id, noun)
 	}
 	adapter, conn, err := connect(ctx, d, b.ConnectionID, noun, adapterFor)
+	if err == nil {
+		conn, err = d.asPerson(ctx, conn, b.ConnectionName, t.RequestedByID, t.RequestedBy)
+	}
 	return b, adapter, conn, err
 }
 

@@ -270,6 +270,7 @@ func (a *App) Background(ctx context.Context) {
 			}
 			if now.Sub(lastOwners) >= 10*time.Minute {
 				fl.CheckOwners(round)
+				disp.CheckAccounts(round)
 				lastOwners = now
 			}
 			if now.Sub(lastPrune) >= 24*time.Hour {

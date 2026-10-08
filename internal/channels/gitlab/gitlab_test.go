@@ -177,3 +177,40 @@ func TestRedirectStaysOnTheServer(t *testing.T) {
 		t.Fatalf("a redirect on the same server: %v", err)
 	}
 }
+
+// A person's OAuth token goes as a bearer token, and to git.
+func TestPerUser(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer user-tok" || r.Header.Get("PRIVATE-TOKEN") != "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.EscapedPath() {
+		case "/api/v4/projects/acme%2Fweb":
+			_, _ = w.Write([]byte(`{"path_with_namespace":"acme/web","default_branch":"main","permissions":{"project_access":{"access_level":30}}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"404 Project Not Found"}`))
+		}
+	}))
+	defer srv.Close()
+	a := New(channels.Options{Endpoints: map[string]string{"base": srv.URL}})
+	ctx := context.Background()
+	user := channels.Connection{
+		Kind: channels.GitLab, PerUser: true, Token: "user-tok",
+		Config: map[string]string{"client_id": "app"}, Secrets: map[string]string{"client_secret": "pw"},
+	}
+	if r, err := a.Repo(ctx, user, "acme/web"); err != nil || r.Path != "acme/web" {
+		t.Fatalf("Repo = %+v, %v", r, err)
+	}
+	if _, err := a.Repo(ctx, user, "acme/secret"); err == nil || !strings.Contains(err.Error(), "the GitLab account cannot see") {
+		t.Errorf("a project not shared: %v", err)
+	}
+	if r, err := a.Remote(ctx, user, "acme/web"); err != nil || r.User != "oauth2" || r.Password != "user-tok" {
+		t.Errorf("Remote = %+v, %v", r, err)
+	}
+	u, err := a.SignInURL(user, "https://k/cb", "st", "ch")
+	if err != nil || !strings.HasPrefix(u, srv.URL+"/oauth/authorize?") || !strings.Contains(u, "scope=api+openid+email") {
+		t.Errorf("SignInURL = %s, %v", u, err)
+	}
+}

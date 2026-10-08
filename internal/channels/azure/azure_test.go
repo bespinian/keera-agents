@@ -285,3 +285,22 @@ func TestVMs(t *testing.T) {
 		}
 	}
 }
+
+// A person's token is used as it is, and errors say whose access failed.
+func TestPerUser(t *testing.T) {
+	_, a := newFake(t)
+	ctx := context.Background()
+	user := conn("pw")
+	user.PerUser, user.Token = true, "tok"
+	if got, err := a.Target(ctx, user, sub); err != nil || got != sub {
+		t.Fatalf("Target = %q, %v", got, err)
+	}
+	user.Token = "expired"
+	if _, err := a.Target(ctx, user, sub); err == nil || !strings.Contains(err.Error(), "the person the agent works for cannot see") {
+		t.Errorf("a refused token: %v", err)
+	}
+	user.Token = ""
+	if _, err := a.Target(ctx, user, sub); err == nil {
+		t.Error("a call for nobody passed")
+	}
+}

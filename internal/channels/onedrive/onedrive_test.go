@@ -286,3 +286,26 @@ func TestDocxTextRejectsOtherZips(t *testing.T) {
 		t.Error("garbage accepted")
 	}
 }
+
+// A person's calls carry their token, in the drive the connector names,
+// without signing in as the app.
+func TestPerUser(t *testing.T) {
+	f := newFake(t)
+	a := f.adapter()
+	user := conn("pw", drive)
+	user.PerUser, user.Token = true, "graph-token"
+	if files, err := a.List(context.Background(), user, ""); err != nil || len(files) != 3 {
+		t.Fatalf("List = %+v, %v", files, err)
+	}
+	if n := f.tokenCalls.Load(); n != 0 {
+		t.Errorf("signed in as the app %d times", n)
+	}
+	user.Token = ""
+	if _, err := a.List(context.Background(), user, ""); err == nil {
+		t.Error("a call for nobody passed")
+	}
+	u, err := a.SignInURL(user, "https://k/cb", "st", "ch")
+	if err != nil || !strings.Contains(u, "/login/tenant-1/oauth2/v2.0/authorize?") || !strings.Contains(u, "Files.ReadWrite.All") {
+		t.Errorf("SignInURL = %s, %v", u, err)
+	}
+}
