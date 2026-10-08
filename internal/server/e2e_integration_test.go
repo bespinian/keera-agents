@@ -197,7 +197,28 @@ func (d *inProcess) Logs(context.Context, string, bool) (io.ReadCloser, error) {
 
 func (d *inProcess) Address(context.Context, string) (string, error) { return "", runtime.ErrNotFound }
 
-func TestEndToEnd(t *testing.T) {
+// testApp is the control plane, started for a test with its stand-ins, and
+// a signed-in administrator, Ada, to call its API as.
+type testApp struct {
+	ctx    context.Context
+	st     *store.Store
+	app    *App
+	srv    *httptest.Server
+	gw     *fakeGateway
+	driver *inProcess
+	box    *secret.Box
+	cookie *http.Cookie
+	csrf   string
+	// call sends Ada's cookie and CSRF token; chatCall her bearer token, as
+	// Keera Chat does. Each decodes a 2xx answer into out.
+	call, chatCall func(method, path string, in any, out any) int
+	waitFor        func(what string, cond func() bool)
+}
+
+// startApp starts the control plane against KEERA_AGENTS_TEST_DATABASE_URL,
+// on an empty schema, or skips.
+func startApp(t *testing.T) *testApp {
+	t.Helper()
 	dsn := os.Getenv("KEERA_AGENTS_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("KEERA_AGENTS_TEST_DATABASE_URL is not set")
@@ -216,23 +237,21 @@ func TestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	t.Cleanup(st.Close)
 	if _, err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	gw := &fakeGateway{}
 	gwSrv := httptest.NewServer(gw)
-	defer gwSrv.Close()
-	chat := &fakeChat{}
-	channels.Register(chat)
+	t.Cleanup(gwSrv.Close)
 	driver := &inProcess{runs: map[string]context.CancelFunc{}, tokens: map[string]string{}, workspace: t.TempDir()}
 	box, _ := secret.New("0123456789abcdef")
 
 	// The app needs its own address before it is built, for the runtime URL.
 	var handler http.Handler
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handler.ServeHTTP(w, r) }))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 	cfg := config.Config{
 		PublicURL: srv.URL, GatewayURL: gwSrv.URL, GatewayInternalURL: gwSrv.URL,
 		TaskTimeout: time.Minute, WatchInterval: time.Minute, MetricsToken: "metrics-0123456789",
@@ -293,6 +312,18 @@ func TestEndToEnd(t *testing.T) {
 		}
 		t.Fatalf("timed out waiting for %s", what)
 	}
+	return &testApp{
+		ctx: ctx, st: st, app: app, srv: srv, gw: gw, driver: driver, box: box, cookie: cookie, csrf: csrf,
+		call: call, chatCall: chatCall, waitFor: waitFor,
+	}
+}
+
+func TestEndToEnd(t *testing.T) {
+	ta := startApp(t)
+	ctx, st, app, srv, gw, driver := ta.ctx, ta.st, ta.app, ta.srv, ta.gw, ta.driver
+	cookie, call, chatCall, waitFor := ta.cookie, ta.call, ta.chatCall, ta.waitFor
+	chat := &fakeChat{}
+	channels.Register(chat)
 
 	var me map[string]any
 	if call("GET", "/api/v1/me", nil, &me) != 200 || me["org_id"] != "org_a" || me["can_admin"] != true ||
