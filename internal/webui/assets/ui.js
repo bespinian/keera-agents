@@ -313,6 +313,7 @@ const serviceMarks = {
   gsheets: googleMark,
   gslides: googleMark,
   gcalendar: googleMark,
+  gmail: googleMark,
   gcp: googleMark,
   outlook: idpMarks.microsoft,
   azure: idpMarks.microsoft,

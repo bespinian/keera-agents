@@ -346,7 +346,7 @@ func (sa *ServiceAccount) Assertion(aud, scope, subject string, now time.Time) (
 // names the service, such as "Microsoft".
 func Describe(who string, err error) error {
 	if oe, ok := errors.AsType[*Error](err); ok {
-		return fmt.Errorf("%s refused the credentials (%s)", who, oe)
+		return fmt.Errorf("%s refused the credentials (%w)", who, oe)
 	}
 	return fmt.Errorf("could not reach %s to sign in: %w", who, err)
 }

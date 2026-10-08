@@ -29,6 +29,7 @@ func TestRegister(t *testing.T) {
 		{channels.GoogleSheets, "api"},
 		{channels.GoogleSlides, "api"},
 		{channels.GoogleCalendar, "api"},
+		{channels.Gmail, "api"},
 		{channels.Outlook, "api"},
 		{channels.HubSpot, "api"},
 		{channels.Salesforce, "api"},
@@ -82,7 +83,7 @@ func TestRegister(t *testing.T) {
 var signIns = []channels.Kind{
 	channels.GoogleDrive, channels.OneDrive, channels.GitHub, channels.GitLab,
 	channels.Jira, channels.Confluence,
-	channels.GoogleDocs, channels.GoogleSheets, channels.GoogleSlides, channels.GoogleCalendar, channels.Outlook,
+	channels.GoogleDocs, channels.GoogleSheets, channels.GoogleSlides, channels.GoogleCalendar, channels.Gmail, channels.Outlook,
 	channels.Salesforce, channels.Kubernetes, channels.AWS, channels.Azure, channels.GCP,
 }
 

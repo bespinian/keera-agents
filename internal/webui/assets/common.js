@@ -115,6 +115,7 @@ const KIND_LABELS = {
   gsheets: "Google Sheets",
   gslides: "Google Slides",
   gcalendar: "Google Calendar",
+  gmail: "Gmail",
   outlook: "Outlook",
   hubspot: "HubSpot",
   salesforce: "Salesforce",

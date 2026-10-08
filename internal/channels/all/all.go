@@ -12,6 +12,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels/gdrive"
 	"github.com/bespinian/keera-agents/internal/channels/github"
 	"github.com/bespinian/keera-agents/internal/channels/gitlab"
+	"github.com/bespinian/keera-agents/internal/channels/gmail"
 	"github.com/bespinian/keera-agents/internal/channels/googlechat"
 	"github.com/bespinian/keera-agents/internal/channels/gsheets"
 	"github.com/bespinian/keera-agents/internal/channels/gslides"
@@ -40,7 +41,7 @@ func adapters(opts channels.Options) []channels.Adapter {
 		gdrive.New(opts), onedrive.New(opts),
 		github.New(opts), gitlab.New(opts),
 		jira.New(opts), confluence.New(opts),
-		gdocs.New(opts), gsheets.New(opts), gslides.New(opts), gcalendar.New(opts), outlook.New(opts),
+		gdocs.New(opts), gsheets.New(opts), gslides.New(opts), gcalendar.New(opts), gmail.New(opts), outlook.New(opts),
 		hubspot.New(opts), salesforce.New(opts),
 		kubernetes.New(opts), aws.New(opts), azure.New(opts), gcp.New(opts),
 	}

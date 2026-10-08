@@ -37,6 +37,7 @@ const (
 	GoogleSheets   Kind = "gsheets"
 	GoogleSlides   Kind = "gslides"
 	GoogleCalendar Kind = "gcalendar"
+	Gmail          Kind = "gmail"
 	Outlook        Kind = "outlook"
 	HubSpot        Kind = "hubspot"
 	Salesforce     Kind = "salesforce"
@@ -372,7 +373,7 @@ type Options struct {
 // hosts and the rest.
 var order = []Kind{
 	Teams, GoogleChat, Slack, GoogleDrive, OneDrive, GitHub, GitLab,
-	Jira, Confluence, GoogleDocs, GoogleSheets, GoogleSlides, GoogleCalendar, Outlook,
+	Jira, Confluence, GoogleDocs, GoogleSheets, GoogleSlides, GoogleCalendar, Gmail, Outlook,
 	HubSpot, Salesforce, Kubernetes, AWS, Azure, GCP,
 }
 

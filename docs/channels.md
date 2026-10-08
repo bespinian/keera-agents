@@ -24,6 +24,7 @@ panel shows the same setup steps next to the form.
 | Google Sheets           | `gsheets`    | read and write spreadsheets            | a service account                     |
 | Google Slides           | `gslides`    | read and change presentations          | a service account                     |
 | Google Calendar         | `gcalendar`  | events and free time                   | a service account                     |
+| Gmail                   | `gmail`      | mail tools                             | a service account with delegation     |
 | Outlook                 | `outlook`    | mail and calendar tools                | an Entra app (Microsoft Graph)        |
 | HubSpot                 | `hubspot`    | CRM record tools                       | a private app's access token          |
 | Salesforce              | `salesforce` | CRM record tools                       | an app's client credentials           |
@@ -221,7 +222,7 @@ client instead of a shared account. Its redirect URI, or callback URL, is
 `<KEERA_AGENTS_PUBLIC_URL>/auth/connector/callback`. The panel shows the full
 steps; in short:
 
-- **Google** (Drive, Docs, Sheets, Slides, Calendar, Google Cloud): enable the
+- **Google** (Drive, Docs, Sheets, Slides, Calendar, Gmail, Google Cloud): enable the
   APIs the kind needs, set the Google Auth Platform's audience to **Internal**,
   and create an OAuth client of type **Web application**.
 - **Microsoft** (OneDrive and SharePoint, Outlook, Azure): register an app for
@@ -259,6 +260,8 @@ who you are connected as.
 
 An Outlook channel on such a connector may name the mailbox `me`: the mailbox
 of whoever the task is for. A named mailbox must be shared with that person.
+A Gmail channel on such a connector always names `me`: Gmail lets a person's
+token reach only their own mailbox.
 A OneDrive connector still names one drive, since a folder's ID belongs to it,
 so use one people share, such as a SharePoint library. On Google Drive, the
 folder `root` is the My Drive of whoever the task is for.
@@ -501,6 +504,41 @@ Agents get these tools:
 **A binding names one mailbox**, by its address, and every call goes to that
 mailbox alone. There is no `*`: the app's permissions reach every mailbox it
 is allowed, so an agent gets only its own.
+
+## Gmail
+
+Settings: `service_account_json`.
+
+1. In a Google Cloud project, enable the Gmail API, and create a service
+   account with a JSON key.
+2. As a Workspace administrator, under Security, API controls, Domain-wide
+   delegation, grant the service account's client ID the scope
+   `https://www.googleapis.com/auth/gmail.modify`.
+3. Bind each agent to one mailbox, best one made for it.
+
+A service account has no mailbox of its own, so **a binding names one
+mailbox** by its address, and the connector acts as it through domain-wide
+delegation. Delegation lets the service account act as any mailbox in the
+domain, so keep its key in the connector only. A mailbox is checked when an
+agent is bound to it. `gmail.modify` reads, sends, drafts and labels mail, but
+never deletes it for good.
+
+Agents get these tools:
+
+- `gmail_search_messages`: search with Gmail's search syntax, such as
+  `from:ada@example.com is:unread newer_than:7d`, newest first, with a preview.
+  Without a query, the inbox.
+- `gmail_read_message`: read a message as text, with its attachments' names.
+  An HTML-only message is turned into text.
+- `gmail_read_thread`: read a conversation, each message cut short.
+- `gmail_list_labels`: list the labels, the system ones and the mailbox's own.
+- `gmail_send_message`: send a new email, as plain text. Needs write.
+- `gmail_reply`: reply, or reply to all, in the thread, above the quoted
+  original. Needs write.
+- `gmail_create_draft`: save a draft for a person to check and send, or a
+  draft reply. Needs write.
+- `gmail_change_labels`: add or remove labels: archive by removing `INBOX`,
+  mark read by removing `UNREAD`. Needs write.
 
 ## HubSpot
 
