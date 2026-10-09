@@ -11,6 +11,7 @@
 package channels
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -68,6 +69,15 @@ type Connection struct {
 	PerUser bool
 	Token   string
 	Account string
+}
+
+// Who names whose access a call has, for errors: the person it is for, or
+// shared on a connection everyone shares.
+func (c Connection) Who(shared string) string {
+	if !c.PerUser {
+		return shared
+	}
+	return cmp.Or(c.Account, "the person the agent works for")
 }
 
 // Field is one setting of a kind, for the panel's form and for checking a

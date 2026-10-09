@@ -5,6 +5,7 @@
 package workspace
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -75,10 +76,7 @@ func SettingsOf(conn channels.Connection) (Settings, error) {
 // Who says whose access a call has, for errors that ask to share something.
 func (s Settings) Who() string {
 	if s.Token != "" {
-		if s.Account != "" {
-			return s.Account
-		}
-		return "the person the agent works for"
+		return cmp.Or(s.Account, "the person the agent works for")
 	}
 	if s.Subject != "" {
 		return s.Subject

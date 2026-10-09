@@ -123,17 +123,6 @@ func cacheKey(conn channels.Connection) string {
 	return k
 }
 
-// who says whose access a call has, for errors.
-func who(conn channels.Connection) string {
-	switch {
-	case !conn.PerUser:
-		return "the service account"
-	case conn.Account != "":
-		return conn.Account
-	}
-	return "the person the agent works for"
-}
-
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	k, err := key(conn)
 	if err != nil {
@@ -201,7 +190,7 @@ func (a *Adapter) lookup(ctx context.Context, conn channels.Connection, id strin
 	// Google answers 403 for a project that does not exist, too, so as not
 	// to say which IDs are taken.
 	if s := web.Status(err); s == http.StatusForbidden || s == http.StatusNotFound {
-		return "", fmt.Errorf("%s cannot see project %s; check the ID and grant the Viewer role there (%w)", who(conn), id, err)
+		return "", fmt.Errorf("%s cannot see project %s; check the ID and grant the Viewer role there (%w)", conn.Who("the service account"), id, err)
 	}
 	if err != nil {
 		return "", err
@@ -250,7 +239,7 @@ func (a *Adapter) bucketIn(ctx context.Context, conn channels.Connection, id, bu
 		}
 		err := a.call(ctx, conn, http.MethodGet, a.storage+"/storage/v1/b/"+url.PathEscape(bucket)+"?fields=projectNumber", nil, &b)
 		if s := web.Status(err); s == http.StatusForbidden || s == http.StatusNotFound {
-			return fmt.Errorf("%s cannot see bucket %s (%w)", who(conn), bucket, err)
+			return fmt.Errorf("%s cannot see bucket %s (%w)", conn.Who("the service account"), bucket, err)
 		}
 		if err != nil {
 			return err

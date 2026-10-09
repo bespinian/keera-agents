@@ -17,7 +17,6 @@ package kubernetes
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -266,9 +265,6 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	return err
 }
 
-// person names who a call is for, on a connector people sign in to.
-func person(conn channels.Connection) string { return cmp.Or(conn.Account, "the person") }
-
 // namespace checks a binding's target, which is always one namespace.
 func namespace(target string) (string, error) {
 	ns := strings.ToLower(strings.TrimSpace(target))
@@ -298,13 +294,13 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 		return "", fmt.Errorf("the cluster has no namespace %s", ns)
 	case http.StatusForbidden:
 		if conn.PerUser {
-			return "", fmt.Errorf("%s may not read namespace %s; bind them to a role there (%w)", person(conn), ns, err)
+			return "", fmt.Errorf("%s may not read namespace %s; bind them to a role there (%w)", conn.Who("the token"), ns, err)
 		}
 		return "", fmt.Errorf("the token may not read namespace %s; bind its service account to a role there (%w)", ns, err)
 	case http.StatusUnauthorized:
 		if conn.PerUser {
 			return "", fmt.Errorf("the cluster does not accept the ID token of %s; check it trusts the identity provider "+
-				"and the client ID (%w)", person(conn), err)
+				"and the client ID (%w)", conn.Who("the token"), err)
 		}
 	}
 	return ns, err
