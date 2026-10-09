@@ -91,14 +91,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 // me is a binding to the mailbox of the person the task is for.
 const me = "me"
 
-func appOf(conn channels.Connection) (microsoft.App, error) {
-	app, err := microsoft.AppOf(conn, scope)
-	if err == nil && conn.PerUser && app.Token == "" {
-		err = oauth.ErrNoToken
-	}
-	return app, err
-}
-
 // mailbox checks a binding's target and returns it in lower case.
 func mailbox(conn channels.Connection, target string) (string, error) {
 	m := strings.ToLower(strings.TrimSpace(target))
@@ -166,7 +158,7 @@ func (a *Adapter) call(ctx context.Context, app microsoft.App, box, method, path
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	app, err := appOf(conn)
+	app, err := microsoft.AppOf(conn, scope)
 	if err != nil {
 		return err
 	}
@@ -176,7 +168,7 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 }
 
 func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target string) (string, error) {
-	app, err := appOf(conn)
+	app, err := microsoft.AppOf(conn, scope)
 	if err != nil {
 		return "", err
 	}
@@ -216,7 +208,7 @@ func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, to
 // run opens the connection and the binding's mailbox for a tool.
 func run(f func(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error)) apitool.Run {
 	return func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-		app, err := appOf(conn)
+		app, err := microsoft.AppOf(conn, scope)
 		if err != nil {
 			return nil, err
 		}

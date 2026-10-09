@@ -27,12 +27,20 @@ type App struct {
 // A connection people sign in to carries the token of the person a call is
 // for.
 func AppOf(conn channels.Connection, scope string) (App, error) {
+	app, err := clientOf(conn)
+	app.Scope, app.Token = scope, conn.Token
+	if err == nil && conn.PerUser && app.Token == "" {
+		err = oauth.ErrNoToken
+	}
+	return app, err
+}
+
+// clientOf reads only the app registration, as signing someone in needs.
+func clientOf(conn channels.Connection) (App, error) {
 	app := App{
 		Tenant:   web.Value(conn, "tenant_id"),
 		ClientID: web.Value(conn, "client_id"),
 		Secret:   web.Value(conn, "client_secret"),
-		Scope:    scope,
-		Token:    conn.Token,
 	}
 	if app.Tenant == "" || app.ClientID == "" || app.Secret == "" {
 		return app, errors.New("the tenant ID, client ID or client secret is missing")
@@ -131,7 +139,7 @@ func (a *Auth) Accounts(scopes []string, permissions string) oauth.Accounts {
 				"4. Enter the tenant ID, client ID and secret here. Then each person connects their own account under Connectors.",
 		},
 		App: func(conn channels.Connection) (oauth.App, error) {
-			app, err := AppOf(conn, "")
+			app, err := clientOf(conn)
 			if err != nil {
 				return oauth.App{}, err
 			}

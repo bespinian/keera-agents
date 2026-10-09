@@ -98,8 +98,6 @@ func settingsOf(conn channels.Connection) (settings, error) {
 	switch {
 	case err != nil:
 		return s, err
-	case conn.PerUser && app.Token == "":
-		return s, oauth.ErrNoToken
 	case s.drive == "":
 		return s, errors.New("the drive ID is missing")
 	case !validID.MatchString(s.drive):
