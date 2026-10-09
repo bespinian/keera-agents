@@ -72,20 +72,6 @@ func BaseURL(s string) (string, bool) {
 	return s, err == nil && u.Scheme == "https" && u.Host != ""
 }
 
-// TokenAndBaseURL reads a code host connection's token and base URL, checked
-// with BaseURL. badBase is the error for a base URL that is not https://.
-func TokenAndBaseURL(conn channels.Connection, badBase string) (token, base string, err error) {
-	token = Value(conn, "token")
-	if token == "" {
-		return "", "", errors.New("the access token is missing")
-	}
-	base, ok := BaseURL(Value(conn, "base_url"))
-	if !ok {
-		return "", "", errors.New(badBase)
-	}
-	return token, base, nil
-}
-
 // RepoPath trims a repository's path as people paste it, with slashes or
 // .git around it, and says whether it matches valid. It goes into URLs, so
 // ".." is never valid.

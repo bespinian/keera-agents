@@ -149,17 +149,17 @@ func (a *Adapter) hosts(conn channels.Connection) (api, git string, err error) {
 }
 
 func (a *Adapter) settingsOf(conn channels.Connection) (settings, error) {
-	if conn.PerUser {
-		api, git, err := a.hosts(conn)
-		if err == nil && conn.Token == "" {
-			err = oauth.ErrNoToken
-		}
-		return settings{token: conn.Token, api: api, git: git, person: true}, err
+	api, git, err := a.hosts(conn)
+	s := settings{token: web.Value(conn, "token"), api: api, git: git, person: conn.PerUser}
+	if s.person {
+		s.token = conn.Token
 	}
-	token, base, err := web.TokenAndBaseURL(conn, badBase)
-	s := settings{token: token, api: a.api, git: a.git}
-	if base != "" {
-		s.api, s.git = base+"/api/v3", base
+	switch {
+	case err != nil:
+	case s.token == "" && s.person:
+		err = oauth.ErrNoToken
+	case s.token == "":
+		err = errors.New("the access token is missing")
 	}
 	return s, err
 }

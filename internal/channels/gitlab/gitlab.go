@@ -126,15 +126,19 @@ func (a *Adapter) baseOf(conn channels.Connection) (string, error) {
 }
 
 func (a *Adapter) settingsOf(conn channels.Connection) (settings, error) {
-	if conn.PerUser {
-		base, err := a.baseOf(conn)
-		if err == nil && conn.Token == "" {
-			err = oauth.ErrNoToken
-		}
-		return settings{token: conn.Token, base: base, person: true}, err
+	base, err := a.baseOf(conn)
+	s := settings{token: web.Value(conn, "token"), base: base, person: conn.PerUser}
+	if s.person {
+		s.token = conn.Token
 	}
-	token, base, err := web.TokenAndBaseURL(conn, badBase)
-	return settings{token: token, base: cmp.Or(base, a.base)}, err
+	switch {
+	case err != nil:
+	case s.token == "" && s.person:
+		err = oauth.ErrNoToken
+	case s.token == "":
+		err = errors.New("the access token is missing")
+	}
+	return s, err
 }
 
 // who names whose access a call has, for errors.
