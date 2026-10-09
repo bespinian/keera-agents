@@ -19,6 +19,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
+	"github.com/bespinian/keera-agents/internal/channels/internal/mailtext"
 	"github.com/bespinian/keera-agents/internal/channels/internal/workspace"
 )
 
@@ -28,9 +29,6 @@ const (
 	// model's context.
 	maxBody       = 20000
 	maxThreadBody = 4000
-	// maxRecipients is per field: an agent writing to more is more likely
-	// a mistake.
-	maxRecipients = 50
 )
 
 func (a *Adapter) toolSet() apitool.Set {
@@ -173,7 +171,7 @@ type Attachment struct {
 
 // full reads a message with its body, cut to n characters.
 func (m message) full(n int) Message {
-	out := Message{Brief: m.brief(), Cc: m.Payload.header("Cc"), Body: cut(text(m.Payload), n)}
+	out := Message{Brief: m.brief(), Cc: m.Payload.header("Cc"), Body: mailtext.Body(text(m.Payload), n)}
 	out.Preview, out.Labels = "", nil
 	walk(m.Payload, func(p part) {
 		if p.Filename != "" {
@@ -221,12 +219,11 @@ func decode(data string) string {
 }
 
 var (
-	hidden     = regexp.MustCompile(`(?is)<(script|style|head)\b.*?</(script|style|head)>`)
-	breaks     = regexp.MustCompile(`(?i)<br\s*/?>|</(p|div|li|tr|h[1-6]|blockquote)>`)
-	items      = regexp.MustCompile(`(?i)<li\b[^>]*>`)
-	tags       = regexp.MustCompile(`<[^>]*>`)
-	spaces     = regexp.MustCompile(`[ \t\x{a0}]+`)
-	blankLines = regexp.MustCompile(`\n[ \t]*(\n[ \t]*){2,}`)
+	hidden = regexp.MustCompile(`(?is)<(script|style|head)\b.*?</(script|style|head)>`)
+	breaks = regexp.MustCompile(`(?i)<br\s*/?>|</(p|div|li|tr|h[1-6]|blockquote)>`)
+	items  = regexp.MustCompile(`(?i)<li\b[^>]*>`)
+	tags   = regexp.MustCompile(`<[^>]*>`)
+	spaces = regexp.MustCompile(`[ \t\x{a0}]+`)
 )
 
 // htmlText turns an HTML body into text good enough to read: paragraphs,
@@ -237,17 +234,6 @@ func htmlText(s string) string {
 	s = items.ReplaceAllString(s, "- ")
 	s = html.UnescapeString(tags.ReplaceAllString(s, ""))
 	return spaces.ReplaceAllString(s, " ")
-}
-
-// cut keeps a body to n characters, and to no more than one blank line in
-// a row.
-func cut(s string, n int) string {
-	s = strings.TrimSpace(blankLines.ReplaceAllString(strings.ReplaceAll(s, "\r\n", "\n"), "\n\n"))
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "\n[cut]"
 }
 
 func (a *Adapter) get(ctx context.Context, s workspace.Settings, mid, format string, headers ...string) (message, error) {
@@ -365,22 +351,6 @@ type outgoing struct {
 	inReplyTo, references, threadID string
 }
 
-// addresses checks the addresses the model gives.
-func addresses(field string, list []string) ([]*mail.Address, error) {
-	if len(list) > maxRecipients {
-		return nil, fmt.Errorf("%s has more than %d addresses", field, maxRecipients)
-	}
-	out := make([]*mail.Address, 0, len(list))
-	for _, s := range list {
-		addr, err := mail.ParseAddress(strings.TrimSpace(s))
-		if err != nil {
-			return nil, fmt.Errorf("%q in %s is not an email address", s, field)
-		}
-		out = append(out, addr)
-	}
-	return out, nil
-}
-
 // oneLine keeps a header's value to one line, so nothing can add headers.
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
@@ -467,7 +437,7 @@ func (a *Adapter) replyTo(ctx context.Context, s workspace.Settings, mid string,
 		// A message the mailbox sent itself: answer whom it went to.
 		add(&o.to, h("To"))
 	}
-	o.body = body + "\n\nOn " + h("Date") + ", " + h("From") + " wrote:\n" + quote(cut(text(m.Payload), maxThreadBody))
+	o.body = body + "\n\nOn " + h("Date") + ", " + h("From") + " wrote:\n" + quote(mailtext.Body(text(m.Payload), maxThreadBody))
 	return o, nil
 }
 
@@ -495,7 +465,7 @@ func (n newMessage) compose(o *outgoing) error {
 		if len(f.in) == 0 {
 			continue
 		}
-		list, err := addresses(f.name, f.in)
+		list, err := mailtext.Addresses(f.name, f.in)
 		if err != nil {
 			return err
 		}
@@ -571,10 +541,6 @@ func (a *Adapter) draft(ctx context.Context, s workspace.Settings, in newMessage
 		var err error
 		if o, err = a.replyTo(ctx, s, in.ReplyTo, false, in.Body); err != nil {
 			return nil, err
-		}
-		// Addresses the model names replace the sender.
-		if len(in.To) > 0 {
-			o.to = nil
 		}
 	} else {
 		o.body = in.Body

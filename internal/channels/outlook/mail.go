@@ -6,24 +6,20 @@ import (
 	"fmt"
 	"html"
 	"net/http"
-	"net/mail"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
+	"github.com/bespinian/keera-agents/internal/channels/internal/mailtext"
 	"github.com/bespinian/keera-agents/internal/channels/internal/microsoft"
 )
 
 const (
 	// maxBody bounds a message body read, in characters, so one long thread
 	// does not fill the model's context.
-	maxBody = 20000
-	// maxRecipients is per field; Graph allows more, but an agent writing
-	// to so many people is more likely a mistake.
-	maxRecipients = 50
+	maxBody       = 20000
 	textBody      = `outlook.body-content-type="text"`
 	messageFields = "id,from,toRecipients,subject,receivedDateTime,isRead,bodyPreview"
 )
@@ -286,7 +282,7 @@ func (a *Adapter) readMessage(ctx context.Context, app microsoft.App, box string
 	}
 	out := Message{
 		Brief: m.brief(), Cc: names(m.CcRecipients), Conversation: m.ConversationID,
-		Body: trim(m.Body.Content, maxBody), WebLink: m.WebLink,
+		Body: mailtext.Body(m.Body.Content, maxBody), WebLink: m.WebLink,
 	}
 	out.Preview = ""
 	for _, at := range m.Attachments {
@@ -298,18 +294,12 @@ func (a *Adapter) readMessage(ctx context.Context, app microsoft.App, box string
 // recipients checks addresses the model gives, which may name the person
 // too, such as "Ada <ada@example.com>".
 func recipients(field string, list []string) ([]recipient, error) {
-	if len(list) > maxRecipients {
-		return nil, fmt.Errorf("%s has more than %d addresses", field, maxRecipients)
-	}
-	out := make([]recipient, 0, len(list))
-	for _, s := range list {
-		addr, err := mail.ParseAddress(strings.TrimSpace(s))
-		if err != nil {
-			return nil, fmt.Errorf("%q in %s is not an email address", s, field)
-		}
+	addrs, err := mailtext.Addresses(field, list)
+	out := make([]recipient, 0, len(addrs))
+	for _, addr := range addrs {
 		out = append(out, recipient{EmailAddress: emailAddress{Name: addr.Name, Address: addr.Address}})
 	}
-	return out, nil
+	return out, err
 }
 
 type body struct {
@@ -406,17 +396,4 @@ func (a *Adapter) moveMessage(ctx context.Context, app microsoft.App, box string
 		return nil, err
 	}
 	return map[string]any{"moved": true, "id": m.ID, "folder": in.Folder}, nil
-}
-
-var blankLines = regexp.MustCompile(`\n[ \t]*(\n[ \t]*){2,}`)
-
-// trim keeps a body to n characters, and Outlook's converted HTML to no
-// more than one blank line in a row.
-func trim(s string, n int) string {
-	s = strings.TrimSpace(blankLines.ReplaceAllString(strings.ReplaceAll(s, "\r\n", "\n"), "\n\n"))
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "\n[trimmed]"
 }
