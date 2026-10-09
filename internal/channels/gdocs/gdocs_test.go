@@ -82,12 +82,12 @@ func TestPerUser(t *testing.T) {
 
 	// Before anyone signs in, a check proves the OAuth client is known.
 	client := f.UserConn(channels.GoogleDocs, "")
-	if err := a.Check(ctx, client); err != nil {
-		t.Fatalf("Check = %v", err)
+	if err := a.CheckClient(ctx, client); err != nil {
+		t.Fatalf("CheckClient = %v", err)
 	}
 	wrong := f.UserConn(channels.GoogleDocs, "")
 	wrong.Secrets["client_secret"] = "nope"
-	if err := a.Check(ctx, wrong); err == nil || !strings.Contains(err.Error(), "invalid_client") {
+	if err := a.CheckClient(ctx, wrong); err == nil || !strings.Contains(err.Error(), "invalid_client") {
 		t.Errorf("wrong secret: %v", err)
 	}
 

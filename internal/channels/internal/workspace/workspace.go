@@ -129,13 +129,8 @@ func (c *Client) Do(ctx context.Context, s Settings, method, u string, in, out a
 }
 
 // Check signs in and makes one cheap call, probe, to prove the key works and
-// the API is enabled. A nil probe asks Drive who the connector is. A
-// connector people sign in to has nobody signed in yet, so only its OAuth
-// client is checked.
+// the API is enabled. A nil probe asks Drive who the connector is.
 func (c *Client) Check(ctx context.Context, conn channels.Connection, api string, probe func(context.Context, Settings) error) error {
-	if conn.PerUser {
-		return c.auth.Accounts(c.scope, api).CheckClient(ctx, conn)
-	}
 	s, err := SettingsOf(conn)
 	if err != nil {
 		return err

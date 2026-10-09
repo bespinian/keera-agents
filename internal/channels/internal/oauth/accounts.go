@@ -12,8 +12,7 @@ import (
 )
 
 // Accounts lets people sign in to a kind's connectors with their own
-// accounts. An adapter embeds it to implement channels.PerUser, and calls
-// CheckClient from its Check for a connector people sign in to.
+// accounts. An adapter embeds it to implement channels.PerUser.
 type Accounts struct {
 	c AccountsConfig
 }
@@ -111,8 +110,7 @@ func (s Accounts) grant(tok Token) (channels.Grant, error) {
 	return channels.Grant{Refresh: tok.Refresh, Access: tok.Access, Expiry: tok.Expiry}, nil
 }
 
-// CheckClient proves the service knows the OAuth client, as Check does for
-// a connector people sign in to: nobody has signed in yet.
+// CheckClient proves the service knows the OAuth client.
 func (s Accounts) CheckClient(ctx context.Context, conn channels.Connection) error {
 	app, err := s.c.App(conn)
 	if err != nil {

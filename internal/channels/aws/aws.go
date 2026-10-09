@@ -151,10 +151,21 @@ func settingsOf(conn channels.Connection) (creds, string, error) {
 		return c, "", errors.New("the access key ID and the secret access key are both needed")
 	}
 	role := web.Value(conn, "role_arn")
-	if role != "" && !validRole.MatchString(role) {
-		return c, "", fmt.Errorf("%q is not a role's ARN; write one such as arn:aws:iam::123456789012:role/keera-agents", web.Short(role, 100))
+	if role != "" {
+		if err := checkRole(role, "keera-agents"); err != nil {
+			return c, "", err
+		}
 	}
 	return c, role, nil
+}
+
+// checkRole says whether role is a role's ARN, with one named example in
+// the error.
+func checkRole(role, example string) error {
+	if !validRole.MatchString(role) {
+		return fmt.Errorf("%q is not a role's ARN; write one such as arn:aws:iam::123456789012:role/%s", web.Short(role, 100), example)
+	}
+	return nil
 }
 
 // credsOf returns what a connection's calls are signed with.
@@ -173,11 +184,11 @@ func (a *Adapter) credsOf(ctx context.Context, conn channels.Connection) (creds,
 // is for, with their ID token, named after them.
 func (a *Adapter) assumeAs(ctx context.Context, conn channels.Connection) (creds, error) {
 	role := web.Value(conn, "role_arn")
-	switch {
-	case conn.Token == "":
+	if conn.Token == "" {
 		return creds{}, oauth.ErrNoToken
-	case !validRole.MatchString(role):
-		return creds{}, fmt.Errorf("%q is not a role's ARN; write one such as arn:aws:iam::123456789012:role/keera-people", web.Short(role, 100))
+	}
+	if err := checkRole(role, "keera-people"); err != nil {
+		return creds{}, err
 	}
 	return a.assume(ctx, creds{}, role, "AssumeRoleWithWebIdentity", url.Values{
 		"RoleSessionName":  {sessionName(conn.Account)},
@@ -257,14 +268,16 @@ func (c client) identity(ctx context.Context) (identity, error) {
 	return out, err
 }
 
-func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		// The role is first assumed when someone binds a region.
-		if role := web.Value(conn, "role_arn"); !validRole.MatchString(role) {
-			return fmt.Errorf("%q is not a role's ARN; write one such as arn:aws:iam::123456789012:role/keera-people", web.Short(role, 100))
-		}
-		return a.CheckClient(ctx, conn)
+// CheckClient also checks the role's ARN. The role is first assumed when
+// someone binds a region.
+func (a *Adapter) CheckClient(ctx context.Context, conn channels.Connection) error {
+	if err := checkRole(web.Value(conn, "role_arn"), "keera-people"); err != nil {
+		return err
 	}
+	return a.Accounts.CheckClient(ctx, conn)
+}
+
+func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	base, role, err := settingsOf(conn)
 	if err != nil {
 		return err

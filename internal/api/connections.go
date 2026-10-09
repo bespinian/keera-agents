@@ -138,6 +138,13 @@ func check(ctx context.Context, c channels.Connection) error {
 	if !ok {
 		return errors.New("unknown kind of connector")
 	}
+	if c.PerUser {
+		p, ok := channels.PerUserFor(c.Kind)
+		if !ok {
+			return errors.New("this kind of connector does not let people sign in")
+		}
+		return p.CheckClient(ctx, c)
+	}
 	return a.Check(ctx, c)
 }
 

@@ -190,9 +190,6 @@ func (a *Adapter) getJSON(ctx context.Context, s settings, path string, q url.Va
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		return a.CheckClient(ctx, conn)
-	}
 	s, err := settingsOf(conn)
 	if err != nil {
 		return err

@@ -244,7 +244,7 @@ func TestPerUser(t *testing.T) {
 	if _, err := call(t, a, user, "me", "read_message", `{"id":"m1"}`); err == nil {
 		t.Error("a call for nobody passed")
 	}
-	if err := a.Check(context.Background(), f.UserConn(channels.Gmail, "")); err != nil {
+	if err := a.CheckClient(context.Background(), f.UserConn(channels.Gmail, "")); err != nil {
 		t.Errorf("Check of the OAuth client = %v", err)
 	}
 }

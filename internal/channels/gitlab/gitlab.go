@@ -194,9 +194,6 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, in,
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		return a.CheckClient(ctx, conn)
-	}
 	s, err := a.settingsOf(conn)
 	if err != nil {
 		return err

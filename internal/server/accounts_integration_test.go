@@ -27,12 +27,7 @@ func (fakeDocs) Descriptor() channels.Descriptor {
 	}
 }
 
-func (fakeDocs) Check(_ context.Context, conn channels.Connection) error {
-	if conn.PerUser && conn.Secrets["client_secret"] != "pw" {
-		return errors.New("unknown client")
-	}
-	return nil
-}
+func (fakeDocs) Check(context.Context, channels.Connection) error { return nil }
 
 func (fakeDocs) Tools() []channels.Tool {
 	return []channels.Tool{{Name: "whoami", Description: "Whom the call is as."}}
@@ -72,6 +67,13 @@ func (personal) Exchange(_ context.Context, _ channels.Connection, _, code, veri
 		return channels.Grant{}, errors.New("bad code")
 	}
 	return channels.Grant{Refresh: "r1", Access: "a0", Expiry: time.Now().Add(time.Hour), Account: "ada@acme.ch"}, nil
+}
+
+func (personal) CheckClient(_ context.Context, conn channels.Connection) error {
+	if conn.Secrets["client_secret"] != "pw" {
+		return errors.New("unknown client")
+	}
+	return nil
 }
 
 func (personal) Refresh(_ context.Context, _ channels.Connection, refresh string) (channels.Grant, error) {

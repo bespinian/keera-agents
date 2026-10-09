@@ -246,10 +246,6 @@ func apiError(status int, body []byte) error {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		// The cluster is first reached when someone binds a namespace.
-		return a.CheckClient(ctx, conn)
-	}
 	c, err := a.open(conn)
 	if err != nil {
 		return err

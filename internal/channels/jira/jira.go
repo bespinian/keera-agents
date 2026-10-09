@@ -89,9 +89,6 @@ func (a *Adapter) call(ctx context.Context, s atlassian.Site, method, path strin
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		return a.CheckClient(ctx, conn)
-	}
 	s, err := a.c.Open(ctx, conn)
 	if err != nil {
 		return err

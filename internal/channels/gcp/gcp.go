@@ -135,9 +135,6 @@ func who(conn channels.Connection) string {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		return a.CheckClient(ctx, conn)
-	}
 	k, err := key(conn)
 	if err != nil {
 		return err

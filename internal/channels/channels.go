@@ -360,6 +360,9 @@ type PerUser interface {
 	// Refresh gets a new access token. Its Refresh is set only when the
 	// service replaced the refresh token.
 	Refresh(ctx context.Context, conn Connection, refresh string) (Grant, error)
+	// CheckClient checks such a connection in place of Check: nobody has
+	// signed in yet, so it proves only that the service knows the client.
+	CheckClient(ctx context.Context, conn Connection) error
 }
 
 // Options are what every adapter is built with, so tests can point it at a

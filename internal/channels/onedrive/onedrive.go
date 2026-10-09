@@ -180,9 +180,6 @@ func (a *Adapter) driveURL(s settings, path string, q url.Values) string {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		return a.CheckClient(ctx, conn)
-	}
 	s, err := settingsOf(conn)
 	if err != nil {
 		return err

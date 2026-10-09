@@ -166,9 +166,6 @@ func (a *Adapter) call(ctx context.Context, app microsoft.App, box, method, path
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		return a.CheckClient(ctx, conn)
-	}
 	app, err := appOf(conn)
 	if err != nil {
 		return err

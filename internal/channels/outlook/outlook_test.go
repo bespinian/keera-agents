@@ -292,10 +292,10 @@ func TestPerUser(t *testing.T) {
 	client := conn("pw")
 	client.PerUser = true
 
-	if err := a.Check(ctx, client); err != nil {
-		t.Errorf("Check = %v", err)
+	if err := a.CheckClient(ctx, client); err != nil {
+		t.Errorf("CheckClient = %v", err)
 	}
-	if err := a.Check(ctx, func() channels.Connection { c := conn("wrong"); c.PerUser = true; return c }()); err == nil {
+	if err := a.CheckClient(ctx, conn("wrong")); err == nil {
 		t.Error("a wrong secret passed")
 	}
 	u, err := a.SignInURL(client, "https://k/cb", "st", "ch")

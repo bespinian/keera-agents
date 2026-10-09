@@ -279,9 +279,6 @@ func fail(status int, b []byte) error {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	if conn.PerUser {
-		return a.CheckClient(ctx, conn)
-	}
 	o, err := orgOf(conn)
 	if err != nil {
 		return err
