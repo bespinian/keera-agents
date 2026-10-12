@@ -37,19 +37,6 @@ func NewAuth(opts channels.Options) *Auth {
 	}
 }
 
-// App is the OAuth client people sign in through, asking for scope and
-// their email, which says who signed in.
-func (a *Auth) App(clientID, secret, scope string) oauth.App {
-	return oauth.App{
-		AuthURL: a.authURL, TokenURL: a.tokenURL, ClientID: clientID, Secret: secret,
-		Scopes: append(strings.Fields(scope), "openid", "email"),
-		// offline gives a refresh token, so agents keep working after the
-		// first hour. consent asks for it again on every sign-in: Google
-		// sends a refresh token only with consent.
-		Params: url.Values{"access_type": {"offline"}, "prompt": {"consent"}},
-	}
-}
-
 // Accounts lets people sign in to a kind's connectors with their own Google
 // accounts, for scope. apis names the APIs to enable, for the setup steps.
 func (a *Auth) Accounts(scope, apis string) oauth.Accounts {
@@ -74,7 +61,15 @@ func (a *Auth) Accounts(scope, apis string) oauth.Accounts {
 			if id == "" || secret == "" {
 				return oauth.App{}, errors.New("the OAuth client ID or secret is missing")
 			}
-			return a.App(id, secret, scope), nil
+			return oauth.App{
+				AuthURL: a.authURL, TokenURL: a.tokenURL, ClientID: id, Secret: secret,
+				// The email says who signed in.
+				Scopes: append(strings.Fields(scope), "openid", "email"),
+				// offline gives a refresh token, so agents keep working after
+				// the first hour. consent asks for it again on every sign-in:
+				// Google sends a refresh token only with consent.
+				Params: url.Values{"access_type": {"offline"}, "prompt": {"consent"}},
+			}, nil
 		},
 	})
 }
@@ -112,27 +107,28 @@ func (a *Auth) forget(keyJSON, scope, subject string) {
 	a.cache.Forget(web.Fingerprint(keyJSON, scope, subject))
 }
 
-// Do sends req with a token for the key file, scope and subject, and returns
-// the body of a 2xx answer, of at most limit bytes. A refused token is
-// forgotten.
-func (a *Auth) Do(req *http.Request, keyJSON, scope, subject string, limit int64) ([]byte, error) {
-	token, err := a.token(req.Context(), keyJSON, scope, subject)
-	if err != nil {
-		return nil, err
+// Creds are what a call is made with: a person's access Token, or else a
+// service account's key file, acting as Subject when it is set.
+type Creds struct {
+	Key, Subject, Token string
+}
+
+// Do sends req with c, a service account's token being for scope, and
+// returns the body of a 2xx answer, of at most limit bytes. A refused
+// service account's token is forgotten.
+func (a *Auth) Do(req *http.Request, c Creds, scope string, limit int64) ([]byte, error) {
+	token := c.Token
+	if token == "" {
+		var err error
+		if token, err = a.token(req.Context(), c.Key, scope, c.Subject); err != nil {
+			return nil, err
+		}
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	return web.Do(a.hc, req, "Google", limit, func(status int, body []byte) error {
-		if status == http.StatusUnauthorized {
-			a.forget(keyJSON, scope, subject)
+		if status == http.StatusUnauthorized && c.Token == "" {
+			a.forget(c.Key, scope, c.Subject)
 		}
-		return apiError(status, body)
-	})
-}
-
-// DoAs sends req with a person's access token, as Do does.
-func (a *Auth) DoAs(req *http.Request, token string, limit int64) ([]byte, error) {
-	req.Header.Set("Authorization", "Bearer "+token)
-	return web.Do(a.hc, req, "Google", limit, func(status int, body []byte) error {
 		return apiError(status, body)
 	})
 }

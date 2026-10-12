@@ -138,13 +138,13 @@ func (a *Adapter) send(conn channels.Connection, req *http.Request, limit int64)
 		if conn.Token == "" {
 			return nil, oauth.ErrNoToken
 		}
-		return a.auth.DoAs(req, conn.Token, limit)
+		return a.auth.Do(req, google.Creds{Token: conn.Token}, scope, limit)
 	}
 	k, err := key(conn)
 	if err != nil {
 		return nil, err
 	}
-	return a.auth.Do(req, k, scope, "", limit)
+	return a.auth.Do(req, google.Creds{Key: k}, scope, limit)
 }
 
 // call sends in as JSON, unless it is nil, and decodes the answer into out.

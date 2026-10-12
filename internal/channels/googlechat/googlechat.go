@@ -292,7 +292,7 @@ func (a *Adapter) Send(ctx context.Context, conn channels.Connection, to channel
 	if err != nil {
 		return "", err
 	}
-	body, err := a.auth.Do(req, web.Value(conn, "service_account_json"), scope, "", 1<<20)
+	body, err := a.auth.Do(req, google.Creds{Key: web.Value(conn, "service_account_json")}, scope, 1<<20)
 	if err != nil {
 		return "", fmt.Errorf("googlechat: posting the message: %w", err)
 	}

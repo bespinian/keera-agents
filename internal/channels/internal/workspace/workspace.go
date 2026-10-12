@@ -111,12 +111,7 @@ func (c *Client) Do(ctx context.Context, s Settings, method, u string, in, out a
 	if err != nil {
 		return err
 	}
-	var b []byte
-	if s.Token != "" {
-		b, err = c.auth.DoAs(req, s.Token, maxBody)
-	} else {
-		b, err = c.auth.Do(req, s.Key, c.scope, s.Subject, maxBody)
-	}
+	b, err := c.auth.Do(req, google.Creds{Key: s.Key, Subject: s.Subject, Token: s.Token}, c.scope, maxBody)
 	if err != nil || out == nil || len(b) == 0 {
 		return err
 	}

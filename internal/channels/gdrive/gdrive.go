@@ -175,10 +175,7 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, q u
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	if s.token != "" {
-		return a.auth.DoAs(req, s.token, limit)
-	}
-	return a.auth.Do(req, s.key, scope, s.subject, limit)
+	return a.auth.Do(req, google.Creds{Key: s.key, Subject: s.subject, Token: s.token}, scope, limit)
 }
 
 func (a *Adapter) getJSON(ctx context.Context, s settings, path string, q url.Values, v any) error {
