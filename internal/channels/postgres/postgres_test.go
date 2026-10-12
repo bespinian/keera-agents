@@ -49,16 +49,6 @@ func TestConfig(t *testing.T) {
 	}
 }
 
-func TestTarget(t *testing.T) {
-	a := New(channels.Options{})
-	if got, err := a.Target(context.Background(), conn(nil), "*"); err != nil || got != "*" {
-		t.Errorf("Target(*) = %q, %v", got, err)
-	}
-	if _, err := a.Target(context.Background(), conn(nil), "public"); err == nil {
-		t.Error("a schema passed, though it would narrow nothing")
-	}
-}
-
 func TestCell(t *testing.T) {
 	if got := cell(strings.Repeat("é", maxCell+5)); !strings.HasSuffix(got, "…[cut]") || len([]rune(got)) != maxCell+6 {
 		t.Errorf("cell = %d characters", len([]rune(got)))

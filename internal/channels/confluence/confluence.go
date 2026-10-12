@@ -13,7 +13,6 @@ package confluence
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -44,14 +43,14 @@ var (
 )
 
 type Adapter struct {
-	c   *atlassian.Client
-	set apitool.Set
+	c *atlassian.Client
+	apitool.Set
 	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
 	a := &Adapter{c: atlassian.New(opts, "Confluence")}
-	a.set = a.tools()
+	a.Set = a.toolSet()
 	a.Accounts = a.c.Accounts("search:confluence", "read:confluence-content.all", "read:confluence-space.summary",
 		"write:confluence-content", "read:confluence-user")
 	return a
@@ -76,12 +75,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		TargetHelp:  "The space's key, such as DOCS.",
 		AnyTarget:   true,
 	}
-}
-
-func (a *Adapter) Tools() []channels.Tool { return a.set.Tools() }
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.set.Call(ctx, conn, target, tool, args)
 }
 
 // base is where the API and the pages are: Cloud serves Confluence under

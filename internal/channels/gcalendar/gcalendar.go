@@ -45,8 +45,8 @@ var (
 type Adapter struct {
 	client *workspace.Client
 	api    string
-	tools  apitool.Set
 	now    func() time.Time
+	apitool.Set
 	workspace.Accounts
 }
 
@@ -58,7 +58,7 @@ func New(opts channels.Options) *Adapter {
 		api:    web.Endpoint(opts, "calendar", "https://www.googleapis.com") + "/calendar/v3",
 		now:    time.Now,
 	}
-	a.tools = apitool.Set{
+	a.Set = apitool.Set{
 		{
 			Tool: channels.Tool{
 				Name:        "list_events",
@@ -166,8 +166,6 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	})
 }
 
-func (a *Adapter) Tools() []channels.Tool { return a.tools.Tools() }
-
 func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target string) (string, error) {
 	s, err := workspace.SettingsOf(conn)
 	if err != nil {
@@ -196,10 +194,6 @@ func calendarID(target string) (string, error) {
 		return "", fmt.Errorf("%q is not a calendar ID; it is in the calendar's settings, such as ada@acme.com", web.Short(id, 80))
 	}
 	return id, nil
-}
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.tools.Call(ctx, conn, target, tool, args)
 }
 
 // open reads a tool's arguments and settings, and the URL of the target

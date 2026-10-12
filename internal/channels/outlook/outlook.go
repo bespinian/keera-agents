@@ -46,7 +46,7 @@ var (
 type Adapter struct {
 	auth  *microsoft.Auth
 	graph string
-	set   apitool.Set
+	apitool.Set
 	oauth.Accounts
 }
 
@@ -55,7 +55,7 @@ func New(opts channels.Options) *Adapter {
 		auth:  microsoft.NewAuth(opts),
 		graph: web.Endpoint(opts, "graph", "https://graph.microsoft.com/v1.0"),
 	}
-	a.set = a.tools()
+	a.Set = a.toolSet()
 	a.Accounts = a.auth.Accounts([]string{
 		"https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send",
 		"https://graph.microsoft.com/Calendars.ReadWrite",
@@ -195,14 +195,6 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	default:
 		return "", err
 	}
-}
-
-func (a *Adapter) Tools() []channels.Tool {
-	return a.set.Tools()
-}
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.set.Call(ctx, conn, target, tool, args)
 }
 
 // run opens the connection and the binding's mailbox for a tool.

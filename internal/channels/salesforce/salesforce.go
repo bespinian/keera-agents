@@ -51,13 +51,13 @@ const lifetime = 15 * time.Minute
 type Adapter struct {
 	hc     *http.Client
 	tokens oauth.Cache
-	set    apitool.Set
+	apitool.Set
 	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
 	a := &Adapter{hc: web.SameServerClient(opts)}
-	a.set = a.tools()
+	a.Set = a.toolSet()
 	a.Accounts = oauth.NewAccounts(oauth.AccountsConfig{
 		Service: "Salesforce",
 		HTTP:    a.hc,
@@ -119,7 +119,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 			"4. In its policies, enable the **Client Credentials Flow** and set the user from step 1 as the run-as user.\n" +
 			"5. Copy the app's consumer key and secret, and your org's My Domain URL, here.\n" +
 			"6. Agents can do whatever that user may, so its permissions are the limit.",
-		AnyTarget: true,
 	}
 }
 
@@ -293,29 +292,17 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	return err
 }
 
-// Target accepts only everything: the run-as user's permissions are what
-// limit agents.
-func (a *Adapter) Target(_ context.Context, _ channels.Connection, target string) (string, error) {
-	if t := strings.TrimSpace(target); t != "" && t != channels.AnyTarget {
-		return "", errors.New("a Salesforce connector reaches what its run-as user may; bind it to everything (*)")
-	}
+// Target is always everything: a kind with no TargetLabel has nothing to
+// narrow to, and the API binds it to AnyTarget.
+func (a *Adapter) Target(context.Context, channels.Connection, string) (string, error) {
 	return channels.AnyTarget, nil
-}
-
-func (a *Adapter) Tools() []channels.Tool { return a.set.Tools() }
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	if target != channels.AnyTarget {
-		return nil, errors.New("a Salesforce connector can only be bound to everything (*)")
-	}
-	return a.set.Call(ctx, conn, target, tool, args)
 }
 
 const objectArg = `"object": {"type": "string", "description": "The object's API name, such as Account, Opportunity or Invoice__c."}`
 
 const idArg = `"id": {"type": "string", "description": "The record's 15 or 18 character id."}`
 
-func (a *Adapter) tools() apitool.Set {
+func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
 		{Tool: channels.Tool{
 			Name:        "query",

@@ -19,7 +19,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -46,8 +45,8 @@ const (
 )
 
 type Adapter struct {
-	dial  func(ctx context.Context, network, addr string) (net.Conn, error)
-	tools apitool.Set
+	dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	apitool.Set
 }
 
 func New(opts channels.Options) *Adapter {
@@ -55,7 +54,7 @@ func New(opts channels.Options) *Adapter {
 	if a.dial == nil {
 		a.dial = (&net.Dialer{Timeout: timeout}).DialContext
 	}
-	a.tools = a.toolSet()
+	a.Set = a.toolSet()
 	return a
 }
 
@@ -95,18 +94,10 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	}
 }
 
-func (a *Adapter) Tools() []channels.Tool { return a.tools.Tools() }
-
-// Target accepts only everything: the role's grants are what narrows.
-func (a *Adapter) Target(_ context.Context, _ channels.Connection, target string) (string, error) {
-	if strings.TrimSpace(target) != channels.AnyTarget {
-		return "", errors.New("a PostgreSQL connector reaches what its role may; bind it to everything (*)")
-	}
+// Target is always everything: a kind with no TargetLabel has nothing to
+// narrow to, and the API binds it to AnyTarget.
+func (a *Adapter) Target(context.Context, channels.Connection, string) (string, error) {
 	return channels.AnyTarget, nil
-}
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.tools.Call(ctx, conn, target, tool, args)
 }
 
 // config reads a connection's settings into pgx's.

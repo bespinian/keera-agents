@@ -77,7 +77,7 @@ func conn(token string) channels.Connection {
 
 func TestDescriptor(t *testing.T) {
 	d := New(channels.Options{}).Descriptor()
-	if d.Kind != channels.HubSpot || d.Category != "CRM" || !d.AnyTarget || d.TargetLabel != "" || strings.Contains(d.Setup, "{webhook}") {
+	if d.Kind != channels.HubSpot || d.Category != "CRM" || d.TargetLabel != "" || strings.Contains(d.Setup, "{webhook}") {
 		t.Fatalf("descriptor = %+v", d)
 	}
 	write := map[string]bool{}
@@ -103,21 +103,6 @@ func TestCheck(t *testing.T) {
 	}
 	if err := a.Check(ctx, conn("")); err == nil {
 		t.Fatal("no token passed")
-	}
-}
-
-func TestTarget(t *testing.T) {
-	_, a := newFake(t)
-	for _, in := range []string{"", "*", " * "} {
-		if got, err := a.Target(context.Background(), conn("tok"), in); err != nil || got != channels.AnyTarget {
-			t.Errorf("Target(%q) = %q, %v", in, got, err)
-		}
-	}
-	if _, err := a.Target(context.Background(), conn("tok"), "deals"); err == nil {
-		t.Fatal("a narrower target passed")
-	}
-	if _, err := a.Call(context.Background(), conn("tok"), "deals", "list_owners", nil); err == nil {
-		t.Fatal("a call with a narrower target ran")
 	}
 }
 

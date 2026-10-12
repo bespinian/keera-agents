@@ -24,7 +24,7 @@ const (
 	messageFields = "id,from,toRecipients,subject,receivedDateTime,isRead,bodyPreview"
 )
 
-func (a *Adapter) tools() apitool.Set {
+func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
 		{Tool: channels.Tool{
 			Name: "list_messages",

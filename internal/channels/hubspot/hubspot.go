@@ -56,12 +56,12 @@ const maxValue = 2000
 type Adapter struct {
 	hc  *http.Client
 	api string
-	set apitool.Set
+	apitool.Set
 }
 
 func New(opts channels.Options) *Adapter {
 	a := &Adapter{hc: web.Client(opts), api: web.Endpoint(opts, "api", "https://api.hubapi.com")}
-	a.set = a.tools()
+	a.Set = a.toolSet()
 	return a
 }
 
@@ -81,7 +81,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 			"Leave out the write scopes if agents should only read.\n" +
 			"3. Copy the app's access token here.\n" +
 			"4. Agents reach every record those scopes allow, so grant only what they need.",
-		AnyTarget: true,
 	}
 }
 
@@ -125,22 +124,10 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	return err
 }
 
-// Target accepts only everything: a private app's scopes are what limit
-// agents, and HubSpot has nothing like a project to narrow to.
-func (a *Adapter) Target(_ context.Context, _ channels.Connection, target string) (string, error) {
-	if t := strings.TrimSpace(target); t != "" && t != channels.AnyTarget {
-		return "", errors.New("a HubSpot connector reaches the whole CRM; bind it to everything (*)")
-	}
+// Target is always everything: a kind with no TargetLabel has nothing to
+// narrow to, and the API binds it to AnyTarget.
+func (a *Adapter) Target(context.Context, channels.Connection, string) (string, error) {
 	return channels.AnyTarget, nil
-}
-
-func (a *Adapter) Tools() []channels.Tool { return a.set.Tools() }
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	if target != channels.AnyTarget {
-		return nil, errors.New("a HubSpot connector can only be bound to everything (*)")
-	}
-	return a.set.Call(ctx, conn, target, tool, args)
 }
 
 const objectType = `"object_type": {"type": "string", "enum": ["contacts", "companies", "deals", "tickets"]}`
@@ -151,7 +138,7 @@ const propertiesArg = `"properties": {"type": "array", "items": {"type": "string
 const valuesArg = `"properties": {"type": "object", "additionalProperties": {"type": "string"},
 	"description": "Property names and values, such as {\"firstname\": \"Ada\"}. Owners are set with hubspot_owner_id."}`
 
-func (a *Adapter) tools() apitool.Set {
+func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
 		{Tool: channels.Tool{
 			Name:        "search",

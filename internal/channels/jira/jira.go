@@ -12,7 +12,6 @@ package jira
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,14 +45,14 @@ var (
 )
 
 type Adapter struct {
-	c   *atlassian.Client
-	set apitool.Set
+	c *atlassian.Client
+	apitool.Set
 	oauth.Accounts
 }
 
 func New(opts channels.Options) *Adapter {
 	a := &Adapter{c: atlassian.New(opts, "Jira")}
-	a.set = a.tools()
+	a.Set = a.toolSet()
 	a.Accounts = a.c.Accounts("read:jira-work", "write:jira-work", "read:jira-user")
 	return a
 }
@@ -76,12 +75,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		TargetHelp:  "The project's key, such as WEB.",
 		AnyTarget:   true,
 	}
-}
-
-func (a *Adapter) Tools() []channels.Tool { return a.set.Tools() }
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.set.Call(ctx, conn, target, tool, args)
 }
 
 func (a *Adapter) call(ctx context.Context, s atlassian.Site, method, path string, in, out any) error {

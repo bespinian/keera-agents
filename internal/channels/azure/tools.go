@@ -43,7 +43,7 @@ var (
 	validInterval = regexp.MustCompile(`^P(T[0-9]{1,4}[HMS]|[0-9]{1,3}D)$`)
 )
 
-func (a *Adapter) tools() apitool.Set {
+func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
 		{Tool: channels.Tool{
 			Name:        "list_resource_groups",

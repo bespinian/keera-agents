@@ -21,8 +21,7 @@ type Tool struct {
 	Run Run
 }
 
-// Set is an adapter's tools. An adapter returns Set.Tools from Tools and
-// calls Set.Call from Call.
+// Set is an adapter's tools. An adapter embeds it for its Tools and Call.
 type Set []Tool
 
 func (s Set) Tools() []channels.Tool {

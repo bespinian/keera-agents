@@ -46,8 +46,7 @@ const (
 var validProject = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
 
 type Adapter struct {
-	auth  *google.Auth
-	tools apitool.Set
+	auth *google.Auth
 
 	resourceManager, asset, compute, logging, monitoring, storage string
 
@@ -55,6 +54,7 @@ type Adapter struct {
 	// projects' numbers, by key and bucket. Neither changes.
 	numbers *web.Cache[string]
 
+	apitool.Set
 	oauth.Accounts
 }
 
@@ -69,7 +69,7 @@ func New(opts channels.Options) *Adapter {
 		storage:         web.Endpoint(opts, "storage", "https://storage.googleapis.com"),
 		numbers:         web.NewCache[string](24*time.Hour, 1000),
 	}
-	a.tools = a.toolSet()
+	a.Set = a.toolSet()
 	a.Accounts = a.auth.Accounts(scope,
 		"Cloud Resource Manager, Cloud Asset, Compute Engine, Cloud Logging and Cloud Monitoring APIs")
 	return a
@@ -98,12 +98,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		TargetLabel: "Project",
 		TargetHelp:  "The project ID, such as acme-prod-1234. Everything agents do stays in it.",
 	}
-}
-
-func (a *Adapter) Tools() []channels.Tool { return a.tools.Tools() }
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.tools.Call(ctx, conn, target, tool, args)
 }
 
 func key(conn channels.Connection) (string, error) {

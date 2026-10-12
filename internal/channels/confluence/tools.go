@@ -14,7 +14,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels/internal/atlassian"
 )
 
-func (a *Adapter) tools() apitool.Set {
+func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
 		{
 			Tool: channels.Tool{

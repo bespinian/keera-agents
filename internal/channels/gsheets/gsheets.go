@@ -36,7 +36,7 @@ const (
 type Adapter struct {
 	files  workspace.Files
 	sheets string
-	tools  apitool.Set
+	apitool.Set
 	workspace.Accounts
 }
 
@@ -53,7 +53,7 @@ func New(opts channels.Options) *Adapter {
 		},
 		sheets: web.Endpoint(opts, "sheets", "https://sheets.googleapis.com"),
 	}
-	a.tools = apitool.Set{
+	a.Set = apitool.Set{
 		a.files.FindTool(),
 		{
 			Tool: channels.Tool{
@@ -135,14 +135,8 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	return a.files.Check(ctx, conn, "Google Drive API", nil)
 }
 
-func (a *Adapter) Tools() []channels.Tool { return a.tools.Tools() }
-
 func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target string) (string, error) {
 	return a.files.Target(ctx, conn, target)
-}
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.tools.Call(ctx, conn, target, tool, args)
 }
 
 type rangeArgs struct {

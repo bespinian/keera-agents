@@ -45,10 +45,10 @@ var validSubscription = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}
 type Adapter struct {
 	auth *microsoft.Auth
 	arm  string
-	set  apitool.Set
 	// versions maps a resource type to the API version to read it with,
 	// which only changes when Azure releases one.
 	versions *web.Cache[string]
+	apitool.Set
 	oauth.Accounts
 }
 
@@ -58,7 +58,7 @@ func New(opts channels.Options) *Adapter {
 		arm:      web.Endpoint(opts, "arm", "https://management.azure.com"),
 		versions: web.NewCache[string](24*time.Hour, 1000),
 	}
-	a.set = a.tools()
+	a.Set = a.toolSet()
 	a.Accounts = a.auth.Accounts([]string{"https://management.azure.com/user_impersonation"},
 		"Azure Service Management user_impersonation")
 	return a
@@ -179,14 +179,6 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 		return "", err
 	}
 	return sub, nil
-}
-
-func (a *Adapter) Tools() []channels.Tool {
-	return a.set.Tools()
-}
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.set.Call(ctx, conn, target, tool, args)
 }
 
 // run opens the connection and the binding's subscription for a tool.

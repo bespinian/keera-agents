@@ -44,7 +44,7 @@ var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
 type Adapter struct {
 	client *workspace.Client
 	api    string
-	tools  apitool.Set
+	apitool.Set
 	workspace.Accounts
 }
 
@@ -53,7 +53,7 @@ func New(opts channels.Options) *Adapter {
 		client: workspace.NewClient(opts, scope),
 		api:    web.Endpoint(opts, "gmail", "https://gmail.googleapis.com") + "/gmail/v1/users/me",
 	}
-	a.tools = a.toolSet()
+	a.Set = a.toolSet()
 	a.Accounts = workspace.NewAccounts(a.client, "Gmail API")
 	return a
 }
@@ -80,12 +80,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		TargetHelp: "The mailbox's address, such as assistant@acme.com. On a connector people sign in to, " +
 			"me: the mailbox of whoever gives the agent work.",
 	}
-}
-
-func (a *Adapter) Tools() []channels.Tool { return a.tools.Tools() }
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.tools.Call(ctx, conn, target, tool, args)
 }
 
 // mailbox is how a call reaches the binding's mailbox: as it, through

@@ -33,7 +33,7 @@ const (
 type Adapter struct {
 	files workspace.Files
 	docs  string
-	tools apitool.Set
+	apitool.Set
 	workspace.Accounts
 }
 
@@ -45,7 +45,7 @@ func New(opts channels.Options) *Adapter {
 		},
 		docs: web.Endpoint(opts, "docs", "https://docs.googleapis.com"),
 	}
-	a.tools = apitool.Set{
+	a.Set = apitool.Set{
 		a.files.FindTool(),
 		{
 			Tool: channels.Tool{
@@ -123,14 +123,8 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	return a.files.Check(ctx, conn, "Google Drive API", nil)
 }
 
-func (a *Adapter) Tools() []channels.Tool { return a.tools.Tools() }
-
 func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target string) (string, error) {
 	return a.files.Target(ctx, conn, target)
-}
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.tools.Call(ctx, conn, target, tool, args)
 }
 
 // open reads a tool's settings and the document it names.

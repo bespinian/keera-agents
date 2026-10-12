@@ -52,14 +52,14 @@ var (
 )
 
 type Adapter struct {
-	hc    *http.Client
-	tools apitool.Set
+	hc *http.Client
 
 	mu sync.Mutex
 	// withCA are clients trusting a cluster's own CA, by its fingerprint.
 	withCA map[string]*http.Client
 	// discovery is what kinds each server serves, by server and apiVersion.
 	discovery *web.Cache[[]resource]
+	apitool.Set
 	oauth.Accounts
 }
 
@@ -69,7 +69,7 @@ func New(opts channels.Options) *Adapter {
 		withCA:    map[string]*http.Client{},
 		discovery: web.NewCache[[]resource](10*time.Minute, 500),
 	}
-	a.tools = a.toolSet()
+	a.Set = a.toolSet()
 	a.Accounts = oauth.NewOIDC(a.hc).Accounts("the identity provider",
 		"1. Configure the API server to trust your identity provider: --oidc-issuer-url, --oidc-client-id and "+
 			"--oidc-username-claim=email, or a structured AuthenticationConfiguration. On EKS, associate an OIDC identity provider.\n"+
@@ -122,12 +122,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		TargetLabel: "Namespace",
 		TargetHelp:  "The namespace agents work in, such as shop. Everything they do stays in it.",
 	}
-}
-
-func (a *Adapter) Tools() []channels.Tool { return a.tools.Tools() }
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.tools.Call(ctx, conn, target, tool, args)
 }
 
 // cluster is a connection, ready to call.

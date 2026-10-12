@@ -69,7 +69,7 @@ type Adapter struct {
 	sessions map[string]session
 	// buckets maps a bucket's name, unique across AWS, to its region.
 	buckets *web.Cache[string]
-	tools   apitool.Set
+	apitool.Set
 	oauth.Accounts
 }
 
@@ -90,7 +90,7 @@ func New(opts channels.Options) *Adapter {
 		sessions: map[string]session{},
 		buckets:  web.NewCache[string](time.Hour, 10000),
 	}
-	a.tools = a.toolSet()
+	a.Set = a.toolSet()
 	a.Accounts = oauth.NewOIDC(a.hc).Accounts("the identity provider",
 		"1. In IAM, add your identity provider as an **OpenID Connect** provider, with the client ID as its audience.\n"+
 			"2. Create a role for web identity from that provider, with the permissions agents may use, as listed for a shared key. "+
@@ -137,12 +137,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 		TargetLabel: "Region",
 		TargetHelp:  "The region agents work in, such as eu-central-1. Every call stays in it.",
 	}
-}
-
-func (a *Adapter) Tools() []channels.Tool { return a.tools.Tools() }
-
-func (a *Adapter) Call(ctx context.Context, conn channels.Connection, target, tool string, args json.RawMessage) (any, error) {
-	return a.tools.Call(ctx, conn, target, tool, args)
 }
 
 // settingsOf reads the access key, and the role to assume, if any.

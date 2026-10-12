@@ -107,7 +107,7 @@ func (f *fake) conn(secret string) channels.Connection {
 func TestDescriptor(t *testing.T) {
 	a := New(channels.Options{})
 	d := a.Descriptor()
-	if d.Kind != channels.Salesforce || d.Category != "CRM" || !d.AnyTarget || d.TargetLabel != "" || strings.Contains(d.Setup, "{webhook}") {
+	if d.Kind != channels.Salesforce || d.Category != "CRM" || d.TargetLabel != "" || strings.Contains(d.Setup, "{webhook}") {
 		t.Fatalf("descriptor = %+v", d)
 	}
 	for _, tool := range a.Tools() {
@@ -152,19 +152,6 @@ func TestInstance(t *testing.T) {
 		if got != c.want || (err == nil) != (c.want != "") {
 			t.Errorf("instanceOf(%q) = %q, %v", c.instance, got, err)
 		}
-	}
-}
-
-func TestTarget(t *testing.T) {
-	f, a := newFake(t)
-	if got, err := a.Target(context.Background(), f.conn("secret"), ""); err != nil || got != channels.AnyTarget {
-		t.Fatalf("Target = %q, %v", got, err)
-	}
-	if _, err := a.Target(context.Background(), f.conn("secret"), "Account"); err == nil {
-		t.Fatal("a narrower target passed")
-	}
-	if _, err := a.Call(context.Background(), f.conn("secret"), "Account", "describe", json.RawMessage(`{"object":"Lead"}`)); err == nil {
-		t.Fatal("a call with a narrower target ran")
 	}
 }
 
