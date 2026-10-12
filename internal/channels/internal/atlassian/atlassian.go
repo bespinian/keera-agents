@@ -73,9 +73,9 @@ func (s Site) APIBase() string {
 	return s.Base
 }
 
-// Open reads a connection's site and credentials. A connection people sign
-// in to also needs the site's cloud id, which Client.Open finds.
-func Open(conn channels.Connection) (Site, error) {
+// open reads a shared connection's site and credentials. A connection
+// people sign in to also needs the site's cloud id, which Client.Open finds.
+func open(conn channels.Connection) (Site, error) {
 	s := Site{Email: web.Value(conn, "email"), token: web.Value(conn, "api_token")}
 	if s.token == "" {
 		return s, errors.New("the API token is missing")
@@ -113,7 +113,7 @@ func New(opts channels.Options, service string) *Client {
 // people sign in to, where the person's calls go.
 func (c *Client) Open(ctx context.Context, conn channels.Connection) (Site, error) {
 	if !conn.PerUser {
-		return Open(conn)
+		return open(conn)
 	}
 	if conn.Token == "" {
 		return Site{}, oauth.ErrNoToken

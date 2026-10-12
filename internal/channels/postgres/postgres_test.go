@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"testing"
 
@@ -10,9 +11,7 @@ import (
 
 func conn(config map[string]string) channels.Connection {
 	c := map[string]string{"host": "db.example.com", "database": "shop", "user": "agents"}
-	for k, v := range config {
-		c[k] = v
-	}
+	maps.Copy(c, config)
 	return channels.Connection{Kind: channels.Postgres, Config: c, Secrets: map[string]string{"password": "p@ss/word"}}
 }
 

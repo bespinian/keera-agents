@@ -16,6 +16,7 @@ package aws
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -238,10 +239,7 @@ func (a *Adapter) assume(ctx context.Context, base creds, role, action string, p
 	if err := c.query(ctx, "sts", stsVersion, params, &out); err != nil {
 		return creds{}, err
 	}
-	got := out.Role
-	if action != "AssumeRole" {
-		got = out.Web
-	}
+	got := cmp.Or(out.Role, out.Web)
 	if got.ID == "" || got.Secret == "" {
 		return creds{}, fmt.Errorf("AWS STS answered %s without credentials", action)
 	}

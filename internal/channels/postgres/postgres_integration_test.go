@@ -43,12 +43,25 @@ func testDB(t *testing.T) (channels.Connection, *pgx.Conn) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	u, _ := url.Parse(dsn)
-	asAgents := channels.Connection{Kind: channels.Postgres, Config: map[string]string{
+	return connAs(t, "pgtest_agents", "agents-pw"), admin
+}
+
+// connAs is a connection to the test database as user, or as its superuser
+// when user is empty.
+func connAs(t *testing.T, user, password string) channels.Connection {
+	t.Helper()
+	u, err := url.Parse(os.Getenv("KEERA_AGENTS_TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user == "" {
+		user = u.User.Username()
+		password, _ = u.User.Password()
+	}
+	return channels.Connection{Kind: channels.Postgres, Config: map[string]string{
 		"host": u.Hostname(), "port": u.Port(), "database": strings.TrimPrefix(u.Path, "/"),
-		"user": "pgtest_agents", "sslmode": "disable",
-	}, Secrets: map[string]string{"password": "agents-pw"}}
-	return asAgents, admin
+		"user": user, "sslmode": "disable",
+	}, Secrets: map[string]string{"password": password}}
 }
 
 func call(t *testing.T, a *Adapter, conn channels.Connection, tool, args string) (string, error) {
@@ -75,15 +88,7 @@ func TestDatabase(t *testing.T) {
 		strings.Contains(err.Error(), "nope") {
 		t.Errorf("a wrong password: %v", err)
 	}
-	super := conn
-	u, _ := url.Parse(os.Getenv("KEERA_AGENTS_TEST_DATABASE_URL"))
-	pw, _ := u.User.Password()
-	super.Config = map[string]string{
-		"host": u.Hostname(), "port": u.Port(), "database": strings.TrimPrefix(u.Path, "/"),
-		"user": u.User.Username(), "sslmode": "disable",
-	}
-	super.Secrets = map[string]string{"password": pw}
-	if err := a.Check(ctx, super); err == nil || !strings.Contains(err.Error(), "superuser") {
+	if err := a.Check(ctx, connAs(t, "", "")); err == nil || !strings.Contains(err.Error(), "superuser") {
 		t.Errorf("a superuser: %v", err)
 	}
 

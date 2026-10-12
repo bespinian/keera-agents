@@ -46,11 +46,11 @@ func TestOpen(t *testing.T) {
 			Secrets: map[string]string{"api_token": token},
 		}
 	}
-	s, err := Open(conn("https://acme.atlassian.net/", "ada@acme.test", "tok"))
+	s, err := open(conn("https://acme.atlassian.net/", "ada@acme.test", "tok"))
 	if err != nil || s.Base != "https://acme.atlassian.net" || !s.Cloud() {
 		t.Fatalf("Open = %+v, %v", s, err)
 	}
-	if s, _ := Open(conn("https://jira.acme.test", "", "pat")); s.Cloud() {
+	if s, _ := open(conn("https://jira.acme.test", "", "pat")); s.Cloud() {
 		t.Fatal("a token without email is Cloud")
 	}
 	for _, c := range []channels.Connection{
@@ -58,8 +58,8 @@ func TestOpen(t *testing.T) {
 		conn("", "", "tok"),
 		conn("https://acme.atlassian.net", "", ""),
 	} {
-		if _, err := Open(c); err == nil {
-			t.Errorf("Open(%v) passed", c.Config)
+		if _, err := open(c); err == nil {
+			t.Errorf("open(%v) passed", c.Config)
 		}
 	}
 }

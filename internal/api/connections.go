@@ -68,13 +68,15 @@ func (s *Server) listConnections(w http.ResponseWriter, r *http.Request, p Princ
 		s.fail(w, err)
 		return
 	}
+	mine := make(map[string]*store.Account, len(accounts))
+	for i := range accounts {
+		mine[accounts[i].ConnectionID] = &accounts[i]
+	}
 	out := make([]connectionView, 0, len(list))
 	for _, c := range list {
 		v := s.view(c, counts[c.ID])
-		for _, a := range accounts {
-			if a.ConnectionID == c.ID && c.PerUser {
-				v.Account = &a
-			}
+		if c.PerUser {
+			v.Account = mine[c.ID]
 		}
 		out = append(out, v)
 	}

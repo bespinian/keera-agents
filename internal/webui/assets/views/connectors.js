@@ -453,7 +453,7 @@ function openEditor(ctx, kinds, conn, kind = null) {
   function drawFields() {
     for (const k of Object.keys(inputs)) delete inputs[k];
     name.placeholder = kind ? `My ${kind.label}` : "";
-    if (!kind || (access && access.tiles.hidden === false)) {
+    if (!kind || (access && !access.tiles.hidden)) {
       replace(fieldsHost);
       return;
     }

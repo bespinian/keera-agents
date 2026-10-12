@@ -276,7 +276,7 @@ func (a *Adapter) run(ctx context.Context, conn channels.Connection, write bool,
 		return Result{}, sqlError(err)
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	res, err := read(ctx, c, tx, sql, limit, args)
+	res, err := read(ctx, tx, sql, limit, args)
 	if err != nil {
 		return Result{}, sqlError(err)
 	}
@@ -289,7 +289,7 @@ func (a *Adapter) run(ctx context.Context, conn channels.Connection, write bool,
 }
 
 // read runs sql and reads its rows as text.
-func read(ctx context.Context, c *pgx.Conn, tx pgx.Tx, sql string, limit int, args []any) (Result, error) {
+func read(ctx context.Context, tx pgx.Tx, sql string, limit int, args []any) (Result, error) {
 	rows, err := tx.Query(ctx, sql, append([]any{pgx.QueryResultFormats{pgx.TextFormatCode}}, args...)...)
 	if err != nil {
 		return Result{}, err
@@ -298,7 +298,7 @@ func read(ctx context.Context, c *pgx.Conn, tx pgx.Tx, sql string, limit int, ar
 	var res Result
 	for _, f := range rows.FieldDescriptions() {
 		typ := "oid " + strconv.FormatUint(uint64(f.DataTypeOID), 10)
-		if t, ok := c.TypeMap().TypeForOID(f.DataTypeOID); ok {
+		if t, ok := tx.Conn().TypeMap().TypeForOID(f.DataTypeOID); ok {
 			typ = t.Name
 		}
 		res.Columns = append(res.Columns, Column{Name: f.Name, Type: typ})
@@ -308,20 +308,17 @@ func read(ctx context.Context, c *pgx.Conn, tx pgx.Tx, sql string, limit int, ar
 			res.More = true
 			break
 		}
-		row := make([]any, 0, len(res.Columns))
-		for _, v := range rows.RawValues() {
-			if v == nil {
-				row = append(row, nil)
-				continue
+		row := make([]any, len(res.Columns))
+		for i, v := range rows.RawValues() {
+			if v != nil {
+				row[i] = cell(string(v))
 			}
-			row = append(row, cell(string(v)))
 		}
 		res.Rows = append(res.Rows, row)
 	}
-	if res.More {
-		// The rest is not read; closing ends the statement.
-		rows.Close()
-	}
+	// Closing ends the statement when the rest is not read, and gives its
+	// error and command tag.
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		return Result{}, err
 	}

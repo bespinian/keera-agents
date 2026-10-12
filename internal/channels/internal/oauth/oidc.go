@@ -36,9 +36,9 @@ func NewOIDC(hc *http.Client) *OIDC {
 	return &OIDC{hc: hc, providers: web.NewCache[provider](time.Hour, 100)}
 }
 
-// OIDCFields are the settings of a connector people sign in to with the
+// oidcFields are the settings of a connector people sign in to with the
 // organisation's own provider.
-func OIDCFields() []channels.Field {
+func oidcFields() []channels.Field {
 	return []channels.Field{
 		{
 			Name: "issuer_url", Label: "Issuer URL", Required: true, Endpoint: true,
@@ -61,7 +61,7 @@ func (o *OIDC) Accounts(service, setup string, first ...channels.Field) Accounts
 	return NewAccounts(AccountsConfig{
 		Service: service,
 		HTTP:    o.hc,
-		SignIn:  channels.SignIn{Fields: append(slices.Clone(first), OIDCFields()...), Setup: setup},
+		SignIn:  channels.SignIn{Fields: append(slices.Clone(first), oidcFields()...), Setup: setup},
 		App:     o.app,
 		IDToken: true,
 	})
