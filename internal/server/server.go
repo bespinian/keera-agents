@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -135,13 +134,9 @@ type App struct {
 // first. driver may be nil: agents can then be set up but not run.
 func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.Driver, box *secret.Box, log *slog.Logger) (*App, error) {
 	reg := metrics.New(version.String())
-	limits, err := runtime.LimitsFrom(cfg.Runtime)
+	limits, err := runtime.LimitsFrom(cfg.Runtime, driver)
 	if err != nil {
 		return nil, err
-	}
-	if driver != nil && limits.MinIsolation != "" && !slices.Contains(driver.Tiers(), limits.MinIsolation) {
-		return nil, fmt.Errorf("KEERA_AGENTS_MIN_ISOLATION is %s, but the %s driver has no runtime for it; set KEERA_AGENTS_RUNTIME_%s",
-			limits.MinIsolation, driver.Name(), strings.ToUpper(string(limits.MinIsolation)))
 	}
 	fl := fleet.New(st, gw, driver, box, fleet.Options{
 		Image: cfg.Runtime.Image, RuntimeURL: cfg.Runtime.URL, IdleSuspend: cfg.Runtime.IdleSuspend,

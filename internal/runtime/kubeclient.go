@@ -17,8 +17,9 @@ import (
 	"time"
 )
 
-// A small Kubernetes client instead of client-go. It polls instead of watching
-// and patches instead of applying.
+// A small Kubernetes client instead of client-go, which would grow the module
+// graph a lot to save a few hundred lines of JSON. It polls instead of
+// watching and patches instead of applying.
 
 const serviceAccountDir = "/var/run/secrets/kubernetes.io/serviceaccount"
 

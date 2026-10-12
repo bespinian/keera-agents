@@ -42,7 +42,7 @@ func TestClassValidate(t *testing.T) {
 }
 
 func TestLimits(t *testing.T) {
-	l, err := LimitsFrom(config.RuntimeConfig{MinIsolation: "isolated", MaxCPU: "4", MaxMemory: "8Gi", MaxDisk: "50Gi"})
+	l, err := LimitsFrom(config.RuntimeConfig{MinIsolation: "isolated", MaxCPU: "4", MaxMemory: "8Gi", MaxDisk: "50Gi"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,11 +69,16 @@ func TestLimits(t *testing.T) {
 		{MinIsolation: "standard", MaxCPU: "0", MaxMemory: "8Gi", MaxDisk: "50Gi"},
 		{MinIsolation: "standard", MaxCPU: "4", MaxMemory: "lots", MaxDisk: "50Gi"},
 	} {
-		if _, err := LimitsFrom(bad); err == nil {
+		if _, err := LimitsFrom(bad, nil); err == nil {
 			t.Errorf("%+v was accepted", bad)
 		}
 	}
-	if l, err := LimitsFrom(config.RuntimeConfig{}); err != nil || l != (Limits{}) {
+	if l, err := LimitsFrom(config.RuntimeConfig{}, nil); err != nil || l != (Limits{}) {
 		t.Errorf("no limits = %+v, %v", l, err)
+	}
+	// A minimum the driver has no runtime for would stop every agent.
+	if _, err := LimitsFrom(config.RuntimeConfig{MinIsolation: "vm"}, &Podman{}); err == nil ||
+		!strings.Contains(err.Error(), "KEERA_AGENTS_RUNTIME_VM") {
+		t.Errorf("a minimum the driver lacks: %v", err)
 	}
 }

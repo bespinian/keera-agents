@@ -1,8 +1,8 @@
 // Package store keeps keera-agents' state in Postgres: agents and
 // workspaces, connections, bindings, schedules, boards, tasks, SSH keys and
-// the audit log. People,
-// organisations, projects, models and keys live in Keera Gateway; rows here
-// name them by the gateway's ids.
+// the audit log, people's sign-ins to connectors, and the files agents
+// wrote. People, organisations, projects, models and keys live in Keera
+// Gateway; rows here name them by the gateway's ids.
 package store
 
 import (

@@ -27,8 +27,7 @@ import (
 //	persistentVolumeClaimRetentionPolicy
 //	                          deletes the workspace with the agent
 //
-// The driver talks plain HTTPS to the API server instead of using client-go,
-// which would grow the module graph a lot to save a few hundred lines of JSON.
+// The driver talks to the API server through kubeClient.
 
 const setsAPIPath = "/apis/apps/v1"
 
@@ -127,8 +126,8 @@ type kubeMeta struct {
 
 type kubeSetSpec struct {
 	Replicas *int32 `json:"replicas"`
-	// ServiceName names no Service: nothing calls an agent. Older clusters
-	// require the field.
+	// ServiceName names no Service: keera-agents reaches a workspace by its
+	// pod's IP. Older clusters require the field.
 	ServiceName         string           `json:"serviceName"`
 	Selector            kubeSelector     `json:"selector"`
 	PodManagementPolicy string           `json:"podManagementPolicy,omitempty"`
@@ -252,15 +251,6 @@ type kubeCondition struct {
 	Status  string `json:"status"`
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
-}
-
-func conditionOf(conds []kubeCondition, typ string) (kubeCondition, bool) {
-	for _, c := range conds {
-		if c.Type == typ {
-			return c, true
-		}
-	}
-	return kubeCondition{}, false
 }
 
 // The volumes and the one container of an agent's pod.
@@ -512,9 +502,11 @@ func (k *Kubernetes) podStatus(ctx context.Context, agentID string) Status {
 			return Status{State: Failed, Detail: w.Reason}
 		}
 	}
-	if c, ok := conditionOf(pod.Status.Conditions, "PodScheduled"); ok && c.Status == "False" {
-		// The scheduler's message says best why it is still starting.
-		return Status{State: Pending, Detail: cmp.Or(c.Message, c.Reason, "waiting to be scheduled")}
+	for _, c := range pod.Status.Conditions {
+		if c.Type == "PodScheduled" && c.Status == "False" {
+			// The scheduler's message says best why it is still starting.
+			return Status{State: Pending, Detail: cmp.Or(c.Message, c.Reason, "waiting to be scheduled")}
+		}
 	}
 	return Status{State: Pending, Detail: "starting"}
 }

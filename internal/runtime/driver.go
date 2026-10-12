@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -47,14 +48,18 @@ func New(ctx context.Context, cfg config.RuntimeConfig, log *slog.Logger) (Drive
 }
 
 // LimitsFrom reads and checks the operator's limits. An empty one is no
-// limit, as in Limits.Check.
-func LimitsFrom(cfg config.RuntimeConfig) (Limits, error) {
+// limit, as in Limits.Check. d may be nil, when no driver is set up yet.
+func LimitsFrom(cfg config.RuntimeConfig, d Driver) (Limits, error) {
 	l := Limits{
 		MinIsolation: Isolation(cfg.MinIsolation),
 		MaxCPU:       cfg.MaxCPU, MaxMemory: cfg.MaxMemory, MaxDisk: cfg.MaxDisk,
 	}
 	if l.MinIsolation != "" && !l.MinIsolation.Valid() {
 		return l, fmt.Errorf("KEERA_AGENTS_MIN_ISOLATION must be standard, isolated or vm, not %q", l.MinIsolation)
+	}
+	if d != nil && l.MinIsolation != "" && !slices.Contains(d.Tiers(), l.MinIsolation) {
+		return l, fmt.Errorf("KEERA_AGENTS_MIN_ISOLATION is %s, but the %s driver has no runtime for it; set KEERA_AGENTS_RUNTIME_%s",
+			l.MinIsolation, d.Name(), strings.ToUpper(string(l.MinIsolation)))
 	}
 	for _, q := range []struct{ name, v string }{
 		{"KEERA_AGENTS_MAX_CPU", l.MaxCPU}, {"KEERA_AGENTS_MAX_MEMORY", l.MaxMemory}, {"KEERA_AGENTS_MAX_DISK", l.MaxDisk},

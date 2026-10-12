@@ -150,8 +150,7 @@ type podmanInspect struct {
 		Error     string `json:"Error"`
 	} `json:"State"`
 	Config struct {
-		Labels map[string]string `json:"Labels"`
-		Env    []string          `json:"Env"`
+		Env []string `json:"Env"`
 	} `json:"Config"`
 }
 
@@ -302,7 +301,7 @@ func (p *Podman) Address(ctx context.Context, agentID string) (string, error) {
 	// One line per address, such as 127.0.0.1:41235.
 	addr, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	if addr == "" {
-		return "", fmt.Errorf("agent %s publishes no port; it was made before it was a workspace", agentID)
+		return "", fmt.Errorf("agent %s publishes no port; start it again", agentID)
 	}
 	return addr, nil
 }
