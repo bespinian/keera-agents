@@ -45,14 +45,26 @@ CREATE TABLE agents (
     gateway_key   bytea,
     -- SHA-256 of the runtime token the container authenticates with.
     runtime_token_hash bytea UNIQUE,
+    -- A workspace is a machine an engineer works in, with a coding agent. It
+    -- is an agents row of its own kind, so it shares keys, connectors and the
+    -- lifecycle, but it never takes tasks.
+    kind          text NOT NULL DEFAULT 'agent' CHECK (kind IN ('agent', 'workspace')),
+    -- What the engineer opens: 'terminal' (pi) or 'vscode' (code-server). Only
+    -- a workspace has one.
+    experience    text NOT NULL DEFAULT '' CHECK (experience IN ('', 'terminal', 'vscode')),
     last_active_at timestamptz,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now(),
-    deleted_at    timestamptz
+    deleted_at    timestamptz,
+    CONSTRAINT agents_kind_experience_check CHECK ((kind = 'workspace') = (experience <> ''))
 );
 CREATE INDEX agents_org_idx ON agents (org_id) WHERE deleted_at IS NULL;
--- A name is unique per organisation, since a channel mentions it.
-CREATE UNIQUE INDEX agents_org_name_idx ON agents (org_id, lower(name)) WHERE deleted_at IS NULL;
+-- An agent's name is unique in its organisation, since a chat mentions it. A
+-- workspace's is unique for its owner, who reaches it by name.
+CREATE UNIQUE INDEX agents_org_name_idx ON agents (org_id, lower(name))
+    WHERE deleted_at IS NULL AND kind = 'agent';
+CREATE UNIQUE INDEX workspaces_owner_name_idx ON agents (org_id, owner_id, lower(name))
+    WHERE deleted_at IS NULL AND kind = 'workspace';
 
 -- One organisation's credentials for one service, such as its Slack app.
 CREATE TABLE connections (
@@ -63,11 +75,28 @@ CREATE TABLE connections (
     config     jsonb NOT NULL DEFAULT '{}',
     -- The secret fields, as JSON sealed under the connection's id.
     secrets    bytea,
+    -- Whether each person signs in to the service with their own account, so
+    -- agents work with that person's permissions instead of a shared one's.
+    per_user   boolean NOT NULL DEFAULT false,
     created_by text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX connections_org_idx ON connections (org_id);
+
+-- Each person's sign-in to a connector that has per_user.
+CREATE TABLE accounts (
+    connection_id text NOT NULL REFERENCES connections (id) ON DELETE CASCADE,
+    user_id       text NOT NULL,
+    -- Who they signed in as at the service, such as their Google email.
+    account       text NOT NULL DEFAULT '',
+    -- The refresh token, sealed under the connection and the person.
+    token         bytea NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (connection_id, user_id)
+);
+CREATE INDEX accounts_user_idx ON accounts (user_id);
 
 -- Where an agent listens or works: a channel of a chat connection, a folder
 -- of a file connection, or a repository of a code connection.
@@ -81,8 +110,10 @@ CREATE TABLE bindings (
     label         text NOT NULL DEFAULT '',
     -- 'chat' takes messages; 'watch' turns new files into tasks; 'files'
     -- only lets the agent use the folder; 'repo' lets it work in a
-    -- repository on GitHub or GitLab, named as owner/name or group/project.
-    mode          text NOT NULL CHECK (mode IN ('chat', 'watch', 'files', 'repo')),
+    -- repository on GitHub or GitLab, named as owner/name or group/project;
+    -- 'read' and 'write' let it use an API connector, such as Jira or AWS.
+    mode          text NOT NULL
+        CHECK (mode IN ('chat', 'watch', 'files', 'repo', 'read', 'write')),
     -- For a watch: what to do with each new file.
     prompt        text NOT NULL DEFAULT '',
     -- For a watch: where the store's change feed was last read.
@@ -124,7 +155,11 @@ CREATE TABLE schedules (
     next_run_at timestamptz,
     last_run_at timestamptz,
     created_by  text NOT NULL,
-    created_by_id text NOT NULL DEFAULT '',
+    -- Whose rights it runs with: whoever last gave it, not whoever created
+    -- it. Otherwise anyone could edit another person's schedule and have it
+    -- run with that person's rights.
+    requested_by    text NOT NULL DEFAULT '',
+    requested_by_id text NOT NULL DEFAULT '',
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX schedules_due_idx ON schedules (next_run_at) WHERE enabled;
@@ -153,7 +188,9 @@ CREATE TABLE cards (
     due_at      timestamptz,
     task_id     text,
     created_by  text NOT NULL,
-    created_by_id text NOT NULL DEFAULT '',
+    -- Whose rights it runs with, as for a schedule.
+    requested_by    text NOT NULL DEFAULT '',
+    requested_by_id text NOT NULL DEFAULT '',
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now()
 );
@@ -201,6 +238,9 @@ CREATE TABLE tasks (
 CREATE UNIQUE INDEX tasks_dedupe_idx ON tasks (agent_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
 CREATE INDEX tasks_agent_idx ON tasks (agent_id, created_at DESC);
 CREATE INDEX tasks_org_idx ON tasks (org_id, created_at DESC);
+-- /metrics counts running tasks at every scrape. Without this, that count
+-- reads every task kept.
+CREATE INDEX tasks_running_idx ON tasks (agent_id) WHERE state = 'running';
 CREATE INDEX tasks_queue_idx ON tasks (agent_id, created_at) WHERE state = 'queued';
 CREATE INDEX tasks_undelivered_idx ON tasks (finished_at) WHERE NOT delivered AND state IN ('succeeded', 'failed', 'cancelled');
 
@@ -224,4 +264,19 @@ CREATE TABLE audit (
     target    text NOT NULL DEFAULT '',
     detail    jsonb
 );
-CREATE INDEX audit_org_idx ON audit (org_id, at DESC);
+-- Read newest first by id, a page at a time.
+CREATE INDEX audit_org_id_idx ON audit (org_id, id DESC);
+
+-- The public keys a person signs in to their workspaces with over SSH.
+CREATE TABLE ssh_keys (
+    id          text PRIMARY KEY,
+    org_id      text NOT NULL,
+    user_id     text NOT NULL,
+    name        text NOT NULL DEFAULT '',
+    -- One line of authorized_keys: type, key and comment.
+    public_key  text NOT NULL,
+    -- SHA256:..., as ssh-keygen -l prints it.
+    fingerprint text NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (org_id, user_id, fingerprint)
+);

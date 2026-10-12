@@ -429,7 +429,7 @@ func (d *Dispatcher) toolCreateCard(ctx context.Context, a store.Agent, t store.
 	}
 	c, err := d.st.CreateCard(ctx, store.Card{
 		ID: id.New("card"), BoardID: board.ID, Title: title, Body: value(in.Body), Status: status,
-		AgentID: assignee, Labels: in.Labels, CreatedBy: a.Name, CreatedByID: t.RequestedByID,
+		AgentID: assignee, Labels: in.Labels, CreatedBy: a.Name,
 		RequestedBy: cmp.Or(t.RequestedBy, a.Name), RequestedByID: t.RequestedByID,
 	})
 	if err != nil {

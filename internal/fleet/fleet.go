@@ -563,8 +563,7 @@ func (m *Manager) CheckOwners(ctx context.Context) {
 			continue
 		}
 		m.log.Info("stopping an agent whose owner left", "agent", a.ID, "owner", a.OwnerEmail)
-		a.Enabled = false
-		if _, err := m.st.UpdateAgent(ctx, a); err != nil {
+		if a, err = m.st.SetEnabled(ctx, a.ID, false); err != nil {
 			continue
 		}
 		_ = m.stop(ctx, a, "the agent's owner no longer has access",

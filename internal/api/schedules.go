@@ -121,7 +121,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, p Princi
 		return
 	}
 	sc := store.Schedule{
-		ID: id.New("sch"), AgentID: a.ID, Enabled: true, CreatedBy: p.Email, CreatedByID: p.UserID,
+		ID: id.New("sch"), AgentID: a.ID, Enabled: true, CreatedBy: p.Email,
 		RequestedBy: p.Email, RequestedByID: p.UserID,
 	}
 	if err := s.applySchedule(r.Context(), &sc, in); err != nil {

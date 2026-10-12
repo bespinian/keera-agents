@@ -20,7 +20,6 @@ type Schedule struct {
 	NextRunAt      *time.Time `json:"next_run_at"`
 	LastRunAt      *time.Time `json:"last_run_at"`
 	CreatedBy      string     `json:"created_by"`
-	CreatedByID    string     `json:"-"`
 	// RequestedBy is who last changed the schedule: it runs for them.
 	RequestedBy   string    `json:"requested_by"`
 	RequestedByID string    `json:"-"`
@@ -29,14 +28,14 @@ type Schedule struct {
 }
 
 const scheduleSelect = `SELECT s.id, s.agent_id, a.name, s.name, s.cron, s.timezone, s.prompt,
-	s.reply_binding_id, s.enabled, s.next_run_at, s.last_run_at, s.created_by, s.created_by_id,
+	s.reply_binding_id, s.enabled, s.next_run_at, s.last_run_at, s.created_by,
 	s.requested_by, s.requested_by_id, s.created_at, a.org_id
 	FROM schedules s JOIN agents a ON a.id = s.agent_id AND a.deleted_at IS NULL`
 
 func scanSchedule(row pgx.Row) (Schedule, error) {
 	var s Schedule
 	err := row.Scan(&s.ID, &s.AgentID, &s.AgentName, &s.Name, &s.Cron, &s.Timezone, &s.Prompt,
-		&s.ReplyBindingID, &s.Enabled, &s.NextRunAt, &s.LastRunAt, &s.CreatedBy, &s.CreatedByID,
+		&s.ReplyBindingID, &s.Enabled, &s.NextRunAt, &s.LastRunAt, &s.CreatedBy,
 		&s.RequestedBy, &s.RequestedByID, &s.CreatedAt, &s.OrgID)
 	return s, notFound(err)
 }
@@ -47,11 +46,10 @@ func (s *Store) querySchedules(ctx context.Context, tail string, args ...any) ([
 
 func (s *Store) CreateSchedule(ctx context.Context, sc Schedule) (Schedule, error) {
 	_, err := s.pool.Exec(ctx, `INSERT INTO schedules (id, agent_id, name, cron, timezone,
-		prompt, reply_binding_id, enabled, next_run_at, created_by, created_by_id, requested_by,
-		requested_by_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		prompt, reply_binding_id, enabled, next_run_at, created_by, requested_by, requested_by_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 		sc.ID, sc.AgentID, sc.Name, sc.Cron, sc.Timezone, sc.Prompt, sc.ReplyBindingID,
-		sc.Enabled, sc.NextRunAt, sc.CreatedBy, sc.CreatedByID, sc.RequestedBy, sc.RequestedByID)
+		sc.Enabled, sc.NextRunAt, sc.CreatedBy, sc.RequestedBy, sc.RequestedByID)
 	if err != nil {
 		return Schedule{}, conflict(err)
 	}

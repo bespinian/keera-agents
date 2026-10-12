@@ -465,8 +465,7 @@ func (s *Server) setMachineEnabled(w http.ResponseWriter, r *http.Request, p Pri
 		writeError(w, http.StatusConflict, "no_runtime", fleet.ErrNoRuntime.Error())
 		return a, false
 	}
-	a.Enabled = enabled
-	out, err := s.st.UpdateAgent(r.Context(), a)
+	out, err := s.st.SetEnabled(r.Context(), a.ID, enabled)
 	if err != nil {
 		s.fail(w, err)
 		return a, false

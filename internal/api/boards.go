@@ -202,7 +202,7 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request, p Principal)
 		return
 	}
 	c := store.Card{
-		ID: id.New("card"), BoardID: b.ID, Status: store.CardBacklog, CreatedBy: p.Email, CreatedByID: p.UserID,
+		ID: id.New("card"), BoardID: b.ID, Status: store.CardBacklog, CreatedBy: p.Email,
 		RequestedBy: p.Email, RequestedByID: p.UserID,
 	}
 	if err := s.applyCard(r.Context(), p, &c, in); err != nil {

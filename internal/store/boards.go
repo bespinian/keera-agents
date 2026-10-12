@@ -61,20 +61,19 @@ func (s *Store) DeleteBoard(ctx context.Context, id string) error {
 }
 
 type Card struct {
-	ID          string     `json:"id"`
-	BoardID     string     `json:"board_id"`
-	Title       string     `json:"title"`
-	Body        string     `json:"body"`
-	Status      string     `json:"status"`
-	Position    float64    `json:"position"`
-	AgentID     *string    `json:"agent_id"`
-	AgentName   string     `json:"agent_name"`
-	Labels      []string   `json:"labels"`
-	DueAt       *time.Time `json:"due_at"`
-	TaskID      *string    `json:"task_id"`
-	TaskState   string     `json:"task_state"`
-	CreatedBy   string     `json:"created_by"`
-	CreatedByID string     `json:"-"`
+	ID        string     `json:"id"`
+	BoardID   string     `json:"board_id"`
+	Title     string     `json:"title"`
+	Body      string     `json:"body"`
+	Status    string     `json:"status"`
+	Position  float64    `json:"position"`
+	AgentID   *string    `json:"agent_id"`
+	AgentName string     `json:"agent_name"`
+	Labels    []string   `json:"labels"`
+	DueAt     *time.Time `json:"due_at"`
+	TaskID    *string    `json:"task_id"`
+	TaskState string     `json:"task_state"`
+	CreatedBy string     `json:"created_by"`
 	// RequestedBy is who last gave the card's agent work: its task runs for
 	// them.
 	RequestedBy   string    `json:"requested_by"`
@@ -87,7 +86,7 @@ type Card struct {
 
 const cardSelect = `SELECT c.id, c.board_id, c.title, c.body, c.status, c.position, c.agent_id,
 	coalesce(a.name, ''), c.labels, c.due_at, c.task_id, coalesce(t.state, ''), c.created_by,
-	c.created_by_id, c.requested_by, c.requested_by_id, c.created_at, c.updated_at,
+	c.requested_by, c.requested_by_id, c.created_at, c.updated_at,
 	(SELECT count(*) FROM card_comments cc WHERE cc.card_id = c.id), b.org_id
 	FROM cards c JOIN boards b ON b.id = c.board_id
 	LEFT JOIN agents a ON a.id = c.agent_id AND a.deleted_at IS NULL
@@ -96,7 +95,7 @@ const cardSelect = `SELECT c.id, c.board_id, c.title, c.body, c.status, c.positi
 func scanCard(row pgx.Row) (Card, error) {
 	var c Card
 	err := row.Scan(&c.ID, &c.BoardID, &c.Title, &c.Body, &c.Status, &c.Position, &c.AgentID,
-		&c.AgentName, &c.Labels, &c.DueAt, &c.TaskID, &c.TaskState, &c.CreatedBy, &c.CreatedByID,
+		&c.AgentName, &c.Labels, &c.DueAt, &c.TaskID, &c.TaskState, &c.CreatedBy,
 		&c.RequestedBy, &c.RequestedByID, &c.CreatedAt, &c.UpdatedAt, &c.Comments, &c.OrgID)
 	c.Labels = emptyIfNil(c.Labels)
 	return c, notFound(err)
@@ -109,12 +108,12 @@ func (s *Store) queryCards(ctx context.Context, tail string, args ...any) ([]Car
 // CreateCard puts the card at the end of its column.
 func (s *Store) CreateCard(ctx context.Context, c Card) (Card, error) {
 	_, err := s.pool.Exec(ctx, `INSERT INTO cards (id, board_id, title, body, status, position,
-		agent_id, labels, due_at, created_by, created_by_id, requested_by, requested_by_id)
+		agent_id, labels, due_at, created_by, requested_by, requested_by_id)
 		VALUES ($1,$2,$3,$4,$5,
 			(SELECT coalesce(max(position), 0) + 1 FROM cards WHERE board_id = $2 AND status = $5),
-			$6,$7,$8,$9,$10,$11,$12)`,
+			$6,$7,$8,$9,$10,$11)`,
 		c.ID, c.BoardID, c.Title, c.Body, c.Status, c.AgentID, emptyIfNil(c.Labels), c.DueAt,
-		c.CreatedBy, c.CreatedByID, c.RequestedBy, c.RequestedByID)
+		c.CreatedBy, c.RequestedBy, c.RequestedByID)
 	if err != nil {
 		return Card{}, err
 	}

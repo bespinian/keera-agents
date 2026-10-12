@@ -132,6 +132,13 @@ func (s *Store) UpdateAgent(ctx context.Context, a Agent) (Agent, error) {
 	return out, conflict(err)
 }
 
+// SetEnabled says whether an agent should run. It writes only that, so it
+// cannot undo an edit made since the agent was read.
+func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) (Agent, error) {
+	return scanAgent(s.pool.QueryRow(ctx, `UPDATE agents SET enabled = $2, updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL RETURNING `+agentColumns, id, enabled))
+}
+
 // Agent loads an agent or a workspace by id; callers that serve only one
 // kind check a.Kind.
 func (s *Store) Agent(ctx context.Context, id string) (Agent, error) {
