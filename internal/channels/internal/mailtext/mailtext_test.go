@@ -22,7 +22,7 @@ func TestAddresses(t *testing.T) {
 	if _, err := Addresses("cc", []string{"nobody"}); err == nil || !strings.Contains(err.Error(), "in cc") {
 		t.Errorf("a bad address: %v", err)
 	}
-	if _, err := Addresses("to", make([]string, MaxRecipients+1)); err == nil {
+	if _, err := Addresses("to", make([]string, maxRecipients+1)); err == nil {
 		t.Error("too many addresses passed")
 	}
 }

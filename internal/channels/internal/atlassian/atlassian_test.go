@@ -65,12 +65,12 @@ func TestOpen(t *testing.T) {
 }
 
 func TestFail(t *testing.T) {
-	c := &Client{Service: "Jira"}
+	c := &Client{service: "Jira"}
 	err := c.fail(400, []byte(`{"errorMessages":["Bad"],"errors":{"summary":"Required","issuetype":"Invalid"}}`))
 	if want := "Jira answered 400 Bad Request: Bad; issuetype: Invalid; summary: Required"; err.Error() != want {
 		t.Errorf("Jira error = %q", err)
 	}
-	c.Service = "Confluence"
+	c.service = "Confluence"
 	if err := c.fail(404, []byte(`{"statusCode":404,"message":"No space with key : X"}`)); !strings.HasSuffix(err.Error(), ": No space with key : X") {
 		t.Errorf("Confluence error = %q", err)
 	}

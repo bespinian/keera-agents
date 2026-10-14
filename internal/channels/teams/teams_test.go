@@ -120,7 +120,7 @@ func (f *fake) token(t *testing.T, mod func(map[string]any)) string {
 	return f.key.Sign(t, c)
 }
 
-func (f *fake) request(t *testing.T, token string, act map[string]any) (*http.Request, []byte) {
+func (f *fake) request(token string, act map[string]any) (*http.Request, []byte) {
 	if _, ok := act["serviceUrl"]; !ok {
 		act["serviceUrl"] = f.srv.URL + "/"
 	}
@@ -163,7 +163,7 @@ func channelMessage(text string, mention bool) map[string]any {
 func TestReceivePersonal(t *testing.T) {
 	f := newFake(t)
 	a := f.adapter()
-	r, body := f.request(t, f.token(t, nil), personal("hello &amp; welcome"))
+	r, body := f.request(f.token(t, nil), personal("hello &amp; welcome"))
 	rc, err := a.Receive(context.Background(), conn, r, body)
 	if err != nil || len(rc.Messages) != 1 {
 		t.Fatalf("%+v, %v", rc, err)
@@ -174,7 +174,7 @@ func TestReceivePersonal(t *testing.T) {
 		t.Errorf("message = %+v", m)
 	}
 	// The sender and the token are cached.
-	r, body = f.request(t, f.token(t, nil), personal("again"))
+	r, body = f.request(f.token(t, nil), personal("again"))
 	_, _ = a.Receive(context.Background(), conn, r, body)
 	if f.tokenCalls.Load() != 1 {
 		t.Errorf("token fetched %d times", f.tokenCalls.Load())
@@ -184,7 +184,7 @@ func TestReceivePersonal(t *testing.T) {
 func TestReceiveChannel(t *testing.T) {
 	f := newFake(t)
 	a := f.adapter()
-	r, body := f.request(t, f.token(t, nil), channelMessage("<at>Keera</at> ask <at>Bob</at> about it\n", true))
+	r, body := f.request(f.token(t, nil), channelMessage("<at>Keera</at> ask <at>Bob</at> about it\n", true))
 	rc, err := a.Receive(context.Background(), conn, r, body)
 	if err != nil || len(rc.Messages) != 1 {
 		t.Fatalf("%+v, %v", rc, err)
@@ -196,7 +196,7 @@ func TestReceiveChannel(t *testing.T) {
 	}
 
 	// Without a mention of the bot, a channel message is not for it.
-	r, body = f.request(t, f.token(t, nil), channelMessage("just chatting", false))
+	r, body = f.request(f.token(t, nil), channelMessage("just chatting", false))
 	if rc, err := a.Receive(context.Background(), conn, r, body); err != nil || len(rc.Messages) != 0 {
 		t.Errorf("unmentioned: %+v, %v", rc, err)
 	}
@@ -205,7 +205,7 @@ func TestReceiveChannel(t *testing.T) {
 func TestReceiveIgnoresOtherActivities(t *testing.T) {
 	f := newFake(t)
 	a := f.adapter()
-	r, body := f.request(t, f.token(t, nil), map[string]any{"type": "conversationUpdate", "membersAdded": []any{}})
+	r, body := f.request(f.token(t, nil), map[string]any{"type": "conversationUpdate", "membersAdded": []any{}})
 	rc, err := a.Receive(context.Background(), conn, r, body)
 	if err != nil || len(rc.Messages) != 0 || rc.Response.Status != 0 {
 		t.Errorf("%+v, %v", rc, err)
@@ -217,43 +217,43 @@ func TestReceiveRejects(t *testing.T) {
 	a := f.adapter()
 	other := jwttest.NewKey(t, "bf1")
 	cases := map[string]func() (*http.Request, []byte){
-		"no token": func() (*http.Request, []byte) { return f.request(t, "", personal("x")) },
+		"no token": func() (*http.Request, []byte) { return f.request("", personal("x")) },
 		"other audience": func() (*http.Request, []byte) {
-			return f.request(t, f.token(t, func(c map[string]any) { c["aud"] = "another-app" }), personal("x"))
+			return f.request(f.token(t, func(c map[string]any) { c["aud"] = "another-app" }), personal("x"))
 		},
 		"other issuer": func() (*http.Request, []byte) {
-			return f.request(t, f.token(t, func(c map[string]any) { c["iss"] = "https://sts.windows.net/x/" }), personal("x"))
+			return f.request(f.token(t, func(c map[string]any) { c["iss"] = "https://sts.windows.net/x/" }), personal("x"))
 		},
 		"expired": func() (*http.Request, []byte) {
-			return f.request(t, f.token(t, func(c map[string]any) { c["exp"] = time.Now().Add(-10 * time.Minute).Unix() }), personal("x"))
+			return f.request(f.token(t, func(c map[string]any) { c["exp"] = time.Now().Add(-10 * time.Minute).Unix() }), personal("x"))
 		},
 		"forged": func() (*http.Request, []byte) {
-			return f.request(t, other.Sign(t, map[string]any{"iss": issuer, "aud": appID, "exp": time.Now().Add(time.Hour).Unix()}), personal("x"))
+			return f.request(other.Sign(t, map[string]any{"iss": issuer, "aud": appID, "exp": time.Now().Add(time.Hour).Unix()}), personal("x"))
 		},
 		"service URL mismatch": func() (*http.Request, []byte) {
 			act := personal("x")
 			act["serviceUrl"] = "https://smba.trafficmanager.net/emea/"
-			return f.request(t, f.token(t, nil), act)
+			return f.request(f.token(t, nil), act)
 		},
 		"other tenant": func() (*http.Request, []byte) {
 			act := personal("x")
 			act["conversation"].(map[string]any)["tenantId"] = "attacker"
-			return f.request(t, f.token(t, nil), act)
+			return f.request(f.token(t, nil), act)
 		},
 		"tenants disagree": func() (*http.Request, []byte) {
 			act := channelMessage("<at>Keera</at> x", true)
 			act["conversation"].(map[string]any)["tenantId"] = "attacker"
-			return f.request(t, f.token(t, nil), act)
+			return f.request(f.token(t, nil), act)
 		},
 		"no tenant": func() (*http.Request, []byte) {
 			act := personal("x")
 			delete(act["conversation"].(map[string]any), "tenantId")
-			return f.request(t, f.token(t, nil), act)
+			return f.request(f.token(t, nil), act)
 		},
 		"service URL not Microsoft": func() (*http.Request, []byte) {
 			act := personal("x")
 			act["serviceUrl"] = "https://evil.example/"
-			return f.request(t, f.token(t, func(c map[string]any) { delete(c, "serviceurl") }), act)
+			return f.request(f.token(t, func(c map[string]any) { delete(c, "serviceurl") }), act)
 		},
 	}
 	for name, mk := range cases {
@@ -271,13 +271,13 @@ func TestReceiveMultiTenant(t *testing.T) {
 		ID: conn.ID, Kind: conn.Kind, Secrets: conn.Secrets,
 		Config: map[string]string{"app_id": appID, "allowed_tenants": "tenant-0, TENANT-1"},
 	}
-	r, body := f.request(t, f.token(t, nil), personal("hello"))
+	r, body := f.request(f.token(t, nil), personal("hello"))
 	if rc, err := a.Receive(context.Background(), multi, r, body); err != nil || len(rc.Messages) != 1 {
 		t.Errorf("allowed tenant: %+v, %v", rc, err)
 	}
 	// With no tenants named, nobody's word for who they are is trusted.
 	delete(multi.Config, "allowed_tenants")
-	r, body = f.request(t, f.token(t, nil), personal("hello"))
+	r, body = f.request(f.token(t, nil), personal("hello"))
 	if _, err := a.Receive(context.Background(), multi, r, body); !errors.Is(err, channels.ErrUnverified) {
 		t.Errorf("no tenants: err = %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -409,10 +410,7 @@ func (a *Adapter) updateIssue(ctx context.Context, s atlassian.Site, target stri
 		if err := a.call(ctx, s, http.MethodPut, "/issue/"+key, map[string]any{"fields": fields}, nil); err != nil {
 			return nil, err
 		}
-		for k := range fields {
-			changed = append(changed, k)
-		}
-		slices.Sort(changed)
+		changed = slices.Sorted(maps.Keys(fields))
 	}
 	if in.Assignee != nil {
 		// The assign call needs only Assign issues, not Edit issues, and

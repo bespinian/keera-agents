@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
 	"slices"
@@ -148,16 +149,6 @@ func span(c client, start, end string) (time.Time, time.Time, error) {
 	return from, to, err
 }
 
-// sortedKeys keeps the parameters numbered the same on every call.
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return keys
-}
-
 const ec2Version = "2016-11-15"
 
 var validInstance = regexp.MustCompile(`^i-[0-9a-f]{8,17}$`)
@@ -214,7 +205,7 @@ func ec2Instances(ctx context.Context, c client, in instancesArgs) (any, error) 
 		// EC2 refuses MaxResults with instance ids, and below 5.
 		p.Set("MaxResults", strconv.Itoa(max(limit, 5)))
 	}
-	for i, name := range sortedKeys(in.Filters) {
+	for i, name := range slices.Sorted(maps.Keys(in.Filters)) {
 		n := "Filter." + strconv.Itoa(i+1)
 		p.Set(n+".Name", name)
 		for j, v := range in.Filters[name] {

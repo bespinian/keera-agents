@@ -11,9 +11,9 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
-// MaxRecipients is per field: an agent writing to more is more likely a
+// maxRecipients is per field: an agent writing to more is more likely a
 // mistake.
-const MaxRecipients = 50
+const maxRecipients = 50
 
 var blankLines = regexp.MustCompile(`\n[ \t]*(\n[ \t]*){2,}`)
 
@@ -27,8 +27,8 @@ func Body(s string, n int) string {
 // Addresses checks the addresses the model gives in one field, such as
 // "to". Each may name the person too, such as "Ada <ada@example.com>".
 func Addresses(field string, list []string) ([]*mail.Address, error) {
-	if len(list) > MaxRecipients {
-		return nil, fmt.Errorf("%s has more than %d addresses", field, MaxRecipients)
+	if len(list) > maxRecipients {
+		return nil, fmt.Errorf("%s has more than %d addresses", field, maxRecipients)
 	}
 	out := make([]*mail.Address, 0, len(list))
 	for _, s := range list {

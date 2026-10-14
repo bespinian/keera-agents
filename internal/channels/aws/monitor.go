@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"net/url"
 	"regexp"
@@ -131,7 +132,7 @@ func metrics(ctx context.Context, c client, in metricsArgs) (any, error) {
 		"Period":              {strconv.Itoa(period)},
 		"Statistics.member.1": {stat},
 	}
-	for i, name := range sortedKeys(in.Dimensions) {
+	for i, name := range slices.Sorted(maps.Keys(in.Dimensions)) {
 		n := "Dimensions.member." + strconv.Itoa(i+1)
 		p.Set(n+".Name", name)
 		p.Set(n+".Value", in.Dimensions[name])

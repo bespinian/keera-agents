@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -52,7 +53,7 @@ func Fields(product string) []channels.Field {
 type Site struct {
 	// Base is the site's address as entered, without a trailing slash.
 	Base  string
-	Email string
+	email string
 	token string
 	// API is where a person's calls go, through Atlassian's gateway. It is
 	// empty for a shared account, which calls the site itself.
@@ -62,7 +63,7 @@ type Site struct {
 // Cloud is a site on Atlassian Cloud. Only Cloud pairs an email with its
 // API token, or signs people in; Data Center takes a personal access token
 // alone.
-func (s Site) Cloud() bool { return s.Email != "" || s.API != "" }
+func (s Site) Cloud() bool { return s.email != "" || s.API != "" }
 
 // APIBase is where the REST API is called.
 func (s Site) APIBase() string {
@@ -72,26 +73,28 @@ func (s Site) APIBase() string {
 	return s.Base
 }
 
-// open reads a shared connection's site and credentials. A connection
-// people sign in to also needs the site's cloud id, which Client.Open finds.
+// open reads a connection's site and credentials. A connection people sign
+// in to also needs the site's cloud id, which Client.Open finds.
 func open(conn channels.Connection) (Site, error) {
-	s := Site{Email: web.Value(conn, "email"), token: web.Value(conn, "api_token")}
+	base, ok := web.BaseURL(web.Value(conn, "base_url"))
+	if !ok || base == "" {
+		return Site{}, errors.New("the site URL must be https://, such as https://acme.atlassian.net")
+	}
+	if conn.PerUser {
+		return Site{Base: base, token: conn.Token}, oauth.NeedToken(conn)
+	}
+	s := Site{Base: base, email: web.Value(conn, "email"), token: web.Value(conn, "api_token")}
 	if s.token == "" {
 		return s, errors.New("the API token is missing")
 	}
-	base, ok := web.BaseURL(web.Value(conn, "base_url"))
-	if !ok || base == "" {
-		return s, errors.New("the site URL must be https://, such as https://acme.atlassian.net")
-	}
-	s.Base = base
 	return s, nil
 }
 
 // Client calls one Atlassian product.
 type Client struct {
 	hc *http.Client
-	// Service names the product in errors, such as "Jira".
-	Service   string
+	// service names the product in errors, such as "Jira".
+	service   string
 	auth, api string
 	// clouds are sites' cloud ids, which never change.
 	clouds *web.Cache[string]
@@ -101,7 +104,7 @@ type Client struct {
 // redirects are followed only on it.
 func New(opts channels.Options, service string) *Client {
 	return &Client{
-		hc: web.SameServerClient(opts), Service: service,
+		hc: web.SameServerClient(opts), service: service,
 		auth:   web.Endpoint(opts, "auth", "https://auth.atlassian.com"),
 		api:    web.Endpoint(opts, "api", "https://api.atlassian.com"),
 		clouds: web.NewCache[string](24*time.Hour, 1000),
@@ -111,26 +114,18 @@ func New(opts channels.Options, service string) *Client {
 // Open reads a connection's site and credentials, and for a connection
 // people sign in to, where the person's calls go.
 func (c *Client) Open(ctx context.Context, conn channels.Connection) (Site, error) {
-	if !conn.PerUser {
-		return open(conn)
+	s, err := open(conn)
+	if err != nil || !conn.PerUser {
+		return s, err
 	}
-	if err := oauth.NeedToken(conn); err != nil {
-		return Site{}, err
-	}
-	base, ok := web.BaseURL(web.Value(conn, "base_url"))
-	if !ok || base == "" {
-		return Site{}, errors.New("the site URL must be https://, such as https://acme.atlassian.net")
-	}
-	s := Site{Base: base, token: conn.Token}
-	id, ok := c.clouds.Get(base, time.Now())
+	id, ok := c.clouds.Get(s.Base, time.Now())
 	if !ok {
-		var err error
 		if id, err = c.cloudID(ctx, s); err != nil {
 			return Site{}, err
 		}
-		c.clouds.Put(base, id, time.Now())
+		c.clouds.Put(s.Base, id, time.Now())
 	}
-	s.API = c.api + "/ex/" + strings.ToLower(c.Service) + "/" + url.PathEscape(id)
+	s.API = c.api + "/ex/" + strings.ToLower(c.service) + "/" + url.PathEscape(id)
 	return s, nil
 }
 
@@ -168,7 +163,7 @@ func (c *Client) Accounts(scopes ...string) oauth.Accounts {
 			},
 			Setup: "1. In the Atlassian developer console, at https://developer.atlassian.com/console/myapps/, " +
 				"create an **OAuth 2.0 integration**.\n" +
-				"2. Under Permissions, add the " + c.Service + " API with the scopes " + strings.Join(scopes, ", ") +
+				"2. Under Permissions, add the " + c.service + " API with the scopes " + strings.Join(scopes, ", ") +
 				", and the User identity API with read:me.\n" +
 				"3. Under Authorization, set the callback URL to {callback}.\n" +
 				"4. Under Distribution, set it to **Sharing**, so people other than you can sign in.\n" +
@@ -205,16 +200,16 @@ func (c *Client) Call(ctx context.Context, s Site, method, u string, in, out any
 	if err != nil {
 		return err
 	}
-	if s.Email != "" && s.API == "" {
-		req.SetBasicAuth(s.Email, s.token)
+	if s.email != "" && s.API == "" {
+		req.SetBasicAuth(s.email, s.token)
 	} else {
 		req.Header.Set("Authorization", "Bearer "+s.token)
 	}
 	req.Header.Set("Accept", "application/json")
-	err = web.DoJSON(c.hc, req, c.Service, 16<<20, c.fail, out)
+	err = web.DoJSON(c.hc, req, c.service, 16<<20, c.fail, out)
 	if _, ok := errors.AsType[*json.SyntaxError](err); ok {
 		// Usually a sign-in page or another server's HTML.
-		return fmt.Errorf("%s answered with something other than JSON; check the site URL", c.Service)
+		return fmt.Errorf("%s answered with something other than JSON; check the site URL", c.service)
 	}
 	return err
 }
@@ -229,18 +224,13 @@ func (c *Client) fail(status int, b []byte) error {
 	}
 	_ = json.Unmarshal(b, &e)
 	msgs := e.ErrorMessages
-	fields := make([]string, 0, len(e.Errors))
-	for k := range e.Errors {
-		fields = append(fields, k)
-	}
-	slices.Sort(fields)
-	for _, k := range fields {
+	for _, k := range slices.Sorted(maps.Keys(e.Errors)) {
 		msgs = append(msgs, k+": "+e.Errors[k])
 	}
 	if e.Message != "" {
 		msgs = append(msgs, e.Message)
 	}
-	return &web.APIError{Service: c.Service, Status: status, Message: strings.Join(msgs, "; ")}
+	return &web.APIError{Service: c.service, Status: status, Message: strings.Join(msgs, "; ")}
 }
 
 // CheckError explains why a site refused the "who am I" call made when a
@@ -249,13 +239,13 @@ func (c *Client) CheckError(s Site, err error) error {
 	switch web.Status(err) {
 	case http.StatusUnauthorized:
 		if s.Cloud() {
-			return fmt.Errorf("%s does not accept the email and API token; check both, and that the token has not expired (%w)", c.Service, err)
+			return fmt.Errorf("%s does not accept the email and API token; check both, and that the token has not expired (%w)", c.service, err)
 		}
-		return fmt.Errorf("%s does not accept the personal access token; check it has not expired, or enter the email if this is Atlassian Cloud (%w)", c.Service, err)
+		return fmt.Errorf("%s does not accept the personal access token; check it has not expired, or enter the email if this is Atlassian Cloud (%w)", c.service, err)
 	case http.StatusForbidden:
-		return fmt.Errorf("%s refused the account; check it may use %s, and sign in once in a browser in case it must solve a CAPTCHA (%w)", c.Service, c.Service, err)
+		return fmt.Errorf("%s refused the account; check it may use %s, and sign in once in a browser in case it must solve a CAPTCHA (%w)", c.service, c.service, err)
 	case http.StatusNotFound:
-		return fmt.Errorf("found no %s at %s; check the site URL (%w)", c.Service, s.Base, err)
+		return fmt.Errorf("found no %s at %s; check the site URL (%w)", c.service, s.Base, err)
 	}
 	return err
 }
