@@ -34,8 +34,7 @@ const (
 )
 
 type Adapter struct {
-	files  workspace.Files
-	sheets string
+	files workspace.Files
 	apitool.Set
 	workspace.Accounts
 }
@@ -50,8 +49,8 @@ func New(opts channels.Options) *Adapter {
 		files: workspace.Files{
 			Client:   workspace.NewClient(opts, scope, workspace.DriveMetadata, workspace.DriveFile),
 			MimeType: mimeType, Noun: "spreadsheet", Arg: "spreadsheet_id",
+			API: web.Endpoint(opts, "sheets", "https://sheets.googleapis.com") + "/v4/spreadsheets",
 		},
-		sheets: web.Endpoint(opts, "sheets", "https://sheets.googleapis.com"),
 	}
 	a.Set = apitool.Set{
 		a.files.FindTool(),
@@ -151,18 +150,14 @@ func (a *Adapter) open(conn channels.Connection, target string, args json.RawMes
 	if err != nil {
 		return in, workspace.Settings{}, "", err
 	}
-	s, err := workspace.SettingsOf(conn)
-	if err != nil {
-		return in, s, "", err
-	}
-	id, err := a.files.Pick(target, in.SpreadsheetID)
+	s, id, err := a.files.Open(conn, target, in.SpreadsheetID)
 	return in, s, id, err
 }
 
 // valuesURL is the values of rng. The range is a path segment, so every
 // character with a meaning there is escaped, colons too.
 func (a *Adapter) valuesURL(id, rng, suffix string, q url.Values) string {
-	return a.sheets + "/v4/spreadsheets/" + id + "/values/" +
+	return a.files.API + "/" + id + "/values/" +
 		strings.ReplaceAll(url.PathEscape(rng), ":", "%3A") + suffix + "?" + q.Encode()
 }
 
@@ -194,7 +189,7 @@ func (a *Adapter) get(ctx context.Context, conn channels.Connection, target stri
 		} `json:"sheets"`
 	}
 	q := url.Values{"fields": {"spreadsheetId,spreadsheetUrl,properties.title,sheets.properties(title,gridProperties)"}}
-	if err := a.files.Do(ctx, s, http.MethodGet, a.sheets+"/v4/spreadsheets/"+id+"?"+q.Encode(), nil, &r); err != nil {
+	if err := a.files.Do(ctx, s, http.MethodGet, a.files.API+"/"+id+"?"+q.Encode(), nil, &r); err != nil {
 		return nil, fmt.Errorf("reading the spreadsheet: %w", err)
 	}
 	tabs := []tabView{}

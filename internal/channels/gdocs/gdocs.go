@@ -32,7 +32,6 @@ const (
 
 type Adapter struct {
 	files workspace.Files
-	docs  string
 	apitool.Set
 	workspace.Accounts
 }
@@ -42,8 +41,8 @@ func New(opts channels.Options) *Adapter {
 		files: workspace.Files{
 			Client:   workspace.NewClient(opts, scope, workspace.DriveMetadata, workspace.DriveFile),
 			MimeType: mimeType, Noun: "document", Arg: "document_id",
+			API: web.Endpoint(opts, "docs", "https://docs.googleapis.com") + "/v1/documents",
 		},
-		docs: web.Endpoint(opts, "docs", "https://docs.googleapis.com"),
 	}
 	a.Set = apitool.Set{
 		a.files.FindTool(),
@@ -127,31 +126,6 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	return a.files.Target(ctx, conn, target)
 }
 
-// open reads a tool's settings and the document it names.
-func (a *Adapter) open(conn channels.Connection, target, id string) (workspace.Settings, string, error) {
-	s, err := workspace.SettingsOf(conn)
-	if err != nil {
-		return s, "", err
-	}
-	id, err = a.files.Pick(target, id)
-	return s, id, err
-}
-
-func (a *Adapter) batchUpdate(ctx context.Context, s workspace.Settings, id string, requests ...any) (batchReply, error) {
-	var r batchReply
-	err := a.files.Do(ctx, s, http.MethodPost, a.docs+"/v1/documents/"+id+":batchUpdate",
-		map[string]any{"requests": requests}, &r)
-	return r, err
-}
-
-type batchReply struct {
-	Replies []struct {
-		ReplaceAllText struct {
-			OccurrencesChanged int `json:"occurrencesChanged"`
-		} `json:"replaceAllText"`
-	} `json:"replies"`
-}
-
 type docView struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -167,12 +141,12 @@ func (a *Adapter) read(ctx context.Context, conn channels.Connection, target str
 	if err != nil {
 		return nil, err
 	}
-	s, id, err := a.open(conn, target, in.DocumentID)
+	s, id, err := a.files.Open(conn, target, in.DocumentID)
 	if err != nil {
 		return nil, err
 	}
 	var d document
-	if err := a.files.Do(ctx, s, http.MethodGet, a.docs+"/v1/documents/"+id+"?includeTabsContent=true", nil, &d); err != nil {
+	if err := a.files.Do(ctx, s, http.MethodGet, a.files.API+"/"+id+"?includeTabsContent=true", nil, &d); err != nil {
 		return nil, fmt.Errorf("reading the document: %w", err)
 	}
 	full := d.text()
@@ -195,13 +169,13 @@ func (a *Adapter) append(ctx context.Context, conn channels.Connection, target s
 	if err := apitool.Need("text", in.Text); err != nil {
 		return nil, err
 	}
-	s, id, err := a.open(conn, target, in.DocumentID)
+	s, id, err := a.files.Open(conn, target, in.DocumentID)
 	if err != nil {
 		return nil, err
 	}
 	// The end of the body is inside its last paragraph, so a newline first
 	// starts a new one.
-	_, err = a.batchUpdate(ctx, s, id, map[string]any{"insertText": map[string]any{
+	_, err = a.files.BatchUpdate(ctx, s, id, map[string]any{"insertText": map[string]any{
 		"text": "\n" + strings.TrimRight(in.Text, "\n"), "endOfSegmentLocation": map[string]any{},
 	}})
 	if err != nil {
@@ -223,11 +197,11 @@ func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, tar
 	if in.Find == "" {
 		return nil, apitool.Need("find", in.Find)
 	}
-	s, id, err := a.open(conn, target, in.DocumentID)
+	s, id, err := a.files.Open(conn, target, in.DocumentID)
 	if err != nil {
 		return nil, err
 	}
-	r, err := a.batchUpdate(ctx, s, id, map[string]any{"replaceAllText": map[string]any{
+	r, err := a.files.BatchUpdate(ctx, s, id, map[string]any{"replaceAllText": map[string]any{
 		"containsText": map[string]any{"text": in.Find, "matchCase": in.MatchCase == nil || *in.MatchCase},
 		"replaceText":  in.Replace,
 	}})
@@ -259,7 +233,7 @@ func (a *Adapter) create(ctx context.Context, conn channels.Connection, target s
 		return nil, err
 	}
 	if in.Text != "" {
-		_, err := a.batchUpdate(ctx, s, f.ID, map[string]any{"insertText": map[string]any{
+		_, err := a.files.BatchUpdate(ctx, s, f.ID, map[string]any{"insertText": map[string]any{
 			"text": in.Text, "location": map[string]any{"index": 1},
 		}})
 		if err != nil {

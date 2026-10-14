@@ -37,8 +37,7 @@ const (
 var validObjectID = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_:-]{0,49}$`)
 
 type Adapter struct {
-	files  workspace.Files
-	slides string
+	files workspace.Files
 	apitool.Set
 	workspace.Accounts
 }
@@ -50,8 +49,8 @@ func New(opts channels.Options) *Adapter {
 		files: workspace.Files{
 			Client:   workspace.NewClient(opts, scope, workspace.DriveMetadata, workspace.DriveFile),
 			MimeType: mimeType, Noun: "presentation", Arg: "presentation_id",
+			API: web.Endpoint(opts, "slides", "https://slides.googleapis.com") + "/v1/presentations",
 		},
-		slides: web.Endpoint(opts, "slides", "https://slides.googleapis.com"),
 	}
 	a.Set = apitool.Set{
 		a.files.FindTool(),
@@ -117,31 +116,6 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 
 func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target string) (string, error) {
 	return a.files.Target(ctx, conn, target)
-}
-
-// open reads a tool's settings and the presentation it names.
-func (a *Adapter) open(conn channels.Connection, target, id string) (workspace.Settings, string, error) {
-	s, err := workspace.SettingsOf(conn)
-	if err != nil {
-		return s, "", err
-	}
-	id, err = a.files.Pick(target, id)
-	return s, id, err
-}
-
-func (a *Adapter) batchUpdate(ctx context.Context, s workspace.Settings, id string, requests ...any) (batchReply, error) {
-	var r batchReply
-	err := a.files.Do(ctx, s, http.MethodPost, a.slides+"/v1/presentations/"+id+":batchUpdate",
-		map[string]any{"requests": requests}, &r)
-	return r, err
-}
-
-type batchReply struct {
-	Replies []struct {
-		ReplaceAllText struct {
-			OccurrencesChanged int `json:"occurrencesChanged"`
-		} `json:"replaceAllText"`
-	} `json:"replies"`
 }
 
 type presentation struct {
@@ -264,12 +238,12 @@ func (a *Adapter) read(ctx context.Context, conn channels.Connection, target str
 	if err != nil {
 		return nil, err
 	}
-	s, id, err := a.open(conn, target, in.PresentationID)
+	s, id, err := a.files.Open(conn, target, in.PresentationID)
 	if err != nil {
 		return nil, err
 	}
 	var p presentation
-	if err := a.files.Do(ctx, s, http.MethodGet, a.slides+"/v1/presentations/"+id, nil, &p); err != nil {
+	if err := a.files.Do(ctx, s, http.MethodGet, a.files.API+"/"+id, nil, &p); err != nil {
 		return nil, fmt.Errorf("reading the presentation: %w", err)
 	}
 	slides, size := []slideView{}, 0
@@ -314,7 +288,7 @@ func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, tar
 			return nil, fmt.Errorf("%q is not a slide id; read the presentation for them", web.Short(p, 60))
 		}
 	}
-	s, id, err := a.open(conn, target, in.PresentationID)
+	s, id, err := a.files.Open(conn, target, in.PresentationID)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +299,7 @@ func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, tar
 	if len(in.SlideIDs) > 0 {
 		req["pageObjectIds"] = in.SlideIDs
 	}
-	r, err := a.batchUpdate(ctx, s, id, map[string]any{"replaceAllText": req})
+	r, err := a.files.BatchUpdate(ctx, s, id, map[string]any{"replaceAllText": req})
 	if err != nil {
 		return nil, fmt.Errorf("replacing the text: %w", err)
 	}
@@ -346,7 +320,7 @@ func (a *Adapter) addSlide(ctx context.Context, conn channels.Connection, target
 	if err != nil {
 		return nil, err
 	}
-	s, id, err := a.open(conn, target, in.PresentationID)
+	s, id, err := a.files.Open(conn, target, in.PresentationID)
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +344,7 @@ func (a *Adapter) addSlide(ctx context.Context, conn channels.Connection, target
 			requests = append(requests, map[string]any{"insertText": map[string]any{"objectId": f[0], "text": t, "insertionIndex": 0}})
 		}
 	}
-	if _, err := a.batchUpdate(ctx, s, id, requests...); err != nil {
+	if _, err := a.files.BatchUpdate(ctx, s, id, requests...); err != nil {
 		return nil, fmt.Errorf("adding the slide: %w", err)
 	}
 	return map[string]any{"id": id, "slide_id": slide, "url": slidesURL(id) + "#slide=id." + slide}, nil

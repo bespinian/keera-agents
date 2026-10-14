@@ -163,9 +163,9 @@ const fileFields = "id,name,mimeType,modifiedTime,webViewLink,trashed"
 // validID is Drive's alphabet. Ids go into URLs and Drive queries.
 var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,200}$`)
 
-// ID reads a file's id, or a URL to it as people paste it, such as
+// parseID reads a file's id, or a URL to it as people paste it, such as
 // https://docs.google.com/document/d/<id>/edit, or a folder's.
-func ID(s string) (string, error) {
+func parseID(s string) (string, error) {
 	id := strings.TrimSpace(s)
 	if strings.Contains(id, "://") {
 		if u, err := url.Parse(id); err == nil {
@@ -191,6 +191,35 @@ type Files struct {
 	// MimeType is the kind's Drive type. Noun names one file, such as
 	// "document", and Arg is the tool argument that holds its id.
 	MimeType, Noun, Arg string
+	// API is where the kind's own API serves its files, such as
+	// https://docs.googleapis.com/v1/documents.
+	API string
+}
+
+// Open reads a tool's settings and the file it works on, as pick chooses.
+func (f Files) Open(conn channels.Connection, target, id string) (Settings, string, error) {
+	s, err := SettingsOf(conn)
+	if err != nil {
+		return s, "", err
+	}
+	id, err = f.pick(target, id)
+	return s, id, err
+}
+
+// BatchReply is what tools read of a Docs or Slides batchUpdate's answer.
+type BatchReply struct {
+	Replies []struct {
+		ReplaceAllText struct {
+			OccurrencesChanged int `json:"occurrencesChanged"`
+		} `json:"replaceAllText"`
+	} `json:"replies"`
+}
+
+// BatchUpdate changes a Docs or Slides file with requests, in one go.
+func (f Files) BatchUpdate(ctx context.Context, s Settings, id string, requests ...any) (BatchReply, error) {
+	var r BatchReply
+	err := f.Do(ctx, s, http.MethodPost, f.API+"/"+id+":batchUpdate", map[string]any{"requests": requests}, &r)
+	return r, err
 }
 
 // Get reads a file's details and checks it is of the kind.
@@ -222,7 +251,7 @@ func (f Files) Target(ctx context.Context, conn channels.Connection, target stri
 	if err != nil {
 		return "", err
 	}
-	id, err := ID(target)
+	id, err := parseID(target)
 	if err != nil {
 		return "", err
 	}
@@ -232,16 +261,16 @@ func (f Files) Target(ctx context.Context, conn channels.Connection, target stri
 	return id, nil
 }
 
-// Pick returns the file a tool works on: id, which must be target unless
+// pick returns the file a tool works on: id, which must be target unless
 // that is AnyTarget. An empty id is target itself.
-func (f Files) Pick(target, id string) (string, error) {
+func (f Files) pick(target, id string) (string, error) {
 	if strings.TrimSpace(id) == "" {
 		if target == channels.AnyTarget {
 			return "", apitool.Need(f.Arg, id)
 		}
 		return target, nil
 	}
-	id, err := ID(id)
+	id, err := parseID(id)
 	if err != nil {
 		return "", err
 	}
@@ -251,9 +280,9 @@ func (f Files) Pick(target, id string) (string, error) {
 	return id, nil
 }
 
-// Find lists the files of the kind whose name contains name, newest first.
+// find lists the files of the kind whose name contains name, newest first.
 // With a target of one file, it is that file alone.
-func (f Files) Find(ctx context.Context, s Settings, target, name string, limit int) ([]File, error) {
+func (f Files) find(ctx context.Context, s Settings, target, name string, limit int) ([]File, error) {
 	if target != channels.AnyTarget {
 		file, err := f.Get(ctx, s, target)
 		if err != nil {
@@ -311,7 +340,7 @@ func (f Files) FindTool() apitool.Tool {
 			if err != nil {
 				return nil, err
 			}
-			files, err := f.Find(ctx, s, target, in.Name, apitool.Limit(in.Limit, 25, 100))
+			files, err := f.find(ctx, s, target, in.Name, apitool.Limit(in.Limit, 25, 100))
 			if err != nil {
 				return nil, fmt.Errorf("finding %s: %w", plural, err)
 			}
@@ -332,7 +361,7 @@ func (f Files) Create(ctx context.Context, s Settings, target, name, folder stri
 	}
 	meta := map[string]any{"name": strings.TrimSpace(name), "mimeType": f.MimeType}
 	if strings.TrimSpace(folder) != "" {
-		id, err := ID(folder)
+		id, err := parseID(folder)
 		if err != nil {
 			return File{}, err
 		}
