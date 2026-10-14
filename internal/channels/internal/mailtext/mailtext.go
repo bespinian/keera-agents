@@ -7,6 +7,8 @@ import (
 	"net/mail"
 	"regexp"
 	"strings"
+
+	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
 // MaxRecipients is per field: an agent writing to more is more likely a
@@ -15,15 +17,11 @@ const MaxRecipients = 50
 
 var blankLines = regexp.MustCompile(`\n[ \t]*(\n[ \t]*){2,}`)
 
-// Body keeps a body to n characters, and to no more than one blank line in
+// Body keeps a body to n bytes, and to no more than one blank line in
 // a row, as text converted from HTML often has.
 func Body(s string, n int) string {
 	s = strings.TrimSpace(blankLines.ReplaceAllString(strings.ReplaceAll(s, "\r\n", "\n"), "\n\n"))
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "\n[cut]"
+	return web.Cut(s, n, "\n[cut]")
 }
 
 // Addresses checks the addresses the model gives in one field, such as

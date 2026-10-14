@@ -115,12 +115,18 @@ func TestCallRetriesAThrottledRequest(t *testing.T) {
 	}
 }
 
-func TestShortAndFingerprint(t *testing.T) {
+func TestShortCutAndFingerprint(t *testing.T) {
 	if got := Short("  first line\nsecond", 50); got != "first line" {
 		t.Errorf("Short = %q", got)
 	}
 	if got := Short("abcdef", 3); got != "abc…" {
 		t.Errorf("Short = %q", got)
+	}
+	if got := Cut("héllo", 2, "…"); got != "h…" {
+		t.Errorf("Cut = %q", got)
+	}
+	if got := Cut("hi", 2, "…"); got != "hi" {
+		t.Errorf("Cut = %q", got)
 	}
 	if Fingerprint("a", "b") == Fingerprint("ab") {
 		t.Error("Fingerprint does not separate parts")

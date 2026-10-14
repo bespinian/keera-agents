@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	// maxBody bounds a message body read, in characters, so one long thread
+	// maxBody bounds a message body read, in bytes, so one long thread
 	// does not fill the model's context.
 	maxBody       = 20000
 	textBody      = `outlook.body-content-type="text"`

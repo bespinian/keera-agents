@@ -22,7 +22,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
@@ -358,11 +357,5 @@ func topLevel(q string) ([]bool, error) {
 	return top, nil
 }
 
-// Cut trims s to n characters, saying so, so a long text does not fill the
-// model's context.
-func Cut(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	return string([]rune(s)[:n]) + "\n[… cut; the rest is longer than this tool returns]"
-}
+// More ends a text cut with web.Cut, so the model knows there is more.
+const More = "\n[… cut; the rest is longer than this tool returns]"

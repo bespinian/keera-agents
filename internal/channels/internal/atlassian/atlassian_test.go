@@ -76,15 +76,6 @@ func TestFail(t *testing.T) {
 	}
 }
 
-func TestCut(t *testing.T) {
-	if Cut("short", 10) != "short" {
-		t.Fatal("short text was cut")
-	}
-	if got := Cut("ääääää", 3); !strings.HasPrefix(got, "äää\n[") {
-		t.Fatalf("Cut = %q", got)
-	}
-}
-
 // gateway fakes Atlassian's sign-in and API gateway for a person's token.
 func gateway(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	var lookups atomic.Int32

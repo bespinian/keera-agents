@@ -20,7 +20,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
@@ -223,7 +222,7 @@ func (r record) view() Record {
 		if v == nil || *v == "" || k == "hs_object_id" {
 			continue
 		}
-		out.Properties[k] = trim(*v)
+		out.Properties[k] = web.Cut(*v, maxValue, "…")
 	}
 	for kind, as := range r.Associations {
 		seen := map[string]bool{}
@@ -238,13 +237,6 @@ func (r record) view() Record {
 		}
 	}
 	return out
-}
-
-func trim(s string) string {
-	if utf8.RuneCountInString(s) <= maxValue {
-		return s
-	}
-	return string([]rune(s)[:maxValue]) + "…"
 }
 
 // typeOf checks an object type, which goes into URLs.

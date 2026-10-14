@@ -57,7 +57,7 @@ func alarms(ctx context.Context, c client, in alarmsArgs) (any, error) {
 	res := []alarm{}
 	for _, a := range out.Alarms {
 		res = append(res, alarm{
-			Name: a.Name, State: a.State, Reason: trim(a.Reason, 300),
+			Name: a.Name, State: a.State, Reason: web.Cut(a.Reason, 300, "…"),
 			Namespace: a.Namespace, Metric: a.Metric, Updated: a.Updated,
 		})
 	}
@@ -232,7 +232,7 @@ func logsSearch(ctx context.Context, c client, in logsArgs) (any, error) {
 		for _, e := range out.Events {
 			res.Events = append(res.Events, event{
 				At: time.UnixMilli(e.Timestamp).UTC(), Stream: e.Stream,
-				Message: trim(strings.TrimRight(e.Message, "\r\n"), maxMessage),
+				Message: web.Cut(strings.TrimRight(e.Message, "\r\n"), maxMessage, "…"),
 			})
 		}
 		next = out.Next

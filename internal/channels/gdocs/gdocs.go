@@ -175,8 +175,9 @@ func (a *Adapter) read(ctx context.Context, conn channels.Connection, target str
 	if err := a.files.Do(ctx, s, http.MethodGet, a.docs+"/v1/documents/"+id+"?includeTabsContent=true", nil, &d); err != nil {
 		return nil, fmt.Errorf("reading the document: %w", err)
 	}
-	text, cut := workspace.Trim(d.text(), maxText)
-	return docView{ID: d.DocumentID, Title: d.Title, URL: docURL(d.DocumentID), Text: text, Truncated: cut}, nil
+	full := d.text()
+	text := web.Cut(full, maxText, "")
+	return docView{ID: d.DocumentID, Title: d.Title, URL: docURL(d.DocumentID), Text: text, Truncated: len(text) < len(full)}, nil
 }
 
 func docURL(id string) string {

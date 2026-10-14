@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	// maxBody bounds a message body read, in characters, and maxThreadBody
+	// maxBody bounds a message body read, in bytes, and maxThreadBody
 	// each message of a thread, so one long thread does not fill the
 	// model's context.
 	maxBody       = 20000

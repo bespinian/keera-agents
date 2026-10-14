@@ -9,7 +9,7 @@ func TestBody(t *testing.T) {
 	if got := Body("a\r\n\r\n\r\n\r\nb ", 10); got != "a\n\nb" {
 		t.Errorf("Body = %q", got)
 	}
-	if got := Body("ééééé", 3); got != "ééé\n[cut]" {
+	if got := Body("ééééé", 7); got != "ééé\n[cut]" {
 		t.Errorf("Body = %q", got)
 	}
 }

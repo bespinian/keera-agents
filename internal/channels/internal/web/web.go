@@ -247,6 +247,19 @@ func Short(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// Cut trims s to at most n bytes, on a rune boundary, and adds end when it
+// did. It bounds a value a tool returns, so one long text does not fill the
+// model's context or the 64 KiB a tool may answer.
+func Cut(s string, n int, end string) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + end
+}
+
 // Cache keeps small lookups, such as a user's email, for a while, so a busy
 // conversation does not ask the service on every message.
 type Cache[V any] struct {

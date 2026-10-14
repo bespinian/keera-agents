@@ -26,7 +26,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -39,7 +38,7 @@ import (
 const (
 	// timeout bounds each statement, and connecting.
 	timeout = 30 * time.Second
-	// maxCell bounds one value in a result, in characters, so one large
+	// maxCell bounds one value in a result, in bytes, so one large
 	// JSON document does not fill the model's context.
 	maxCell = 2000
 )
@@ -302,7 +301,7 @@ func read(ctx context.Context, tx pgx.Tx, sql string, limit int, args []any) (Re
 		row := make([]any, len(res.Columns))
 		for i, v := range rows.RawValues() {
 			if v != nil {
-				row[i] = cell(string(v))
+				row[i] = web.Cut(string(v), maxCell, "…")
 			}
 		}
 		res.Rows = append(res.Rows, row)
@@ -315,12 +314,4 @@ func read(ctx context.Context, tx pgx.Tx, sql string, limit int, args []any) (Re
 	}
 	res.Command = rows.CommandTag().String()
 	return res, nil
-}
-
-// cell keeps one value within maxCell characters.
-func cell(s string) string {
-	if utf8.RuneCountInString(s) <= maxCell {
-		return s
-	}
-	return string([]rune(s)[:maxCell]) + "…[cut]"
 }

@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
@@ -206,7 +205,7 @@ func (a *Adapter) get(ctx context.Context, conn channels.Connection, target stri
 		return nil, err
 	}
 	if len(b) > maxObject {
-		return cut(string(b), maxObject) + fmt.Sprintf("\n… cut: the object is %d KiB", len(b)>>10), nil
+		return web.Cut(string(b), maxObject, fmt.Sprintf("\n… cut: the object is %d KiB", len(b)>>10)), nil
 	}
 	return json.RawMessage(b), nil
 }
@@ -334,7 +333,7 @@ func (a *Adapter) events(ctx context.Context, conn channels.Connection, target s
 		at := cmp.Or(e.LastTimestamp, e.EventTime, e.Metadata.CreationTimestamp)
 		out = append(out, event{
 			Time: at, Type: e.Type, Reason: e.Reason, Object: e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name,
-			Message: cut(e.Message, 500), Count: e.Count,
+			Message: web.Cut(e.Message, 500, "…"), Count: e.Count,
 		})
 	}
 	// RFC 3339 times in UTC sort as strings, and Kubernetes writes them so.
@@ -592,15 +591,4 @@ func age(ts string, now time.Time) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
-}
-
-// cut trims s to n bytes, on a rune boundary.
-func cut(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n] + "…"
 }

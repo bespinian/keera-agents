@@ -226,7 +226,7 @@ func (a *Adapter) getIssue(ctx context.Context, s atlassian.Site, target string,
 	out := Issue{
 		Key: i.Key, URL: browse(s, i.Key), Project: f.Project.Key, Summary: f.Summary, Status: f.Status.Name,
 		Type: f.IssueType.Name, Priority: i.priority(), Assignee: f.Assignee.person(), Reporter: f.Reporter.person(),
-		Labels: f.Labels, Created: f.Created, Updated: f.Updated, Description: atlassian.Cut(f.Description, maxDescription),
+		Labels: f.Labels, Created: f.Created, Updated: f.Updated, Description: web.Cut(f.Description, maxDescription, atlassian.More),
 	}
 	if f.Parent != nil {
 		out.Parent = f.Parent.Key
@@ -237,7 +237,7 @@ func (a *Adapter) getIssue(ctx context.Context, s atlassian.Site, target string,
 	}
 	out.EarlierComments = max(f.Comment.Total, len(f.Comment.Comments)) - len(cs)
 	for _, c := range cs {
-		out.Comments = append(out.Comments, Comment{Author: c.Author.name(), Body: atlassian.Cut(c.Body, maxComment), At: c.Created})
+		out.Comments = append(out.Comments, Comment{Author: c.Author.name(), Body: web.Cut(c.Body, maxComment, atlassian.More), At: c.Created})
 	}
 	return out, nil
 }

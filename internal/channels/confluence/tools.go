@@ -12,6 +12,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/atlassian"
+	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
 func (a *Adapter) toolSet() apitool.Set {
@@ -160,7 +161,7 @@ func (a *Adapter) search(ctx context.Context, s atlassian.Site, target string, i
 		h := Hit{
 			ID: r.Content.ID, Type: r.Content.Type, URL: base(s) + r.URL, Modified: r.LastModified,
 			Title:   highlight.Replace(r.Title),
-			Excerpt: atlassian.Cut(strings.Join(strings.Fields(html.UnescapeString(highlight.Replace(r.Excerpt))), " "), 500),
+			Excerpt: web.Cut(strings.Join(strings.Fields(html.UnescapeString(highlight.Replace(r.Excerpt))), " "), 500, "…"),
 		}
 		if r.Content.Space != nil {
 			h.Space = r.Content.Space.Key
@@ -198,7 +199,7 @@ func (a *Adapter) getPage(ctx context.Context, s atlassian.Site, target string, 
 	return Page{
 		ID: c.ID, Type: c.Type, Title: c.Title, Space: c.Space.Key, Version: c.Version.Number,
 		Updated: c.Version.When, UpdatedBy: c.Version.By.DisplayName, URL: base(s) + c.Links.WebUI,
-		Body: atlassian.Cut(plainText(c.Body.Storage.Value), maxBody),
+		Body: web.Cut(plainText(c.Body.Storage.Value), maxBody, atlassian.More),
 	}, nil
 }
 

@@ -43,12 +43,3 @@ func TestPick(t *testing.T) {
 		t.Errorf("AnyTarget = %q, %v", id, err)
 	}
 }
-
-func TestTrim(t *testing.T) {
-	if s, cut := Trim("héllo", 2); s != "h" || !cut {
-		t.Errorf("Trim = %q, %v", s, cut)
-	}
-	if s, cut := Trim("hi", 2); s != "hi" || cut {
-		t.Errorf("Trim = %q, %v", s, cut)
-	}
-}

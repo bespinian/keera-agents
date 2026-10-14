@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
@@ -317,7 +316,7 @@ func (a *Adapter) logs(ctx context.Context, conn channels.Connection, target str
 		text := cmp.Or(e.TextPayload, string(e.JSONPayload), string(e.ProtoPayload))
 		out = append(out, logEntry{
 			Time: e.Timestamp, Severity: e.Severity, Log: logName(e.LogName),
-			Resource: e.Resource.Type, Labels: e.Resource.Labels, Text: cut(strings.TrimSpace(text), maxPayload),
+			Resource: e.Resource.Type, Labels: e.Resource.Labels, Text: web.Cut(strings.TrimSpace(text), maxPayload, "…"),
 		})
 	}
 	return out, nil
@@ -662,15 +661,4 @@ func (a *Adapter) instanceAction(action string) func(context.Context, channels.C
 		done := map[string]string{"start": "starting", "stop": "stopping"}[action]
 		return operation{Instance: args.Name, Zone: args.Zone, Done: done, Operation: op.Name, Status: op.Status}, nil
 	}
-}
-
-// cut trims s to n bytes, on a rune boundary.
-func cut(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n] + "…"
 }

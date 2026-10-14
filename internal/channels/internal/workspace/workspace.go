@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
@@ -374,18 +373,6 @@ func (f Files) Create(ctx context.Context, s Settings, target, name, folder stri
 // quote escapes a string for a Drive query.
 func quote(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s)
-}
-
-// Trim cuts s to at most n bytes, at a rune boundary, and says whether it
-// did.
-func Trim(s string, n int) (string, bool) {
-	if len(s) <= n {
-		return s, false
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n], true
 }
 
 // Setup is the steps on Google's side for a kind that calls apis with

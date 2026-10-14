@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"maps"
-	"strings"
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/channels"
@@ -46,11 +45,5 @@ func TestConfig(t *testing.T) {
 	}
 	if _, err := a.config(conn(map[string]string{"host": "2001:db8::1"}), true); err != nil {
 		t.Errorf("an IPv6 address: %v", err)
-	}
-}
-
-func TestCell(t *testing.T) {
-	if got := cell(strings.Repeat("é", maxCell+5)); !strings.HasSuffix(got, "…[cut]") || len([]rune(got)) != maxCell+6 {
-		t.Errorf("cell = %d characters", len([]rune(got)))
 	}
 }

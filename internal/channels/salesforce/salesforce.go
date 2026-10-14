@@ -391,9 +391,7 @@ func clean(v any) any {
 		}
 		return v
 	case string:
-		if utf8.RuneCountInString(v) > maxValue {
-			return string([]rune(v)[:maxValue]) + "…"
-		}
+		return web.Cut(v, maxValue, "…")
 	}
 	return v
 }

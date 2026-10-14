@@ -148,13 +148,6 @@ func span(c client, start, end string) (time.Time, time.Time, error) {
 	return from, to, err
 }
 
-func trim(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return strings.ToValidUTF8(s[:n], "") + "…"
-}
-
 // sortedKeys keeps the parameters numbered the same on every call.
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))

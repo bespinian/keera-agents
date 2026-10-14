@@ -552,10 +552,7 @@ type attendeeView struct {
 
 // view trims the description to n bytes.
 func (e event) view(n int) eventView {
-	desc, cut := workspace.Trim(e.Description, n)
-	if cut {
-		desc += "…"
-	}
+	desc := web.Cut(e.Description, n, "…")
 	v := eventView{
 		ID: e.ID, Summary: e.Summary, Start: e.Start.String(), End: e.End.String(), AllDay: e.Start.Date != "",
 		Location: e.Location, Description: desc, Organizer: e.Organizer.Email,

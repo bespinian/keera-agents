@@ -355,7 +355,7 @@ Agents get these tools:
 - `confluence_search`: find pages and blog posts by text, or anything with
   CQL.
 - `confluence_get_page`: a page as plain text, with headings, lists, tables
-  and code kept, up to 50,000 characters.
+  and code kept, up to 50 KB.
 - `confluence_list_spaces`: the spaces the agent may use.
 - `confluence_create_page` (write): a new page, optionally under another.
 - `confluence_update_page` (write): replace a page's title, body or both.
@@ -384,7 +384,7 @@ Settings: `service_account_json`, `subject` (optional).
 
 Agents get `gdocs_find` (documents by a part of their name), `gdocs_read` (a
 document as text: headings as `#`, lists, and tables as `| a | b |` rows, up to
-50,000 characters), and, to write, `gdocs_append` (paragraphs at the end),
+50 KB), and, to write, `gdocs_append` (paragraphs at the end),
 `gdocs_replace_text` (every occurrence; it says how many changed) and
 `gdocs_create`.
 
@@ -628,7 +628,7 @@ statement, which may run for 30 seconds. PostgreSQL's extended protocol takes
 one statement only, so a query cannot end its transaction and go on. TLS is
 required and the certificate checked, unless `sslmode` is `disable`. Rows
 come back as text, as `psql` shows them, with each value cut at 2,000
-characters.
+bytes.
 
 Agents get these tools:
 
