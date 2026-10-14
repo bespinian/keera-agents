@@ -55,3 +55,25 @@ func TestError(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestDoJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	a := NewAuth(channels.Options{HTTP: srv.Client()})
+	var v struct{}
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, nil)
+	if err := a.DoJSON(req, App{Token: "t"}, "Azure", 1<<10, &v); err != nil {
+		t.Errorf("no body: %v", err)
+	}
+}
+
+func TestQuery(t *testing.T) {
+	if got := Query(map[string]string{"$top": "5", "$filter": "a eq 'b'"}); got != "?$filter=a%20eq%20%27b%27&$top=5" {
+		t.Errorf("Query = %q", got)
+	}
+	if Query(nil) != "" {
+		t.Error("no options gave a query")
+	}
+}

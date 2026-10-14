@@ -25,6 +25,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
+	"github.com/bespinian/keera-agents/internal/channels/internal/google"
 	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 	"github.com/bespinian/keera-agents/internal/channels/internal/workspace"
@@ -97,11 +98,9 @@ func mailbox(conn channels.Connection, target string) (workspace.Settings, error
 	if addr, err := mail.ParseAddress(box); err != nil || addr.Address != box || addr.Name != "" {
 		return workspace.Settings{}, fmt.Errorf("%q is not a mailbox's address", web.Short(target, 80))
 	}
-	key := web.Value(conn, "service_account_json")
-	if key == "" {
-		return workspace.Settings{}, errors.New("the service account key is missing")
-	}
-	return workspace.Settings{Key: key, Subject: box}, nil
+	s, err := workspace.SettingsOf(conn)
+	s.Subject = box
+	return s, err
 }
 
 // call makes one request under the mailbox, at path with query q.
@@ -131,7 +130,7 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	// Google refuses to sign in as a mailbox the service account may not
 	// act as.
 	if _, ok := errors.AsType[*oauth.Error](err); ok && s.Subject != "" {
-		return "", fmt.Errorf("%w; check that the service account has domain-wide delegation for %s", err, scope)
+		return "", google.Delegation(err, scope)
 	}
 	switch web.Status(err) {
 	case 0:

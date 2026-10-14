@@ -142,10 +142,10 @@ func (a *Adapter) open(conn channels.Connection) (cluster, error) {
 	if conn.PerUser {
 		token = conn.Token
 	}
-	switch {
-	case conn.PerUser && token == "":
-		return cluster{}, oauth.ErrNoToken
-	case token == "":
+	if err := oauth.NeedToken(conn); err != nil {
+		return cluster{}, err
+	}
+	if token == "" {
 		return cluster{}, errors.New("the service account token is missing")
 	}
 	hc, err := a.client(web.Value(conn, "ca_cert"))

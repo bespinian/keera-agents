@@ -170,8 +170,8 @@ func (a *Adapter) sessionFor(ctx context.Context, conn channels.Connection, o or
 	if !conn.PerUser {
 		return a.session(ctx, o)
 	}
-	if conn.Token == "" {
-		return session{}, oauth.ErrNoToken
+	if err := oauth.NeedToken(conn); err != nil {
+		return session{}, err
 	}
 	return session{token: conn.Token, instance: o.domain}, nil
 }

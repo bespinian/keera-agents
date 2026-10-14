@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -89,16 +90,29 @@ func (a *Auth) token(ctx context.Context, keyJSON, scope, subject string) (strin
 	return tok, nil
 }
 
-// Check gets a new token, bypassing the cache, to prove the key works.
-func (a *Auth) Check(ctx context.Context, keyJSON, scope, subject string) error {
-	sa, err := oauth.ParseServiceAccount(keyJSON)
+// Check gets a new token for c's key, bypassing the cache, to prove the key
+// works. When c acts as a user, a refusal asks to check the domain-wide
+// delegation for scope.
+func (a *Auth) Check(ctx context.Context, c Creds, scope string) error {
+	sa, err := oauth.ParseServiceAccount(c.Key)
 	if err != nil {
 		return err
 	}
-	if _, err := a.fetch(ctx, sa, scope, subject); err != nil {
-		return oauth.Describe("Google", err)
+	if _, err := a.fetch(ctx, sa, scope, c.Subject); err != nil {
+		err = oauth.Describe("Google", err)
+		if c.Subject != "" {
+			return Delegation(err, scope)
+		}
+		return err
 	}
 	return nil
+}
+
+// Delegation adds to err, Google refusing to act as a user, the hint to
+// check the service account may act as one for scope.
+func Delegation(err error, scope string) error {
+	return fmt.Errorf("%w; check that the service account has domain-wide delegation for %s",
+		err, strings.ReplaceAll(scope, " ", ","))
 }
 
 // forget drops a token after Google refused it, so the next call gets a new
@@ -111,6 +125,20 @@ func (a *Auth) forget(keyJSON, scope, subject string) {
 // service account's key file, acting as Subject when it is set.
 type Creds struct {
 	Key, Subject, Token string
+}
+
+// CredsOf reads a connection's key file and the user it acts as or, on a
+// connector people sign in to, the token of the person a call is for. That
+// token must be there: without it, Do would fall back to the key.
+func CredsOf(conn channels.Connection) (Creds, error) {
+	if conn.PerUser {
+		return Creds{Token: conn.Token}, oauth.NeedToken(conn)
+	}
+	c := Creds{Key: web.Value(conn, "service_account_json"), Subject: web.Value(conn, "subject")}
+	if c.Key == "" {
+		return c, errors.New("the service account key is missing")
+	}
+	return c, nil
 }
 
 // Do sends req with c, a service account's token being for scope, and
@@ -131,6 +159,19 @@ func (a *Auth) Do(req *http.Request, c Creds, scope string, limit int64) ([]byte
 		}
 		return apiError(status, body)
 	})
+}
+
+// DoJSON is Do, then decodes the body into out, unless out is nil or the
+// body is empty, as a 204 No Content's is.
+func (a *Auth) DoJSON(req *http.Request, c Creds, scope string, limit int64, out any) error {
+	b, err := a.Do(req, c, scope, limit)
+	if err != nil || out == nil || len(b) == 0 {
+		return err
+	}
+	if err := json.Unmarshal(b, out); err != nil {
+		return fmt.Errorf("could not read Google's answer: %w", err)
+	}
+	return nil
 }
 
 func (a *Auth) fetch(ctx context.Context, sa *oauth.ServiceAccount, scope, subject string) (oauth.Token, error) {

@@ -114,8 +114,8 @@ func (c *Client) Open(ctx context.Context, conn channels.Connection) (Site, erro
 	if !conn.PerUser {
 		return open(conn)
 	}
-	if conn.Token == "" {
-		return Site{}, oauth.ErrNoToken
+	if err := oauth.NeedToken(conn); err != nil {
+		return Site{}, err
 	}
 	base, ok := web.BaseURL(web.Value(conn, "base_url"))
 	if !ok || base == "" {

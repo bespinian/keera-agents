@@ -280,14 +280,7 @@ func (a *Adapter) do(ctx context.Context, conn channels.Connection, method, u st
 	if err != nil {
 		return err
 	}
-	b, err := a.auth.Do(req, app, "the Bot Connector", 1<<20)
-	if err != nil {
-		return err
-	}
-	if out != nil && len(b) > 0 {
-		return json.Unmarshal(b, out)
-	}
-	return nil
+	return a.auth.DoJSON(req, app, "the Bot Connector", 1<<20, out)
 }
 
 func credentials(conn channels.Connection) (microsoft.App, error) {

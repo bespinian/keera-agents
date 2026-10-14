@@ -8,7 +8,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -50,26 +49,16 @@ func Fields(api string) []channels.Field {
 	}
 }
 
-// Settings are a connection's key file and the user it acts as, or, for a
-// connector people sign in to, the access token of the person a call is
-// for.
+// Settings are what a call is made with, and, for a connector people sign
+// in to, who the person is.
 type Settings struct {
-	Key, Subject   string
-	Token, Account string
+	google.Creds
+	Account string
 }
 
 func SettingsOf(conn channels.Connection) (Settings, error) {
-	if conn.PerUser {
-		if conn.Token == "" {
-			return Settings{}, oauth.ErrNoToken
-		}
-		return Settings{Token: conn.Token, Account: conn.Account}, nil
-	}
-	s := Settings{Key: web.Value(conn, "service_account_json"), Subject: web.Value(conn, "subject")}
-	if s.Key == "" {
-		return s, errors.New("the service account key is missing")
-	}
-	return s, nil
+	c, err := google.CredsOf(conn)
+	return Settings{Creds: c, Account: conn.Account}, err
 }
 
 // Who says whose access a call has, for errors that ask to share something.
@@ -110,14 +99,7 @@ func (c *Client) Do(ctx context.Context, s Settings, method, u string, in, out a
 	if err != nil {
 		return err
 	}
-	b, err := c.auth.Do(req, google.Creds{Key: s.Key, Subject: s.Subject, Token: s.Token}, c.scope, maxBody)
-	if err != nil || out == nil || len(b) == 0 {
-		return err
-	}
-	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("could not read Google's answer: %w", err)
-	}
-	return nil
+	return c.auth.DoJSON(req, s.Creds, c.scope, maxBody, out)
 }
 
 // Check signs in and makes one cheap call, probe, to prove the key works and
@@ -127,11 +109,7 @@ func (c *Client) Check(ctx context.Context, conn channels.Connection, api string
 	if err != nil {
 		return err
 	}
-	if err := c.auth.Check(ctx, s.Key, c.scope, s.Subject); err != nil {
-		if s.Subject != "" {
-			return fmt.Errorf("%w; check that the service account has domain-wide delegation for %s",
-				err, strings.ReplaceAll(c.scope, " ", ","))
-		}
+	if err := c.auth.Check(ctx, s.Creds, c.scope); err != nil {
 		return err
 	}
 	if probe == nil {

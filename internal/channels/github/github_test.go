@@ -156,13 +156,13 @@ func TestPerUser(t *testing.T) {
 	_, a := newFake(t)
 	ctx := context.Background()
 	user := channels.Connection{
-		Kind: channels.GitHub, PerUser: true, Token: "tok",
+		Kind: channels.GitHub, PerUser: true, Token: "tok", Account: "ada",
 		Config: map[string]string{"client_id": "Iv1.x"}, Secrets: map[string]string{"client_secret": "pw"},
 	}
 	if r, err := a.Repo(ctx, user, "acme/web"); err != nil || r.DefaultBranch != "main" {
 		t.Fatalf("Repo = %+v, %v", r, err)
 	}
-	if _, err := a.Repo(ctx, user, "acme/docs"); err == nil || !strings.Contains(err.Error(), "the GitHub account may read") {
+	if _, err := a.Repo(ctx, user, "acme/docs"); err == nil || !strings.Contains(err.Error(), "ada may read") {
 		t.Errorf("no push: %v", err)
 	}
 	if r, err := a.Remote(ctx, user, "acme/web"); err != nil || r.Password != "tok" {

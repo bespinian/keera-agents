@@ -30,6 +30,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels/internal/google"
 	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
+	"github.com/bespinian/keera-agents/internal/channels/internal/workspace"
 )
 
 const (
@@ -77,51 +78,30 @@ var sharedDrive = channels.Field{
 
 func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
-		Kind:     channels.GoogleDrive,
-		Label:    "Google Drive",
-		Vendor:   "Google",
-		Category: "Files",
-		Summary:  "Agents watch folders for new files, and read and write files in them.",
-		Fields: []channels.Field{
-			{
-				Name: "service_account_json", Label: "Service account key", Secret: true, Required: true, Multiline: true,
-				Help: "The JSON key file of a service account in a project with the Google Drive API enabled.",
-			},
-			{
-				Name: "subject", Label: "Act as user",
-				Help: "An email in your domain to act as, through domain-wide delegation. " +
-					"Leave empty to act as the service account, and share the folders with it.",
-			},
-			sharedDrive,
-		},
-		Setup: "1. In a Google Cloud project, enable the Google Drive API.\n" +
-			"2. Create a service account with a JSON key.\n" +
-			"3. Either share the folders or shared drive with the service account's email, or, as a Workspace administrator, " +
-			"grant the service account's client ID domain-wide delegation for the scope https://www.googleapis.com/auth/drive " +
-			"and enter the user to act as.",
+		Kind:        channels.GoogleDrive,
+		Label:       "Google Drive",
+		Vendor:      "Google",
+		Category:    "Files",
+		Summary:     "Agents watch folders for new files, and read and write files in them.",
+		Fields:      append(workspace.Fields("Google Drive API"), sharedDrive),
+		Setup:       workspace.Setup("Google Drive API", "the folders or shared drive", scope),
 		TargetLabel: "Folder",
 		TargetHelp: "A folder's ID, the last part of its URL, or root. On a connector people sign in to, " +
 			"root is the My Drive of whoever the agent works for.",
 	}
 }
 
-// settings are a connection's key file and the user it acts as, or the
-// token of the person a call is for, and the drive.
+// settings are what a call is made with, and the drive.
 type settings struct {
-	key, subject, token, drive string
+	google.Creds
+	drive string
 }
 
 func settingsOf(conn channels.Connection) (settings, error) {
-	s := settings{
-		key:     web.Value(conn, "service_account_json"),
-		subject: web.Value(conn, "subject"),
-		drive:   web.Value(conn, "shared_drive_id"),
-	}
-	if conn.PerUser {
-		if conn.Token == "" {
-			return s, oauth.ErrNoToken
-		}
-		s.key, s.subject, s.token = "", "", conn.Token
+	c, err := google.CredsOf(conn)
+	s := settings{Creds: c, drive: web.Value(conn, "shared_drive_id")}
+	if err != nil {
+		return s, err
 	}
 	if s.drive != "" && !validID.MatchString(s.drive) {
 		return s, errors.New("the shared drive ID is not valid")
@@ -175,7 +155,7 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, q u
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	return a.auth.Do(req, google.Creds{Key: s.key, Subject: s.subject, Token: s.token}, scope, limit)
+	return a.auth.Do(req, s.Creds, scope, limit)
 }
 
 func (a *Adapter) getJSON(ctx context.Context, s settings, path string, q url.Values, v any) error {
@@ -191,10 +171,7 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	if err != nil {
 		return err
 	}
-	if err := a.auth.Check(ctx, s.key, scope, s.subject); err != nil {
-		if s.subject != "" {
-			return fmt.Errorf("%w; check that the service account has domain-wide delegation for %s", err, scope)
-		}
+	if err := a.auth.Check(ctx, s.Creds, scope); err != nil {
 		return err
 	}
 	var v struct{}

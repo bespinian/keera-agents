@@ -125,3 +125,12 @@ func (s Accounts) CheckClient(ctx context.Context, conn channels.Connection) err
 // ErrNoToken is a call on a connector people sign in to that is for nobody.
 // Dispatch always gives one, so it means a call it did not make.
 var ErrNoToken = errors.New("nobody is signed in to this connector for the call")
+
+// NeedToken is ErrNoToken for a call on a connector people sign in to that
+// carries no person's token, and nil otherwise.
+func NeedToken(conn channels.Connection) error {
+	if conn.PerUser && conn.Token == "" {
+		return ErrNoToken
+	}
+	return nil
+}

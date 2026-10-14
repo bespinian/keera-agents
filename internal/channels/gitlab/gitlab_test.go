@@ -197,13 +197,13 @@ func TestPerUser(t *testing.T) {
 	a := New(channels.Options{Endpoints: map[string]string{"base": srv.URL}})
 	ctx := context.Background()
 	user := channels.Connection{
-		Kind: channels.GitLab, PerUser: true, Token: "user-tok",
+		Kind: channels.GitLab, PerUser: true, Token: "user-tok", Account: "ada",
 		Config: map[string]string{"client_id": "app"}, Secrets: map[string]string{"client_secret": "pw"},
 	}
 	if r, err := a.Repo(ctx, user, "acme/web"); err != nil || r.Path != "acme/web" {
 		t.Fatalf("Repo = %+v, %v", r, err)
 	}
-	if _, err := a.Repo(ctx, user, "acme/secret"); err == nil || !strings.Contains(err.Error(), "the GitLab account cannot see") {
+	if _, err := a.Repo(ctx, user, "acme/secret"); err == nil || !strings.Contains(err.Error(), "ada cannot see") {
 		t.Errorf("a project not shared: %v", err)
 	}
 	if r, err := a.Remote(ctx, user, "acme/web"); err != nil || r.User != "oauth2" || r.Password != "user-tok" {

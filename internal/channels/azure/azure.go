@@ -83,14 +83,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	}
 }
 
-// who says whose access a call has, for errors.
-func who(app microsoft.App) string {
-	if app.Token != "" {
-		return "the person the agent works for"
-	}
-	return "the app"
-}
-
 // subscription checks a binding's target and returns it in lower case.
 func subscription(target string) (string, error) {
 	s := strings.ToLower(strings.TrimSpace(target))
@@ -101,20 +93,6 @@ func subscription(target string) (string, error) {
 		return "", fmt.Errorf("%q is not a subscription ID", web.Short(target, 80))
 	}
 	return s, nil
-}
-
-// query encodes ARM's options, keeping their $ and spaces as %20.
-func query(q map[string]string) string {
-	keys := make([]string, 0, len(q))
-	for k := range q {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, len(keys))
-	for i, k := range keys {
-		parts[i] = k + "=" + strings.ReplaceAll(url.QueryEscape(q[k]), "+", "%20")
-	}
-	return "?" + strings.Join(parts, "&")
 }
 
 // call sends one request to u, a full URL on Resource Manager, and decodes
@@ -128,11 +106,7 @@ func (a *Adapter) call(ctx context.Context, app microsoft.App, method, u string,
 	if err != nil {
 		return err
 	}
-	b, err := a.auth.Do(req, app, service, 16<<20)
-	if err != nil || out == nil || len(b) == 0 {
-		return err
-	}
-	return json.Unmarshal(b, out)
+	return a.auth.DoJSON(req, app, service, 16<<20, out)
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
@@ -150,7 +124,7 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 			SubscriptionID string `json:"subscriptionId"`
 		} `json:"value"`
 	}
-	if err := a.call(ctx, app, http.MethodGet, a.arm+"/subscriptions"+query(map[string]string{"api-version": subscriptionsVersion}), nil, &r); err != nil {
+	if err := a.call(ctx, app, http.MethodGet, a.arm+"/subscriptions"+microsoft.Query(map[string]string{"api-version": subscriptionsVersion}), nil, &r); err != nil {
 		return fmt.Errorf("signed in, but %w", err)
 	}
 	if len(r.Value) == 0 {
@@ -171,10 +145,10 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	var r struct {
 		SubscriptionID string `json:"subscriptionId"`
 	}
-	err = a.call(ctx, app, http.MethodGet, a.arm+"/subscriptions/"+sub+query(map[string]string{"api-version": subscriptionsVersion}), nil, &r)
+	err = a.call(ctx, app, http.MethodGet, a.arm+"/subscriptions/"+sub+microsoft.Query(map[string]string{"api-version": subscriptionsVersion}), nil, &r)
 	switch st := web.Status(err); {
 	case st == http.StatusNotFound || st == http.StatusForbidden || st == http.StatusUnauthorized:
-		return "", fmt.Errorf("%s cannot see subscription %s; assign the Reader role on it (%w)", who(app), sub, err)
+		return "", fmt.Errorf("%s cannot see subscription %s; assign the Reader role on it (%w)", app.Who, sub, err)
 	case err != nil:
 		return "", err
 	}
@@ -289,7 +263,7 @@ func (a *Adapter) apiVersion(ctx context.Context, app microsoft.App, sub string,
 			APIVersions  []string `json:"apiVersions"`
 		} `json:"resourceTypes"`
 	}
-	u := a.arm + "/subscriptions/" + sub + "/providers/" + url.PathEscape(r.namespace) + query(map[string]string{"api-version": resourcesVersion})
+	u := a.arm + "/subscriptions/" + sub + "/providers/" + url.PathEscape(r.namespace) + microsoft.Query(map[string]string{"api-version": resourcesVersion})
 	if err := a.call(ctx, app, http.MethodGet, u, nil, &p); err != nil {
 		return "", fmt.Errorf("looking up the API version of %s/%s: %w", r.namespace, r.typ, err)
 	}

@@ -19,8 +19,6 @@ package gcp
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -100,58 +98,43 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	}
 }
 
-func key(conn channels.Connection) (string, error) {
-	k := web.Value(conn, "service_account_json")
-	if k == "" {
-		return "", errors.New("the service account key is missing")
-	}
-	return k, nil
-}
-
 // cacheKey keeps what one connector learnt apart from another's.
 func cacheKey(conn channels.Connection) string {
 	if conn.PerUser {
 		return "connection:" + conn.ID
 	}
-	k, _ := key(conn)
-	return k
+	return web.Value(conn, "service_account_json")
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	k, err := key(conn)
+	c, err := google.CredsOf(conn)
 	if err != nil {
 		return err
 	}
-	return a.auth.Check(ctx, k, scope, "")
+	return a.auth.Check(ctx, c, scope)
 }
 
 // send sends req as the service account, or the person the call is for,
 // and returns the body of a 2xx answer.
 func (a *Adapter) send(conn channels.Connection, req *http.Request, limit int64) ([]byte, error) {
-	if conn.PerUser {
-		if conn.Token == "" {
-			return nil, oauth.ErrNoToken
-		}
-		return a.auth.Do(req, google.Creds{Token: conn.Token}, scope, limit)
-	}
-	k, err := key(conn)
+	c, err := google.CredsOf(conn)
 	if err != nil {
 		return nil, err
 	}
-	return a.auth.Do(req, google.Creds{Key: k}, scope, limit)
+	return a.auth.Do(req, c, scope, limit)
 }
 
 // call sends in as JSON, unless it is nil, and decodes the answer into out.
 func (a *Adapter) call(ctx context.Context, conn channels.Connection, method, u string, in, out any) error {
+	c, err := google.CredsOf(conn)
+	if err != nil {
+		return err
+	}
 	req, err := web.NewJSONRequest(ctx, method, u, in)
 	if err != nil {
 		return err
 	}
-	b, err := a.send(conn, req, maxBody)
-	if err != nil || out == nil {
-		return err
-	}
-	return json.Unmarshal(b, out)
+	return a.auth.DoJSON(req, c, scope, maxBody, out)
 }
 
 // project checks a binding's target, which is always one project ID.

@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/bespinian/keera-agents/internal/channels"
@@ -118,24 +117,6 @@ func id(what, s string) (string, error) {
 	return url.PathEscape(s), nil
 }
 
-// query encodes OData options. Graph wants their $ unescaped and spaces as
-// %20, not +.
-func query(q map[string]string) string {
-	if len(q) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(q))
-	for k := range q {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, len(keys))
-	for i, k := range keys {
-		parts[i] = k + "=" + strings.ReplaceAll(url.QueryEscape(q[k]), "+", "%20")
-	}
-	return "?" + strings.Join(parts, "&")
-}
-
 // call makes one Graph request under the mailbox and decodes the answer
 // into out, unless it is nil.
 func (a *Adapter) call(ctx context.Context, app microsoft.App, box, method, path string, q map[string]string, in, out any, prefer ...string) error {
@@ -143,18 +124,14 @@ func (a *Adapter) call(ctx context.Context, app microsoft.App, box, method, path
 	if box == me {
 		root = a.graph + "/me"
 	}
-	req, err := web.NewJSONRequest(ctx, method, root+path+query(q), in)
+	req, err := web.NewJSONRequest(ctx, method, root+path+microsoft.Query(q), in)
 	if err != nil {
 		return err
 	}
 	for _, p := range prefer {
 		req.Header.Add("Prefer", p)
 	}
-	b, err := a.auth.Do(req, app, service, 16<<20)
-	if err != nil || out == nil || len(b) == 0 {
-		return err
-	}
-	return json.Unmarshal(b, out)
+	return a.auth.DoJSON(req, app, service, 16<<20, out)
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {

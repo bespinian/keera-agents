@@ -178,7 +178,7 @@ func (a *Adapter) listGroups(ctx context.Context, app microsoft.App, sub string,
 	}
 	limit := apitool.Limit(in.Limit, 50, 100)
 	q := map[string]string{"api-version": resourcesVersion, "$top": strconv.Itoa(limit)}
-	list, err := a.list(ctx, app, a.arm+"/subscriptions/"+sub+"/resourcegroups"+query(q), limit)
+	list, err := a.list(ctx, app, a.arm+"/subscriptions/"+sub+"/resourcegroups"+microsoft.Query(q), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (a *Adapter) listResources(ctx context.Context, app microsoft.App, sub stri
 		}
 		q["$filter"] = "resourceType eq '" + in.Type + "'"
 	}
-	list, err := a.list(ctx, app, a.arm+path+"/resources"+query(q), limit)
+	list, err := a.list(ctx, app, a.arm+path+"/resources"+microsoft.Query(q), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func (a *Adapter) getResource(ctx context.Context, app microsoft.App, sub string
 		q["$expand"] = "instanceView"
 	}
 	var r resource
-	if err := a.call(ctx, app, http.MethodGet, a.arm+id.path+query(q), nil, &r); err != nil {
+	if err := a.call(ctx, app, http.MethodGet, a.arm+id.path+microsoft.Query(q), nil, &r); err != nil {
 		return nil, err
 	}
 	out := r.brief()
@@ -357,7 +357,7 @@ func (a *Adapter) activityLog(ctx context.Context, app microsoft.App, sub string
 		"$filter":     filter,
 		"$select":     "eventTimestamp,operationName,status,caller,level,resourceId",
 	}
-	u := a.arm + "/subscriptions/" + sub + "/providers/Microsoft.Insights/eventtypes/management/values" + query(q)
+	u := a.arm + "/subscriptions/" + sub + "/providers/Microsoft.Insights/eventtypes/management/values" + microsoft.Query(q)
 	out := []Event{}
 	// The log may answer with empty pages before the full ones.
 	for range maxPages {
@@ -471,7 +471,7 @@ func (a *Adapter) metrics(ctx context.Context, app microsoft.App, sub string, ar
 			} `json:"timeseries"`
 		} `json:"value"`
 	}
-	if err := a.call(ctx, app, http.MethodGet, a.arm+id.path+"/providers/Microsoft.Insights/metrics"+query(q), nil, &r); err != nil {
+	if err := a.call(ctx, app, http.MethodGet, a.arm+id.path+"/providers/Microsoft.Insights/metrics"+microsoft.Query(q), nil, &r); err != nil {
 		return nil, err
 	}
 	key := strings.ToLower(agg)
@@ -505,7 +505,7 @@ func (a *Adapter) metricNames(ctx context.Context, app microsoft.App, id resourc
 		} `json:"value"`
 	}
 	q := map[string]string{"api-version": metricsVersion}
-	if err := a.call(ctx, app, http.MethodGet, a.arm+id.path+"/providers/Microsoft.Insights/metricDefinitions"+query(q), nil, &r); err != nil {
+	if err := a.call(ctx, app, http.MethodGet, a.arm+id.path+"/providers/Microsoft.Insights/metricDefinitions"+microsoft.Query(q), nil, &r); err != nil {
 		return nil, err
 	}
 	type def struct {
@@ -594,10 +594,10 @@ func (a *Adapter) costs(ctx context.Context, app microsoft.App, sub string, args
 			Rows [][]any `json:"rows"`
 		} `json:"properties"`
 	}
-	u := a.arm + "/subscriptions/" + sub + "/providers/Microsoft.CostManagement/query" + query(map[string]string{"api-version": costVersion})
+	u := a.arm + "/subscriptions/" + sub + "/providers/Microsoft.CostManagement/query" + microsoft.Query(map[string]string{"api-version": costVersion})
 	err = a.call(ctx, app, http.MethodPost, u, body, &r)
 	if web.Status(err) == http.StatusForbidden {
-		return nil, fmt.Errorf("%s may not read costs; assign Cost Management Reader on the subscription (%w)", who(app), err)
+		return nil, fmt.Errorf("%s may not read costs; assign Cost Management Reader on the subscription (%w)", app.Who, err)
 	}
 	if err != nil {
 		return nil, err
@@ -677,10 +677,10 @@ func (a *Adapter) vmAction(ctx context.Context, app microsoft.App, sub string, a
 	if !id.isVM() || len(id.segs) != 8 {
 		return nil, fmt.Errorf("%q is not a virtual machine's id", web.Short(in.ID, 120))
 	}
-	u := a.arm + id.path + "/" + action + query(map[string]string{"api-version": computeVersion})
+	u := a.arm + id.path + "/" + action + microsoft.Query(map[string]string{"api-version": computeVersion})
 	err = a.call(ctx, app, http.MethodPost, u, nil, nil)
 	if web.Status(err) == http.StatusForbidden {
-		return nil, fmt.Errorf("%s may not %s %s; assign Virtual Machine Contributor (%w)", who(app), action, id.name(), err)
+		return nil, fmt.Errorf("%s may not %s %s; assign Virtual Machine Contributor (%w)", app.Who, action, id.name(), err)
 	}
 	if err != nil {
 		return nil, err

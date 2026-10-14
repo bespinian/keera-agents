@@ -2,6 +2,7 @@ package google
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/jwttest"
+	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
 )
 
 func TestAuth(t *testing.T) {
@@ -42,11 +44,12 @@ func TestAuth(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Error("forgotten token reused")
 	}
-	if err := a.Check(context.Background(), sa, "s", ""); err != nil || calls.Load() != 3 {
+	if err := a.Check(context.Background(), Creds{Key: sa}, "s"); err != nil || calls.Load() != 3 {
 		t.Errorf("Check = %v after %d calls", err, calls.Load())
 	}
-	err := a.Check(context.Background(), sa, "s", "nobody@x.ch")
-	if err == nil || !strings.Contains(err.Error(), "Google refused the credentials (unauthorized_client") {
+	err := a.Check(context.Background(), Creds{Key: sa, Subject: "nobody@x.ch"}, "s t")
+	if err == nil || !strings.Contains(err.Error(), "Google refused the credentials (unauthorized_client") ||
+		!strings.Contains(err.Error(), "domain-wide delegation for s,t") {
 		t.Errorf("err = %v", err)
 	}
 	if _, err := a.token(context.Background(), "{}", "s", ""); err == nil {
@@ -62,5 +65,44 @@ func TestError(t *testing.T) {
 	err = apiError(http.StatusForbidden, []byte(`{"error":{"errors":[{"reason":"insufficientFilePermissions"}],"message":"no"}}`))
 	if err.Error() != "Google answered 403 Forbidden insufficientFilePermissions: no" {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestCredsOf(t *testing.T) {
+	key := map[string]string{"service_account_json": "k"}
+	// Without the person's token, a call must not fall back to the key.
+	if _, err := CredsOf(channels.Connection{PerUser: true, Secrets: key}); !errors.Is(err, oauth.ErrNoToken) {
+		t.Errorf("no token: %v", err)
+	}
+	if c, err := CredsOf(channels.Connection{PerUser: true, Token: "t", Secrets: key}); err != nil || c != (Creds{Token: "t"}) {
+		t.Errorf("person = %+v, %v", c, err)
+	}
+	c, err := CredsOf(channels.Connection{Secrets: key, Config: map[string]string{"subject": "ada@x.ch"}})
+	if err != nil || c != (Creds{Key: "k", Subject: "ada@x.ch"}) {
+		t.Errorf("key = %+v, %v", c, err)
+	}
+	if _, err := CredsOf(channels.Connection{}); err == nil {
+		t.Error("no key passed")
+	}
+}
+
+func TestDoJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/empty" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = w.Write([]byte(`{"name":"n"}`))
+	}))
+	defer srv.Close()
+	a := NewAuth(channels.Options{HTTP: srv.Client()})
+	var v struct{ Name string }
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/empty", nil)
+	if err := a.DoJSON(req, Creds{Token: "t"}, "s", 1<<10, &v); err != nil {
+		t.Errorf("no content: %v", err)
+	}
+	req, _ = http.NewRequest(http.MethodGet, srv.URL, nil)
+	if err := a.DoJSON(req, Creds{Token: "t"}, "s", 1<<10, &v); err != nil || v.Name != "n" {
+		t.Errorf("DoJSON = %+v, %v", v, err)
 	}
 }

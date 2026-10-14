@@ -101,7 +101,7 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 	if err := checkAudience(web.Value(conn, "audience")); err != nil {
 		return err
 	}
-	return a.auth.Check(ctx, web.Value(conn, "service_account_json"), scope, "")
+	return a.auth.Check(ctx, google.Creds{Key: web.Value(conn, "service_account_json")}, scope)
 }
 
 func checkAudience(aud string) error {
@@ -292,15 +292,11 @@ func (a *Adapter) Send(ctx context.Context, conn channels.Connection, to channel
 	if err != nil {
 		return "", err
 	}
-	body, err := a.auth.Do(req, google.Creds{Key: web.Value(conn, "service_account_json")}, scope, 1<<20)
-	if err != nil {
-		return "", fmt.Errorf("googlechat: posting the message: %w", err)
-	}
 	var r struct {
 		Name string `json:"name"`
 	}
-	if err := json.Unmarshal(body, &r); err != nil {
-		return "", fmt.Errorf("googlechat: unreadable answer: %w", err)
+	if err := a.auth.DoJSON(req, google.Creds{Key: web.Value(conn, "service_account_json")}, scope, 1<<20, &r); err != nil {
+		return "", fmt.Errorf("googlechat: posting the message: %w", err)
 	}
 	return r.Name, nil
 }

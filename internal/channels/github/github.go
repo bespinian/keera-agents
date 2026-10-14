@@ -156,20 +156,12 @@ func (a *Adapter) settingsOf(conn channels.Connection) (settings, error) {
 	}
 	switch {
 	case err != nil:
-	case s.token == "" && s.person:
-		err = oauth.ErrNoToken
+	case s.person:
+		err = oauth.NeedToken(conn)
 	case s.token == "":
 		err = errors.New("the access token is missing")
 	}
 	return s, err
-}
-
-// who names whose access a call has, for errors.
-func (s settings) who() string {
-	if s.person {
-		return "the GitHub account"
-	}
-	return "the token"
 }
 
 // open reads the connection's settings and checks the repository's path.
@@ -243,7 +235,7 @@ func (a *Adapter) Repo(ctx context.Context, conn channels.Connection, path strin
 	err = a.call(ctx, s, http.MethodGet, "/repos/"+path, nil, &r)
 	if web.Status(err) == http.StatusNotFound {
 		if s.person {
-			return channels.Repo{}, fmt.Errorf("the GitHub account cannot see %s; check the name, and that the GitHub App is installed there", path)
+			return channels.Repo{}, fmt.Errorf("%s cannot see %s; check the name, and that the GitHub App is installed there", conn.Who("the token"), path)
 		}
 		return channels.Repo{}, fmt.Errorf("the token cannot see %s; check the name and the repositories the token may use", path)
 	}
@@ -251,7 +243,7 @@ func (a *Adapter) Repo(ctx context.Context, conn channels.Connection, path strin
 		return channels.Repo{}, err
 	}
 	if !r.Permissions.Push {
-		return channels.Repo{}, fmt.Errorf("%s may read %s but not push to it; it needs Contents: Read and write", s.who(), r.FullName)
+		return channels.Repo{}, fmt.Errorf("%s may read %s but not push to it; it needs Contents: Read and write", conn.Who("the token"), r.FullName)
 	}
 	return channels.Repo{Path: r.FullName, DefaultBranch: r.DefaultBranch}, nil
 }

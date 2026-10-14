@@ -133,20 +133,12 @@ func (a *Adapter) settingsOf(conn channels.Connection) (settings, error) {
 	}
 	switch {
 	case err != nil:
-	case s.token == "" && s.person:
-		err = oauth.ErrNoToken
+	case s.person:
+		err = oauth.NeedToken(conn)
 	case s.token == "":
 		err = errors.New("the access token is missing")
 	}
 	return s, err
-}
-
-// who names whose access a call has, for errors.
-func (s settings) who() string {
-	if s.person {
-		return "the GitLab account"
-	}
-	return "the token"
 }
 
 // open reads the connection's settings and checks the project's path.
@@ -231,7 +223,7 @@ func (a *Adapter) Repo(ctx context.Context, conn channels.Connection, path strin
 	}
 	err = a.call(ctx, s, http.MethodGet, project(path), nil, &p)
 	if web.Status(err) == http.StatusNotFound {
-		return channels.Repo{}, fmt.Errorf("%s cannot see %s; check the path and its projects", s.who(), path)
+		return channels.Repo{}, fmt.Errorf("%s cannot see %s; check the path and its projects", conn.Who("the token"), path)
 	}
 	if err != nil {
 		return channels.Repo{}, err
@@ -244,7 +236,7 @@ func (a *Adapter) Repo(ctx context.Context, conn channels.Connection, path strin
 		}
 	}
 	if (p.Permissions.Project != nil || p.Permissions.Group != nil) && level < developer {
-		return channels.Repo{}, fmt.Errorf("%s may read %s but not push to it; it needs the role Developer", s.who(), p.PathWithNamespace)
+		return channels.Repo{}, fmt.Errorf("%s may read %s but not push to it; it needs the role Developer", conn.Who("the token"), p.PathWithNamespace)
 	}
 	return channels.Repo{Path: p.PathWithNamespace, DefaultBranch: p.DefaultBranch}, nil
 }

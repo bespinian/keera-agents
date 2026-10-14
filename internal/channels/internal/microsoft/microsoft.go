@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/oauth"
@@ -21,6 +24,8 @@ import (
 type App struct {
 	Tenant, ClientID, Secret, Scope string
 	Token                           string
+	// Who names whose access calls have, for errors.
+	Who string
 }
 
 // AppOf reads an app registration from a connection's settings, for scope.
@@ -28,9 +33,9 @@ type App struct {
 // for.
 func AppOf(conn channels.Connection, scope string) (App, error) {
 	app, err := clientOf(conn)
-	app.Scope, app.Token = scope, conn.Token
-	if err == nil && conn.PerUser && app.Token == "" {
-		err = oauth.ErrNoToken
+	app.Scope, app.Token, app.Who = scope, conn.Token, conn.Who("the app")
+	if err == nil {
+		err = oauth.NeedToken(conn)
 	}
 	return app, err
 }
@@ -121,6 +126,32 @@ func (a *Auth) Do(req *http.Request, app App, service string, limit int64) ([]by
 		}
 		return apiError(service, status, body)
 	})
+}
+
+// DoJSON is Do, then decodes the body into out, unless out is nil or the
+// body is empty, as a 202 Accepted's or a 204 No Content's is.
+func (a *Auth) DoJSON(req *http.Request, app App, service string, limit int64, out any) error {
+	b, err := a.Do(req, app, service, limit)
+	if err != nil || out == nil || len(b) == 0 {
+		return err
+	}
+	if err := json.Unmarshal(b, out); err != nil {
+		return fmt.Errorf("could not read the answer of %s: %w", service, err)
+	}
+	return nil
+}
+
+// Query encodes OData options, such as $filter, in a stable order. Graph
+// and Resource Manager want their $ unescaped and spaces as %20, not +.
+func Query(q map[string]string) string {
+	if len(q) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(q))
+	for _, k := range slices.Sorted(maps.Keys(q)) {
+		parts = append(parts, k+"="+strings.ReplaceAll(url.QueryEscape(q[k]), "+", "%20"))
+	}
+	return "?" + strings.Join(parts, "&")
 }
 
 // Accounts lets people sign in to a kind's connectors with their own

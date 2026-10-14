@@ -179,8 +179,8 @@ func (a *Adapter) credsOf(ctx context.Context, conn channels.Connection) (creds,
 // is for, with their ID token, named after them.
 func (a *Adapter) assumeAs(ctx context.Context, conn channels.Connection) (creds, error) {
 	role := web.Value(conn, "role_arn")
-	if conn.Token == "" {
-		return creds{}, oauth.ErrNoToken
+	if err := oauth.NeedToken(conn); err != nil {
+		return creds{}, err
 	}
 	if err := checkRole(role, "keera-people"); err != nil {
 		return creds{}, err
