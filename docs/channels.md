@@ -203,8 +203,6 @@ gets the tools that change something, and is refused them. Give the
 connector's credentials no more than the agents should have too: the service
 enforces those itself.
 
-A tool's answer is cut at 64 KiB, and the agent is told to ask for less.
-
 Most services can also act as each person instead of one shared account; see
 [Each person's own account](#each-persons-own-account).
 

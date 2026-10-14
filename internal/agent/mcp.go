@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/version"
 )
 
@@ -34,7 +35,6 @@ const (
 	mcpConnectTimeout = 20 * time.Second
 	mcpCallTimeout    = 5 * time.Minute
 	maxMCPBody        = 16 << 20
-	maxMCPResult      = 64 << 10
 )
 
 type mcpClient struct {
@@ -162,7 +162,7 @@ func toolResultText(raw json.RawMessage) (string, bool) {
 		IsError           bool            `json:"isError"`
 	}
 	if json.Unmarshal(raw, &res) != nil {
-		return truncate(string(raw), maxMCPResult), false
+		return truncate(string(raw), protocol.MaxToolResult), false
 	}
 	var b strings.Builder
 	for _, c := range res.Content {
@@ -187,7 +187,7 @@ func toolResultText(raw json.RawMessage) (string, bool) {
 	if b.Len() == 0 && len(res.StructuredContent) > 0 {
 		b.Write(res.StructuredContent)
 	}
-	return truncate(b.String(), maxMCPResult), res.IsError
+	return truncate(b.String(), protocol.MaxToolResult), res.IsError
 }
 
 func (c *mcpClient) notify(ctx context.Context, method string) error {

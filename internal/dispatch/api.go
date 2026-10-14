@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/protocol"
@@ -18,10 +17,6 @@ import (
 // here with the connector's credentials, or, for a connector people sign in
 // to, as the person the task is for. They stay within the binding's target,
 // and a read-only binding cannot call a tool that writes.
-
-// maxAPIResult bounds what one API tool returns to the model, so a large
-// answer does not fill its context.
-const maxAPIResult = 64 << 10
 
 func isAPI(b store.Binding) bool { return b.Mode == store.ModeRead || b.Mode == store.ModeWrite }
 
@@ -161,23 +156,6 @@ func (d *Dispatcher) toolAPI(ctx context.Context, a store.Agent, t store.Task, n
 		return nil, err
 	}
 	return api.Call(ctx, conn, b.Target, tool, rest)
-}
-
-// cutResult keeps a tool's result within maxAPIResult and says when it was
-// cut, so the model asks for less instead of trusting a partial answer. The
-// note fits within the bound too, or the agent's own cap would cut it off.
-func cutResult(s string) string {
-	if len(s) <= maxAPIResult {
-		return s
-	}
-	note := fmt.Sprintf("\n[Cut at %d KiB of %d KiB. Ask for less, such as with a narrower query or a smaller limit.]",
-		maxAPIResult>>10, len(s)>>10)
-	// Not in the middle of a character.
-	n := maxAPIResult - len(note)
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n] + note
 }
 
 // LookupTarget checks an API connection reaches a binding's target, and

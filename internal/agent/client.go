@@ -150,10 +150,11 @@ func (c *controlPlane) finish(ctx context.Context, taskID string, f protocol.Fin
 	return c.do(ctx, http.MethodPost, taskPath(taskID, "finish"), f, nil)
 }
 
-// tool runs a platform tool for a task; the body is the tool's arguments.
-func (c *controlPlane) tool(ctx context.Context, taskID, name string, args json.RawMessage) (protocol.ToolResult, error) {
+// tool runs a platform tool at tools, a task's route or the workspace's. The
+// body is the tool's arguments.
+func (c *controlPlane) tool(ctx context.Context, tools, name string, args json.RawMessage) (protocol.ToolResult, error) {
 	var r protocol.ToolResult
-	err := c.do(ctx, http.MethodPost, taskPath(taskID, "tools/"+url.PathEscape(name)), args, &r)
+	err := c.do(ctx, http.MethodPost, tools+"/"+url.PathEscape(name), args, &r)
 	return r, err
 }
 

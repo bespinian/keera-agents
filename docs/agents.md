@@ -30,7 +30,8 @@ passes their owner's connections into them on one port
 **Nothing else.** A chat service's bot token or a Drive service account never
 reaches a container. Posting a message or reading a file is a _platform tool_:
 the runtime asks the control plane, which checks that the agent may and makes
-the call itself. What that lets an agent reach is in
+the call itself. Its answer is cut at 64 KiB, and the agent is told to ask for
+less. What that lets an agent reach is in
 [channels.md](channels.md#what-an-agent-can-reach).
 
 **The gateway key is not in the pod spec.** Anyone who can read pods in the

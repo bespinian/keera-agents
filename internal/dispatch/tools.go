@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/gateway"
@@ -210,6 +211,7 @@ func value(s *string) string {
 func (d *Dispatcher) CallTool(ctx context.Context, a store.Agent, t store.Task, name string, args json.RawMessage) protocol.ToolResult {
 	began := time.Now()
 	res := d.callTool(ctx, a, t, name, args)
+	res.Content = cutResult(res.Content)
 	outcome := "ok"
 	if res.IsError {
 		outcome = "error"
@@ -243,7 +245,7 @@ func (d *Dispatcher) callTool(ctx context.Context, a store.Agent, t store.Task, 
 		if err != nil {
 			return failed("%v", err)
 		}
-		return protocol.ToolResult{Content: cutResult(asText(out))}
+		return protocol.ToolResult{Content: asText(out)}
 	}
 	in, err := decodeArgs(args)
 	if err != nil {
@@ -293,6 +295,23 @@ func asText(out any) string {
 	}
 	b, _ := json.Marshal(out)
 	return string(b)
+}
+
+// cutResult keeps a tool's result within protocol.MaxToolResult and says
+// when it was cut, so the model asks for less instead of trusting a partial
+// answer. The note fits within the bound too.
+func cutResult(s string) string {
+	if len(s) <= protocol.MaxToolResult {
+		return s
+	}
+	note := fmt.Sprintf("\n[Cut at %d KiB of %d KiB. Ask for less, such as with a narrower query or a smaller limit.]",
+		protocol.MaxToolResult>>10, len(s)>>10)
+	// Not in the middle of a character.
+	n := protocol.MaxToolResult - len(note)
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + note
 }
 
 func failed(format string, args ...any) protocol.ToolResult {

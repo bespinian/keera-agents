@@ -239,10 +239,6 @@ func (r *runner) step(ctx context.Context, conv *conversation, tools *toolbox, t
 	}
 }
 
-// maxToolResult bounds a platform tool's answer, as maxMCPResult does an MCP
-// server's: a whole file in one result would not fit the model's context.
-const maxToolResult = 64 << 10
-
 func (r *runner) toolbox(boot protocol.Bootstrap, task protocol.Task) *toolbox {
 	b := newToolbox(r.log)
 	for _, name := range protocol.Builtins {
@@ -260,6 +256,14 @@ func (r *runner) toolbox(boot protocol.Bootstrap, task protocol.Task) *toolbox {
 			b.add(webTool(r.web))
 		}
 	}
+	r.addRemoteTools(b, boot, task.ID, taskPath(task.ID, "tools"))
+	return b
+}
+
+// addRemoteTools adds the tools that run elsewhere: the platform tools, which
+// the control plane runs at the route tools, and the gateway's MCP servers'
+// tools. session names the task, or the workspace, to the gateway.
+func (r *runner) addRemoteTools(b *toolbox, boot protocol.Bootstrap, session, tools string) {
 	for _, spec := range boot.Tools {
 		b.add(tool{
 			name:        spec.Name,
@@ -268,15 +272,12 @@ func (r *runner) toolbox(boot protocol.Bootstrap, task protocol.Task) *toolbox {
 			run: func(ctx context.Context, args json.RawMessage) (string, error) {
 				ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 				defer cancel()
-				res, err := r.cp.tool(ctx, task.ID, spec.Name, args)
+				res, err := r.cp.tool(ctx, tools, spec.Name, args)
 				if err != nil {
 					return "", err
 				}
 				if res.IsError {
 					return "", errors.New(res.Content)
-				}
-				if len(res.Content) > maxToolResult {
-					return truncate(res.Content, maxToolResult) + "\n[truncated]", nil
 				}
 				return res.Content, nil
 			},
@@ -289,12 +290,11 @@ func (r *runner) toolbox(boot protocol.Bootstrap, task protocol.Task) *toolbox {
 				description: truncate("["+conn.client.alias+"] "+t.Description, 1024),
 				parameters:  t.InputSchema,
 				run: func(ctx context.Context, args json.RawMessage) (string, error) {
-					return conn.client.call(ctx, task.ID, t.Name, args)
+					return conn.client.call(ctx, session, t.Name, args)
 				},
 			})
 		}
 	}
-	return b
 }
 
 // taskMessage is the task as the model reads it: who asked, from where, and

@@ -85,7 +85,7 @@ func (b *toolbox) call(ctx context.Context, name, args string) (out string, fail
 		return fmt.Sprintf("error: there is no tool %q", name), true
 	}
 	raw := json.RawMessage(args)
-	if strings.TrimSpace(args) == "" {
+	if s := strings.TrimSpace(args); s == "" || s == "null" {
 		raw = json.RawMessage(`{}`)
 	}
 	if !json.Valid(raw) {

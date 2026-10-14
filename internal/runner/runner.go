@@ -346,8 +346,7 @@ func storable(e protocol.Event) store.Event {
 
 func noNUL(s string) string { return strings.ReplaceAll(s, "\x00", "") }
 
-// tool runs a platform tool. The body is the tool's arguments, as the model
-// wrote them.
+// tool runs a platform tool for a task.
 func (rn *Runner) tool(w http.ResponseWriter, r *http.Request, a store.Agent) {
 	t, ok := rn.task(w, r, a)
 	if !ok {
@@ -357,14 +356,7 @@ func (rn *Runner) tool(w http.ResponseWriter, r *http.Request, a store.Agent) {
 		writeError(w, http.StatusConflict, "task_finished", "tools work only while the task runs")
 		return
 	}
-	args, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
-	if err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, "invalid_request", "the arguments are too large")
-		return
-	}
-	res := rn.disp.CallTool(r.Context(), a, t, r.PathValue("name"), args)
-	_ = rn.st.TouchAgent(r.Context(), a.ID)
-	writeJSON(w, http.StatusOK, res)
+	rn.callTool(w, r, a, t)
 }
 
 // workspaceTool runs a platform tool for a workspace, which has no task: it
@@ -374,12 +366,18 @@ func (rn *Runner) workspaceTool(w http.ResponseWriter, r *http.Request, a store.
 		writeError(w, http.StatusNotFound, "not_found", "only a workspace calls tools without a task")
 		return
 	}
+	rn.callTool(w, r, a, dispatch.WorkspaceTask(a))
+}
+
+// callTool runs the tool the path names. The body is the tool's arguments,
+// as the model wrote them.
+func (rn *Runner) callTool(w http.ResponseWriter, r *http.Request, a store.Agent, t store.Task) {
 	args, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
 	if err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "invalid_request", "the arguments are too large")
 		return
 	}
-	res := rn.disp.CallTool(r.Context(), a, dispatch.WorkspaceTask(a), r.PathValue("name"), args)
+	res := rn.disp.CallTool(r.Context(), a, t, r.PathValue("name"), args)
 	_ = rn.st.TouchAgent(r.Context(), a.ID)
 	writeJSON(w, http.StatusOK, res)
 }

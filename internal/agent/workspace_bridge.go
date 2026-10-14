@@ -141,7 +141,7 @@ func (r *runner) mcpMethod(ctx context.Context, msg rpcMessage) (any, error) {
 		if err := json.Unmarshal(raw, &p); err != nil || p.Name == "" {
 			return nil, &rpcError{Code: -32602, Message: "tools/call needs a name"}
 		}
-		text, isError := r.callBridgeTool(ctx, p.Name, p.Arguments)
+		text, isError := r.bridgeTools().call(ctx, p.Name, string(p.Arguments))
 		return map[string]any{
 			"content": []map[string]string{{"type": "text", "text": text}},
 			"isError": isError,
@@ -157,60 +157,21 @@ type bridgeTool struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
+// bridgeTools are the workspace's tools: those of an agent's task, but for
+// the builtins.
+func (r *runner) bridgeTools() *toolbox {
+	b := newToolbox(r.log)
+	r.addRemoteTools(b, r.snapshot(), r.cfg.AgentID, protocol.WorkspaceToolPath)
+	return b
+}
+
 func (r *runner) mcpTools() []bridgeTool {
-	boot := r.snapshot()
-	out := []bridgeTool{}
-	for _, t := range boot.Tools {
-		out = append(out, bridgeTool{Name: t.Name, Description: t.Description, InputSchema: t.Parameters})
-	}
-	for _, c := range r.mcpConns() {
-		for _, t := range c.tools {
-			out = append(out, bridgeTool{
-				Name: mcpToolName(c.client.alias, t.Name), Description: t.Description, InputSchema: t.InputSchema,
-			})
-		}
-	}
-	for i := range out {
-		if len(out[i].InputSchema) == 0 {
-			out[i].InputSchema = json.RawMessage(`{"type":"object"}`)
-		}
+	defs := r.bridgeTools().defs()
+	out := make([]bridgeTool, 0, len(defs))
+	for _, d := range defs {
+		out = append(out, bridgeTool{
+			Name: d.Function.Name, Description: d.Function.Description, InputSchema: d.Function.Parameters,
+		})
 	}
 	return out
-}
-
-// callBridgeTool runs a tool and says whether it failed.
-func (r *runner) callBridgeTool(ctx context.Context, name string, args json.RawMessage) (string, bool) {
-	for _, t := range r.snapshot().Tools {
-		if t.Name != name {
-			continue
-		}
-		res, err := r.cp.workspaceTool(ctx, name, args)
-		if err != nil {
-			return err.Error(), true
-		}
-		return res.Content, res.IsError
-	}
-	for _, c := range r.mcpConns() {
-		for _, t := range c.tools {
-			if mcpToolName(c.client.alias, t.Name) != name {
-				continue
-			}
-			text, err := c.client.call(ctx, r.cfg.AgentID, t.Name, args)
-			if err != nil {
-				return err.Error(), true
-			}
-			return text, false
-		}
-	}
-	return "there is no tool called " + name, true
-}
-
-// workspaceTool runs a platform tool for the workspace, which has no task.
-func (c *controlPlane) workspaceTool(ctx context.Context, name string, args json.RawMessage) (protocol.ToolResult, error) {
-	if len(args) == 0 || string(args) == "null" {
-		args = json.RawMessage(`{}`)
-	}
-	var res protocol.ToolResult
-	err := c.do(ctx, http.MethodPost, protocol.WorkspaceToolPath+"/"+url.PathEscape(name), args, &res)
-	return res, err
 }
