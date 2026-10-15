@@ -27,6 +27,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"strconv"
 	"time"
 )
 
@@ -84,6 +85,20 @@ const (
 	PortWeb = "web"
 	PortSSH = "ssh"
 )
+
+// Port checks the port a stream names: web, ssh, or a number from 1 to
+// 65535 written plainly, as 3000 and not 03000. It returns the number, or 0
+// for a name.
+func Port(name string) (int, bool) {
+	if name == PortWeb || name == PortSSH {
+		return 0, true
+	}
+	n, err := strconv.Atoi(name)
+	if err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != name {
+		return 0, false
+	}
+	return n, true
+}
 
 // Bootstrap is everything the runtime needs to start. It is fetched again
 // when the gateway answers 401, since the key may have been replaced.

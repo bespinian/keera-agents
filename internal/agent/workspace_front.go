@@ -74,6 +74,5 @@ func frontPort(name, experience string) (int, bool) {
 		}
 		return terminalPort, true
 	}
-	n, err := strconv.Atoi(name)
-	return n, err == nil && n >= 1 && n <= 65535
+	return protocol.Port(name)
 }

@@ -288,7 +288,7 @@ func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Prin
 		return
 	}
 	port := r.URL.Query().Get("port")
-	if !validPort(port) {
+	if _, ok := protocol.Port(port); !ok {
 		badRequest(w, "port must be web, ssh or a number from 1 to 65535")
 		return
 	}
@@ -410,12 +410,4 @@ func (l *connectLog) first(key string, now time.Time) bool {
 	}
 	l.seen[key] = now
 	return true
-}
-
-func validPort(port string) bool {
-	if port == protocol.PortWeb || port == protocol.PortSSH {
-		return true
-	}
-	n, err := strconv.Atoi(port)
-	return err == nil && n >= 1 && n <= 65535 && strconv.Itoa(n) == port
 }

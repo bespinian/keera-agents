@@ -41,17 +41,6 @@ func TestParsePublicKey(t *testing.T) {
 	}
 }
 
-func TestValidPort(t *testing.T) {
-	for port, want := range map[string]bool{
-		"web": true, "ssh": true, "3000": true, "65535": true,
-		"": false, "0": false, "65536": false, "03000": false, "http": false, "-1": false,
-	} {
-		if got := validPort(port); got != want {
-			t.Errorf("validPort(%q) = %v, want %v", port, got, want)
-		}
-	}
-}
-
 func TestConnectLogNotesOncePerHour(t *testing.T) {
 	var l connectLog
 	now := time.Now()
