@@ -23,40 +23,52 @@ func (r *runner) serveGit(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	ln, err := net.Listen("tcp", addr.Host)
-	if err != nil {
-		r.log.Warn("agent: git cannot reach repositories, since its proxy could not listen", "error", err)
-		return
-	}
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.Out.URL.Scheme, pr.Out.URL.Host = base.Scheme, base.Host
-			pr.Out.URL.Path = strings.TrimRight(base.Path, "/") + protocol.GitPath + pr.In.URL.Path
-			pr.Out.URL.RawPath = ""
-			pr.Out.Host = base.Host
-			pr.Out.Header.Set("Authorization", "Bearer "+r.cp.token)
+			forward(pr, base, protocol.GitPath+pr.In.URL.Path, r.cp.token)
 		},
 		Transport: r.cp.http.Transport,
 		// Passed on as it comes, so git shows its progress.
 		FlushInterval: -1,
 	}
-	srv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			// Only git's paths: the token must not reach the rest of the
-			// runtime API from here.
-			if strings.Contains(req.URL.Path, "..") {
-				http.Error(w, "not a repository", http.StatusBadRequest)
-				return
-			}
-			proxy.ServeHTTP(w, req)
-		}),
-		ReadHeaderTimeout: 10 * time.Second,
+	err = serve(ctx, addr.Host, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Only git's paths: the token must not reach the rest of the
+		// runtime API from here.
+		if strings.Contains(req.URL.Path, "..") {
+			http.Error(w, "not a repository", http.StatusBadRequest)
+			return
+		}
+		proxy.ServeHTTP(w, req)
+	}))
+	if err != nil {
+		r.log.Warn("agent: git cannot reach repositories, since its proxy could not listen", "error", err)
 	}
+}
+
+// serve answers on addr with h until ctx ends. It returns at once if it
+// cannot listen.
+func serve(ctx context.Context, addr string, h http.Handler) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
 	}()
 	_ = srv.Serve(ln)
+	return nil
+}
+
+// forward points a proxied request at path under base, with token as its
+// bearer token.
+func forward(pr *httputil.ProxyRequest, base *url.URL, path, token string) {
+	pr.Out.URL.Scheme, pr.Out.URL.Host = base.Scheme, base.Host
+	pr.Out.URL.Path = strings.TrimRight(base.Path, "/") + path
+	pr.Out.URL.RawPath = ""
+	pr.Out.Host = base.Host
+	pr.Out.Header.Set("Authorization", "Bearer "+token)
 }
 
 // gitEnv makes the agent the author of its commits, and stops git from

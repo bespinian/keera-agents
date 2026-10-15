@@ -20,8 +20,8 @@ import (
 //
 // and keeps sshd and the experience (pi in ttyd, or code-server) running.
 
-// BridgeURL is where the coding agent reaches models and tools.
-const BridgeURL = "http://127.0.0.1:7418"
+// bridgeURL is where the coding agent reaches models and tools.
+const bridgeURL = "http://127.0.0.1:7418"
 
 // RunWorkspace serves a workspace until ctx ends.
 func RunWorkspace(ctx context.Context, log *slog.Logger) error {

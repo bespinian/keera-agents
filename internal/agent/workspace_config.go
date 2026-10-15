@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -25,7 +26,7 @@ func (r *runner) writeConfigs(ctx context.Context) {
 	if err != nil {
 		r.log.Warn("workspace: could not list the gateway's models for the coding agent", "error", err)
 	}
-	mcp := BridgeURL + "/mcp"
+	mcp := bridgeURL + "/mcp"
 	for _, f := range []struct {
 		path string
 		edit func(map[string]any)
@@ -60,7 +61,7 @@ func (r *runner) writeConfigs(ctx context.Context) {
 
 func clineMCP(m map[string]any) {
 	object(m, "mcpServers")["keera"] = map[string]any{
-		"type": "streamableHttp", "url": BridgeURL + "/mcp", "disabled": false,
+		"type": "streamableHttp", "url": bridgeURL + "/mcp", "disabled": false,
 	}
 }
 
@@ -114,7 +115,7 @@ func piProvider(models []gatewayModel) map[string]any {
 		entries = append(entries, e)
 	}
 	return map[string]any{
-		"baseUrl": BridgeURL + "/v1",
+		"baseUrl": bridgeURL + "/v1",
 		"api":     "openai-completions",
 		// Any key does: the bridge adds the workspace's.
 		"apiKey":  "keera",
@@ -195,7 +196,7 @@ func (r *runner) writeSSHConfig(home string) error {
 	// refuse a volume the cluster made group-writable, and only one user
 	// lives here.
 	conf := strings.Join([]string{
-		"ListenAddress 127.0.0.1:2222",
+		"ListenAddress 127.0.0.1:" + strconv.Itoa(sshPort),
 		"HostKey " + hostKey,
 		"AuthorizedKeysFile " + filepath.Join(dir, "authorized_keys"),
 		"PidFile /tmp/sshd.pid",

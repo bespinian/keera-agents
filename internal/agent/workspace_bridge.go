@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -25,11 +24,6 @@ import (
 //	/mcp     an MCP server: the platform tools and the gateway's MCP servers
 
 func (r *runner) serveBridge(ctx context.Context) {
-	ln, err := net.Listen("tcp", strings.TrimPrefix(BridgeURL, "http://"))
-	if err != nil {
-		r.log.Warn("workspace: the coding agent has no models, since the bridge could not listen", "error", err)
-		return
-	}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", r.modelProxy())
 	mux.HandleFunc("POST /mcp", r.serveMCP)
@@ -41,12 +35,9 @@ func (r *runner) serveBridge(ctx context.Context) {
 	mux.HandleFunc("DELETE /mcp", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		<-ctx.Done()
-		_ = srv.Close()
-	}()
-	_ = srv.Serve(ln)
+	if err := serve(ctx, strings.TrimPrefix(bridgeURL, "http://"), mux); err != nil {
+		r.log.Warn("workspace: the coding agent has no models, since the bridge could not listen", "error", err)
+	}
 }
 
 // modelProxy passes /v1/... to the gateway's API with the workspace's key.
@@ -60,12 +51,8 @@ func (r *runner) modelProxy() http.Handler {
 			if err != nil {
 				return
 			}
-			pr.Out.URL.Scheme, pr.Out.URL.Host = base.Scheme, base.Host
-			pr.Out.URL.Path = strings.TrimRight(base.Path, "/") + strings.TrimPrefix(pr.In.URL.Path, "/v1")
-			pr.Out.URL.RawPath = ""
-			pr.Out.Host = base.Host
+			forward(pr, base, strings.TrimPrefix(pr.In.URL.Path, "/v1"), r.apiKey())
 			pr.Out.Header.Del("X-Api-Key")
-			pr.Out.Header.Set("Authorization", "Bearer "+r.apiKey())
 			// The gateway's Sessions screen shows the workspace as one session.
 			pr.Out.Header.Set("X-Keera-Session", r.cfg.AgentID)
 		},

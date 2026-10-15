@@ -26,17 +26,9 @@ const (
 // namespace's NetworkPolicy keeps everyone else from the port in the first
 // place.
 func (r *runner) serveFront(ctx context.Context) {
-	ln, err := net.Listen("tcp", ":"+strconv.Itoa(protocol.FrontPort))
-	if err != nil {
+	if err := serve(ctx, ":"+strconv.Itoa(protocol.FrontPort), http.HandlerFunc(r.front)); err != nil {
 		r.log.Error("workspace: nobody can connect, since the front could not listen", "error", err)
-		return
 	}
-	srv := &http.Server{Handler: http.HandlerFunc(r.front), ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		<-ctx.Done()
-		_ = srv.Close()
-	}()
-	_ = srv.Serve(ln)
 }
 
 func (r *runner) front(w http.ResponseWriter, req *http.Request) {

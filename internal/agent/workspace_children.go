@@ -18,7 +18,7 @@ type child struct {
 	path string
 	args []string
 	// prepare runs once before the first start.
-	prepare func(r *runner) error
+	prepare func() error
 }
 
 // vscodeExtensions holds the extensions the image ships, such as Cline.
@@ -45,7 +45,7 @@ func experienceCommand(experience, workspace string) child {
 			"--auth", "none",
 			"--disable-telemetry", "--disable-update-check",
 			workspace,
-		}, prepare: installExtensions}
+		}, prepare: func() error { return installExtensions(workspace) }}
 	}
 	return child{name: "ttyd", path: "ttyd", args: []string{
 		"--interface", "127.0.0.1", "--port", strconv.Itoa(terminalPort), "--writable",
@@ -62,7 +62,7 @@ func (r *runner) supervise(ctx context.Context, c child) {
 		return
 	}
 	if c.prepare != nil {
-		if err := c.prepare(r); err != nil {
+		if err := c.prepare(); err != nil {
 			r.log.Warn("workspace: preparing a program failed; starting it anyway", "program", c.name, "error", err)
 		}
 	}
@@ -93,9 +93,9 @@ func (r *runner) supervise(ctx context.Context, c child) {
 
 // installExtensions installs each extension the image ships once. A mark in
 // the workspace says it was, so one the owner removed stays removed.
-func installExtensions(r *runner) error {
+func installExtensions(workspace string) error {
 	files, _ := filepath.Glob(filepath.Join(vscodeExtensions, "*.vsix"))
-	marks := filepath.Join(r.cfg.Workspace, ".keera", "vscode")
+	marks := filepath.Join(workspace, ".keera", "vscode")
 	if err := os.MkdirAll(marks, 0o755); err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func (r *runner) workspaceEnv() []string {
 	boot := r.snapshot()
 	env := []string{
 		// Read by many OpenAI-compatible tools. The bridge adds the real key.
-		"OPENAI_BASE_URL=" + BridgeURL + "/v1",
+		"OPENAI_BASE_URL=" + bridgeURL + "/v1",
 		"OPENAI_API_KEY=keera",
 		"TERM=xterm-256color",
 	}

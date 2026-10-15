@@ -221,7 +221,7 @@ func TestMergeJSONKeepsWhatTheOwnerWrote(t *testing.T) {
 	if m["theme"] != "dark" || providers["mine"] == nil || providers["keera"] == nil {
 		t.Errorf("merged into %s", raw)
 	}
-	if !strings.Contains(string(raw), `"contextWindow": 1000`) || !strings.Contains(string(raw), BridgeURL+"/v1") {
+	if !strings.Contains(string(raw), `"contextWindow": 1000`) || !strings.Contains(string(raw), bridgeURL+"/v1") {
 		t.Errorf("the provider is not the bridge's: %s", raw)
 	}
 
