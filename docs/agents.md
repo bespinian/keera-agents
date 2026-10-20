@@ -116,7 +116,8 @@ A chat thread keeps its history in the workspace, so a follow-up in the same
 thread has the context of the earlier messages.
 
 The machine is the boundary: the agent may do anything inside it. Pick the
-isolation tier with that in mind.
+isolation tier with that in mind. A new agent or workspace gets the strongest
+tier the deployment has, unless someone chooses another.
 
 ## Where agents run
 

@@ -148,10 +148,7 @@ async function openNewWorkspace(ctx) {
  *  fault. */
 export async function workspaceForm(ctx, workspace) {
   const me = ctx.state.me;
-  const w = workspace || {
-    experience: "",
-    class: { isolation: (me.runtime && me.runtime.tiers && me.runtime.tiers[0]) || "standard" },
-  };
+  const w = workspace || { experience: "" };
   const catalog = await api.catalog("");
 
   const name = h("input", { class: "input", value: w.name || "", maxlength: "60" });
@@ -189,10 +186,13 @@ export async function workspaceForm(ctx, workspace) {
 
   const tiers = (me.runtime && me.runtime.tiers) || ["standard"];
   const cls = w.class || {};
+  // Tiers come weakest first. A new workspace gets the strongest, as the
+  // server gives it.
+  const chosen = cls.isolation || tiers[tiers.length - 1];
   const isolation = h(
     "select",
     { class: "select" },
-    tiers.map((t) => h("option", { value: t, selected: t === cls.isolation }, TIERS[t] || t)),
+    tiers.map((t) => h("option", { value: t, selected: t === chosen }, TIERS[t] || t)),
   );
   const cpu = h("input", { class: "input", value: cls.cpu || "", placeholder: "1", inputmode: "decimal" });
   const memory = h("input", { class: "input", value: cls.memory || "", placeholder: "2Gi" });

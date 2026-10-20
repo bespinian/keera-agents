@@ -186,7 +186,6 @@ export async function agentForm(ctx, agent) {
     access: "owner",
     allowed_emails: [],
     max_steps: 50,
-    class: { isolation: (me.runtime && me.runtime.tiers && me.runtime.tiers[0]) || "standard" },
   };
   let catalog = await api.catalog(a.project_id || "");
 
@@ -300,10 +299,13 @@ export async function agentForm(ctx, agent) {
 
   const tiers = (me.runtime && me.runtime.tiers) || ["standard"];
   const cls = a.class || {};
+  // Tiers come weakest first. A new agent gets the strongest, as the server
+  // gives it, since an agent runs code a model wrote.
+  const chosen = cls.isolation || tiers[tiers.length - 1];
   const isolation = h(
     "select",
     { class: "select" },
-    tiers.map((t) => h("option", { value: t, selected: t === cls.isolation }, TIERS[t] || t)),
+    tiers.map((t) => h("option", { value: t, selected: t === chosen }, TIERS[t] || t)),
     cls.isolation && !tiers.includes(cls.isolation)
       ? h(
           "option",
