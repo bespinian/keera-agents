@@ -1,11 +1,11 @@
 // Package dispatch turns what happens in the world into tasks for agents,
 // and their results back into messages, comments and files.
 //
-// Tasks come from four places: a message in a chat an agent listens on, a
-// schedule that is due, a card assigned to an agent in To do, and a new or
-// changed file in a folder an agent watches. People can also give a task in the panel.
-// Each task is queued on its agent, which runs one at a time; the fleet wakes
-// the agent if it was suspended.
+// Tasks come from a message in a chat an agent listens on, a schedule that
+// is due, a card assigned to an agent in To do, a new or changed file in a
+// folder an agent watches, and a person in the panel. Each task is queued on
+// its agent, which runs one at a time; the fleet wakes the agent if it was
+// suspended.
 package dispatch
 
 import (
@@ -104,18 +104,6 @@ func (d *Dispatcher) Conn(c store.Connection) (channels.Connection, error) {
 	}, nil
 }
 
-// connection loads a stored connection as an adapter takes it.
-func (d *Dispatcher) connection(ctx context.Context, id string) (channels.Connection, error) {
-	c, err := d.st.Connection(ctx, id)
-	if errors.Is(err, store.ErrNotFound) {
-		return channels.Connection{}, errors.New("the connector is gone")
-	}
-	if err != nil {
-		return channels.Connection{}, err
-	}
-	return d.Conn(c)
-}
-
 // binding returns one of the agent's bindings, if it is in one of modes.
 func (d *Dispatcher) binding(ctx context.Context, a store.Agent, id string, modes ...string) (store.Binding, bool) {
 	b, err := d.st.Binding(ctx, id)
@@ -146,7 +134,14 @@ func connect[T any](ctx context.Context, d *Dispatcher, connectionID, noun strin
 	adapterFor func(channels.Kind) (T, bool),
 ) (T, channels.Connection, error) {
 	var none T
-	conn, err := d.connection(ctx, connectionID)
+	c, err := d.st.Connection(ctx, connectionID)
+	if errors.Is(err, store.ErrNotFound) {
+		return none, channels.Connection{}, errors.New("the connector is gone")
+	}
+	if err != nil {
+		return none, channels.Connection{}, err
+	}
+	conn, err := d.Conn(c)
 	if err != nil {
 		return none, channels.Connection{}, err
 	}

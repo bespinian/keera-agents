@@ -333,7 +333,7 @@ func (d *Dispatcher) toolSend(ctx context.Context, a store.Agent, t store.Task, 
 		return d.send(ctx, t.Origin.ConnectionID, replyTarget(t.Origin), in.Text)
 	}
 	b, ok := d.binding(ctx, a, in.Channel, store.ModeChat)
-	if !ok || b.Target == store.AnyConversation {
+	if !ok || !isChannel(b) {
 		return fmt.Errorf("%s is not one of your channels", in.Channel)
 	}
 	return d.send(ctx, b.ConnectionID, channels.Target{Conversation: b.Target}, in.Text)

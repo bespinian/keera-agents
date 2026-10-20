@@ -32,18 +32,18 @@ import (
 )
 
 const (
-	Prefix        = "/runtime/v1"
-	BootstrapPath = Prefix + "/bootstrap"
-	NextTaskPath  = Prefix + "/tasks/next"
+	prefix        = "/runtime/v1"
+	BootstrapPath = prefix + "/bootstrap"
+	NextTaskPath  = prefix + "/tasks/next"
 	// TaskPath is followed by /{id}/events, /{id}/finish or
 	// /{id}/tools/{name}. A tool call's body is the tool's arguments.
-	TaskPath = Prefix + "/tasks"
+	TaskPath = prefix + "/tasks"
 	// GitPath is followed by /{binding}/ and git's own path, such as
 	// /{binding}/web.git/info/refs.
-	GitPath = Prefix + "/git"
+	GitPath = prefix + "/git"
 	// WorkspaceToolPath is followed by /{name}. The body is the tool's
 	// arguments.
-	WorkspaceToolPath = Prefix + "/workspace/tools"
+	WorkspaceToolPath = prefix + "/workspace/tools"
 
 	// MaxWait bounds a long poll for the next task.
 	MaxWait = 50 * time.Second

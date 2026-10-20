@@ -42,10 +42,9 @@ func gitClient(p egress.Policy) *http.Client {
 
 func (rn *Runner) git(w http.ResponseWriter, r *http.Request, a store.Agent) {
 	ctx := r.Context()
-	// An agent works on a repository only for a task. A workspace's owner
-	// works in it whenever they are connected.
-	// It works as the person the task is for, on a connector people sign in
-	// to.
+	// An agent works on a repository only during a task, and a workspace's
+	// owner whenever they are connected. On a connector people sign in to,
+	// git works as the person the task is for.
 	t := dispatch.WorkspaceTask(a)
 	if a.Kind != store.KindWorkspace {
 		var err error
