@@ -2,37 +2,12 @@
 // its settings and what it printed.
 
 import { api } from "../api.js";
-import {
-  h,
-  pill,
-  fact,
-  icon,
-  icons,
-  busyButton,
-  detailHead,
-  gone,
-  tabs,
-  replace,
-  banner,
-  confirm,
-  toast,
-  card,
-  loading,
-  every,
-  ago,
-} from "../ui.js";
-import { agentStatePill, isUp, workspacePath, EXPERIENCES, TIERS } from "../common.js";
+import { h, pill, fact, icon, icons, busyButton, detailHead, gone, confirm, toast, card, every, ago } from "../ui.js";
+import { agentStatePill, isUp, workspacePath, detailTabs, EXPERIENCES, TIERS } from "../common.js";
 import { noRuntime } from "./agents.js";
 import { channelsTab } from "./channels.js";
 import { logPane } from "./logs.js";
 import { workspaceForm, connectSteps } from "./workspaces.js";
-
-const TABS = [
-  { value: "overview", label: "Overview" },
-  { value: "connectors", label: "Connectors" },
-  { value: "settings", label: "Settings" },
-  { value: "logs", label: "Logs" },
-];
 
 export async function workspaceView(ctx) {
   let w;
@@ -45,7 +20,6 @@ export async function workspaceView(ctx) {
     throw err;
   }
   ctx.setTitle(w.name, w.description || "", icon(EXPERIENCES[w.experience]?.icon || icons.workspace));
-  let current = TABS.some((t) => t.value === ctx.sub) ? ctx.sub : "overview";
 
   if (w.state === "starting") {
     every(ctx, 4000, async () => {
@@ -54,33 +28,17 @@ export async function workspaceView(ctx) {
     });
   }
 
-  let tabTeardown = [];
-  const endTab = () => {
-    for (const fn of tabTeardown.splice(0)) fn();
-  };
-  ctx.onTeardown(endTab);
-  const tabCtx = { ...ctx, onTeardown: (fn) => tabTeardown.push(fn) };
-
-  const panel = h("div", { class: "grid" });
-  async function show(tab) {
-    endTab();
-    current = tab;
-    const path = workspacePath(w.id, tab === "overview" ? "" : tab);
-    if (location.pathname !== path) history.replaceState({}, "", path);
-    replace(panel, loading("160px"));
-    try {
-      const body = await TAB_VIEWS[tab](tabCtx, w);
-      if (current === tab && ctx.current()) replace(panel, body);
-    } catch (err) {
-      if (current === tab) replace(panel, banner("bad", err.message));
-    }
-  }
-  const strip = tabs(
-    TABS.map((t) => ({ ...t, count: t.value === "connectors" ? (w.bindings || []).length : 0 })),
-    current,
-    show,
+  const { strip, panel } = detailTabs(
+    ctx,
+    [
+      { value: "overview", label: "Overview", view: overviewTab },
+      { value: "connectors", label: "Connectors", count: (w.bindings || []).length, view: channelsTab },
+      { value: "settings", label: "Settings", view: settingsTab },
+      { value: "logs", label: "Logs", view: logPane },
+    ],
+    (tab) => workspacePath(w.id, tab),
+    w,
   );
-  show(current);
 
   return h("div", { class: "grid" }, head(ctx, w), noRuntime(ctx.state.me), strip, panel);
 }
@@ -91,18 +49,16 @@ function head(ctx, w) {
     toast(`${w.name} ${done}`, "good");
     ctx.reload();
   };
-  const controls = [];
-  if (w.can_edit) {
-    controls.push(
-      w.enabled !== false && isUp(w.state)
-        ? busyButton(
-            { title: "Stop its machine. Your files are kept." },
-            [icon(icons.stop), "Stop"],
-            act("stop", "is stopping"),
-          )
-        : busyButton({ title: "Start its machine" }, [icon(icons.play), "Start"], act("start", "is starting")),
-    );
-  }
+  // Only its owner and administrators can load a workspace, so whoever sees
+  // it may change it.
+  const control =
+    w.enabled !== false && isUp(w.state)
+      ? busyButton(
+          { title: "Stop its machine. Your files are kept." },
+          [icon(icons.stop), "Stop"],
+          act("stop", "is stopping"),
+        )
+      : busyButton({ title: "Start its machine" }, [icon(icons.play), "Start"], act("start", "is starting"));
   return detailHead(
     ctx,
     ["/workspaces", "Workspaces"],
@@ -111,16 +67,9 @@ function head(ctx, w) {
       pill(EXPERIENCES[w.experience]?.name || w.experience),
       w.state_detail ? h("span", { class: "faint small", style: { alignSelf: "center" } }, w.state_detail) : null,
     ],
-    h("div", { class: "row-tight", style: { flexWrap: "wrap" } }, controls),
+    h("div", { class: "row-tight", style: { flexWrap: "wrap" } }, control),
   );
 }
-
-const TAB_VIEWS = {
-  overview: overviewTab,
-  connectors: (ctx, w) => channelsTab(ctx, w),
-  settings: settingsTab,
-  logs: (ctx, w) => logPane(ctx, w),
-};
 
 function overviewTab(_ctx, w) {
   const cls = w.class || {};
@@ -155,7 +104,6 @@ function overviewTab(_ctx, w) {
 }
 
 async function settingsTab(ctx, w) {
-  if (!w.can_edit) return card(null, h("div", { class: "muted" }, "Only its owner and administrators change it."));
   const form = await workspaceForm(ctx, w);
   const save = busyButton({ class: "btn btn-primary" }, "Save", async () => {
     const body = form.values();

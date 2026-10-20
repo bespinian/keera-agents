@@ -15,7 +15,6 @@ import {
   dash,
   icon,
   icons,
-  fold,
   plural,
   toast,
   isAdmin,
@@ -25,7 +24,7 @@ import {
   modeTiles,
   pill,
 } from "../ui.js";
-import { agentStatePill, workspacePath, EXPERIENCES, TIERS } from "../common.js";
+import { agentStatePill, workspacePath, machineFold, EXPERIENCES } from "../common.js";
 import { noRuntime } from "./agents.js";
 import { codeBlock } from "../markdown.js";
 
@@ -147,7 +146,6 @@ async function openNewWorkspace(ctx) {
  *  values() returns the body to send, or throws after focusing the field at
  *  fault. */
 export async function workspaceForm(ctx, workspace) {
-  const me = ctx.state.me;
   const w = workspace || { experience: "" };
   const catalog = await api.catalog("");
 
@@ -184,31 +182,17 @@ export async function workspaceForm(ctx, workspace) {
     (catalog.models || []).map((m) => h("option", { value: m.alias, selected: m.alias === w.model }, m.alias)),
   );
 
-  const tiers = (me.runtime && me.runtime.tiers) || ["standard"];
-  const cls = w.class || {};
-  // Tiers come weakest first. A new workspace gets the strongest, as the
-  // server gives it.
-  const chosen = cls.isolation || tiers[tiers.length - 1];
-  const isolation = h(
-    "select",
-    { class: "select" },
-    tiers.map((t) => h("option", { value: t, selected: t === chosen }, TIERS[t] || t)),
-  );
-  const cpu = h("input", { class: "input", value: cls.cpu || "", placeholder: "1", inputmode: "decimal" });
-  const memory = h("input", { class: "input", value: cls.memory || "", placeholder: "2Gi" });
-  const disk = h("input", { class: "input", value: cls.disk || "", placeholder: "5Gi" });
+  const machine = machineFold(ctx.state.me, w.class || {}, {
+    memory: "Such as 2Gi or 8Gi.",
+    disk: "Your files and what you install. Fixed once the workspace exists.",
+    diskSize: "5Gi",
+  });
 
   rest.append(
     field("Name", name, "You reach it by this name, as in ssh api.keera. Unique among your workspaces."),
     field("Description", description, "Optional. What you work on in it."),
     field("Model", model, "The one the coding agent starts with. You can pick any other your key may use in it."),
-    fold(
-      "Machine",
-      field("Isolation", isolation, "How strongly its machine is kept apart from others."),
-      h("div", { class: "field-row" }, field("CPU cores", cpu), field("Memory", memory, "Such as 2Gi or 8Gi.")),
-      field("Disk", disk, "Your files and what you install. Fixed once the workspace exists."),
-      h("div", { class: "hint" }, "Leave a size empty for the deployment's default."),
-    ),
+    machine.el,
   );
 
   const el = workspace
@@ -236,12 +220,7 @@ export async function workspaceForm(ctx, workspace) {
       name: n,
       description: description.value.trim(),
       experience,
-      class: {
-        isolation: isolation.value,
-        cpu: cpu.value.trim(),
-        memory: memory.value.trim(),
-        disk: disk.value.trim(),
-      },
+      class: machine.value(),
     };
     if (model.value) body.model = model.value;
     return body;

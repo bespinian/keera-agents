@@ -18,7 +18,6 @@ import {
   busyButton,
   detailHead,
   gone,
-  tabs,
   replace,
   banner,
   confirm,
@@ -27,7 +26,6 @@ import {
   checkRow,
   link,
   card,
-  loading,
   listCard,
   miniRow,
   every,
@@ -52,21 +50,13 @@ import {
   taskTotal,
   agentPath,
   taskPath,
+  detailTabs,
 } from "../common.js";
 import { agentForm, noRuntime } from "./agents.js";
 import { channelsTab } from "./channels.js";
 import { scheduleTable, openScheduleEditor } from "./schedules.js";
 import { taskList, giveTask } from "./tasks.js";
 import { logPane } from "./logs.js";
-
-const TABS = [
-  { value: "overview", label: "Overview" },
-  { value: "settings", label: "Settings" },
-  { value: "channels", label: "Channels" },
-  { value: "schedules", label: "Schedules" },
-  { value: "tasks", label: "Tasks" },
-  { value: "logs", label: "Logs" },
-];
 
 export async function agentView(ctx) {
   let agent;
@@ -83,7 +73,6 @@ export async function agentView(ctx) {
     agent.description || "",
     avatarOf(agent.name, { agent: true, icon: agent.icon, large: true }),
   );
-  let current = TABS.some((t) => t.value === ctx.sub) ? ctx.sub : "overview";
 
   // A machine on its way up is watched, so the state does not go stale.
   if (agent.state === "starting") {
@@ -93,48 +82,19 @@ export async function agentView(ctx) {
     });
   }
 
-  // Each tab may leave something running, such as the log stream.
-  let tabTeardown = [];
-  const endTab = () => {
-    for (const fn of tabTeardown.splice(0)) fn();
-  };
-  ctx.onTeardown(endTab);
-  const tabCtx = { ...ctx, onTeardown: (fn) => tabTeardown.push(fn) };
-
-  const panel = h("div", { class: "grid" });
-  async function show(tab) {
-    endTab();
-    current = tab;
-    // The URL names the tab, so a reload or a shared link opens it.
-    const path = agentPath(agent.id, tab === "overview" ? "" : tab);
-    if (location.pathname !== path) history.replaceState({}, "", path);
-    replace(panel, loading("160px"));
-    try {
-      const body = await TAB_VIEWS[tab](tabCtx, agent);
-      if (current === tab && ctx.current()) replace(panel, body);
-    } catch (err) {
-      if (current === tab) replace(panel, banner("bad", err.message));
-    }
-  }
-
-  const strip = tabs(
-    TABS.map((t) => ({
-      ...t,
-      count:
-        t.value === "channels"
-          ? (agent.bindings || []).length
-          : t.value === "schedules"
-            ? (agent.schedules || []).length
-            : 0,
-    })),
-    current,
-    show,
+  const { strip, panel } = detailTabs(
+    ctx,
+    [
+      { value: "overview", label: "Overview", view: overviewTab },
+      { value: "settings", label: "Settings", view: settingsTab },
+      { value: "channels", label: "Channels", count: (agent.bindings || []).length, view: channelsTab },
+      { value: "schedules", label: "Schedules", count: (agent.schedules || []).length, view: schedulesTab },
+      { value: "tasks", label: "Tasks", view: (ctx) => h("div", {}, taskList(ctx, { agentID: ctx.param })) },
+      { value: "logs", label: "Logs", view: logPane },
+    ],
+    (tab) => agentPath(agent.id, tab),
+    agent,
   );
-  tabCtx.showTab = (tab) => {
-    strip.select(tab);
-    show(tab);
-  };
-  show(current);
 
   return h("div", { class: "grid" }, head(ctx, agent), noRuntime(ctx.state.me), strip, panel);
 }
@@ -214,15 +174,6 @@ function head(ctx, agent) {
     h("div", { class: "row-tight", style: { flexWrap: "wrap" } }, controls),
   );
 }
-
-const TAB_VIEWS = {
-  overview: overviewTab,
-  settings: settingsTab,
-  channels: (ctx, agent) => channelsTab(ctx, agent),
-  schedules: schedulesTab,
-  tasks: (ctx) => h("div", {}, taskList(ctx, { agentID: ctx.param })),
-  logs: (ctx, agent) => logPane(ctx, agent),
-};
 
 async function overviewTab(ctx, agent) {
   const stats = agent.stats || {};

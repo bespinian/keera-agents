@@ -27,7 +27,7 @@ import {
   avatarOf,
   agentIconPicker,
 } from "../ui.js";
-import { agentStatePill, agentPath, AGENT_STATES, BUILTINS, ACCESS, TIERS } from "../common.js";
+import { agentStatePill, agentPath, machineFold, AGENT_STATES, BUILTINS, ACCESS } from "../common.js";
 
 export async function agentsView(ctx) {
   const agents = (await api.agents()).data || [];
@@ -297,26 +297,11 @@ export async function agentForm(ctx, agent) {
     placeholder: "No budget of its own",
   });
 
-  const tiers = (me.runtime && me.runtime.tiers) || ["standard"];
-  const cls = a.class || {};
-  // Tiers come weakest first. A new agent gets the strongest, as the server
-  // gives it, since an agent runs code a model wrote.
-  const chosen = cls.isolation || tiers[tiers.length - 1];
-  const isolation = h(
-    "select",
-    { class: "select" },
-    tiers.map((t) => h("option", { value: t, selected: t === chosen }, TIERS[t] || t)),
-    cls.isolation && !tiers.includes(cls.isolation)
-      ? h(
-          "option",
-          { value: cls.isolation, selected: true },
-          `${TIERS[cls.isolation] || cls.isolation} (not offered here)`,
-        )
-      : null,
-  );
-  const cpu = h("input", { class: "input", value: cls.cpu || "", placeholder: "1", inputmode: "decimal" });
-  const memory = h("input", { class: "input", value: cls.memory || "", placeholder: "2Gi" });
-  const disk = h("input", { class: "input", value: cls.disk || "", placeholder: "10Gi" });
+  const machine = machineFold(me, a.class || {}, {
+    memory: "Such as 512Mi or 2Gi.",
+    disk: "Its workspace and memory. They survive restarts.",
+    diskSize: "10Gi",
+  });
   const maxSteps = h("input", {
     class: "input",
     type: "number",
@@ -368,13 +353,7 @@ export async function agentForm(ctx, agent) {
       ),
     ),
     emailsField,
-    fold(
-      "Machine",
-      field("Isolation", isolation, "How strongly its machine is kept apart from others."),
-      h("div", { class: "field-row" }, field("CPU cores", cpu), field("Memory", memory, "Such as 512Mi or 2Gi.")),
-      field("Disk", disk, "Its workspace and memory. They survive restarts."),
-      h("div", { class: "hint" }, "Leave a size empty for the deployment's default."),
-    ),
+    machine.el,
     fold(
       "Advanced",
       field(
@@ -411,12 +390,7 @@ export async function agentForm(ctx, agent) {
       access: access.value,
       allowed_emails: access.value === "people" ? list : [],
       budget_micros: micros,
-      class: {
-        isolation: isolation.value,
-        cpu: cpu.value.trim(),
-        memory: memory.value.trim(),
-        disk: disk.value.trim(),
-      },
+      class: machine.value(),
     };
     if (project) body.project_id = project.value;
     return body;

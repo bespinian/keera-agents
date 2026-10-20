@@ -1,7 +1,7 @@
 // Words, tones and small cells that several screens share, so an agent's or
 // a task's state reads the same everywhere.
 
-import { h, pill, card, icon, icons, duration, num } from "./ui.js";
+import { h, pill, card, icon, icons, duration, num, tabs, replace, loading, banner, field, fold } from "./ui.js";
 import { areaChart } from "./chart.js";
 
 /** agentPath is an agent's screen, or one of its tabs. */
@@ -19,6 +19,45 @@ export const EXPERIENCES = {
   terminal: { name: "Terminal", icon: icons.workspace, what: "Pi, the coding agent, in a terminal in your browser." },
   vscode: { name: "VS Code", icon: icons.code, what: "VS Code in your browser, with the Cline coding agent." },
 };
+
+/** detailTabs is a screen's tab strip and the panel under it. Each item is
+ *  { value, label, count, view }, and view(ctx, subject) builds its panel.
+ *  The first tab is the default. ctx.showTab, given to the views, opens
+ *  another. */
+export function detailTabs(ctx, items, pathOf, subject) {
+  let current = items.some((t) => t.value === ctx.sub) ? ctx.sub : items[0].value;
+
+  // Each tab may leave something running, such as the log stream.
+  const teardown = [];
+  const endTab = () => {
+    for (const fn of teardown.splice(0)) fn();
+  };
+  ctx.onTeardown(endTab);
+  const tabCtx = { ...ctx, onTeardown: (fn) => teardown.push(fn) };
+
+  const panel = h("div", { class: "grid" });
+  async function show(tab) {
+    endTab();
+    current = tab;
+    // The URL names the tab, so a reload or a shared link opens it.
+    const path = pathOf(tab === items[0].value ? "" : tab);
+    if (location.pathname !== path) history.replaceState({}, "", path);
+    replace(panel, loading("160px"));
+    try {
+      const body = await items.find((t) => t.value === tab).view(tabCtx, subject);
+      if (current === tab && ctx.current()) replace(panel, body);
+    } catch (err) {
+      if (current === tab) replace(panel, banner("bad", err.message));
+    }
+  }
+  const strip = tabs(items, current, show);
+  tabCtx.showTab = (tab) => {
+    strip.select(tab);
+    show(tab);
+  };
+  show(current);
+  return { strip, panel };
+}
 
 /** taskPath is a task's screen. */
 export function taskPath(id) {
@@ -170,6 +209,47 @@ export const TIERS = {
   isolated: "Isolated: a container in a sandbox",
   vm: "VM: its own virtual machine",
 };
+
+/** machineFold is the Machine section of an agent's or a workspace's form.
+ *  hints says what its memory and disk are for. value() is the class to
+ *  send. */
+export function machineFold(me, cls, hints) {
+  const tiers = (me.runtime && me.runtime.tiers) || ["standard"];
+  // Tiers come weakest first. A new machine gets the strongest, as the server
+  // gives it, since an agent runs code a model wrote.
+  const chosen = cls.isolation || tiers[tiers.length - 1];
+  const isolation = h(
+    "select",
+    { class: "select" },
+    tiers.map((t) => h("option", { value: t, selected: t === chosen }, TIERS[t] || t)),
+    // A tier taken away since keeps showing, so saving does not change it
+    // unasked.
+    cls.isolation && !tiers.includes(cls.isolation)
+      ? h(
+          "option",
+          { value: cls.isolation, selected: true },
+          `${TIERS[cls.isolation] || cls.isolation} (not offered here)`,
+        )
+      : null,
+  );
+  const cpu = h("input", { class: "input", value: cls.cpu || "", placeholder: "1", inputmode: "decimal" });
+  const memory = h("input", { class: "input", value: cls.memory || "", placeholder: "2Gi" });
+  const disk = h("input", { class: "input", value: cls.disk || "", placeholder: hints.diskSize });
+  const el = fold(
+    "Machine",
+    field("Isolation", isolation, "How strongly its machine is kept apart from others."),
+    h("div", { class: "field-row" }, field("CPU cores", cpu), field("Memory", memory, hints.memory)),
+    field("Disk", disk, hints.disk),
+    h("div", { class: "hint" }, "Leave a size empty for the deployment's default."),
+  );
+  const value = () => ({
+    isolation: isolation.value,
+    cpu: cpu.value.trim(),
+    memory: memory.value.trim(),
+    disk: disk.value.trim(),
+  });
+  return { el, value };
+}
 
 /** taskTotal counts an overview's tasks; cancelled ones are not counted. */
 export function taskTotal(tasks) {
