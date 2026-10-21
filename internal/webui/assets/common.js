@@ -139,35 +139,11 @@ export function firstLine(text, max = 80) {
   return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
 }
 
-/** KIND_LABELS name connector kinds before /connection-kinds has answered. */
-const KIND_LABELS = {
-  teams: "Microsoft Teams",
-  googlechat: "Google Chat",
-  slack: "Slack",
-  gdrive: "Google Drive",
-  onedrive: "OneDrive",
-  github: "GitHub",
-  gitlab: "GitLab",
-  jira: "Jira",
-  confluence: "Confluence",
-  gdocs: "Google Docs",
-  gsheets: "Google Sheets",
-  gslides: "Google Slides",
-  gcalendar: "Google Calendar",
-  gmail: "Gmail",
-  outlook: "Outlook",
-  hubspot: "HubSpot",
-  salesforce: "Salesforce",
-  postgres: "PostgreSQL",
-  kubernetes: "Kubernetes",
-  aws: "AWS",
-  azure: "Azure",
-  gcp: "Google Cloud",
-};
-
+/** kindLabel names a connector kind as /connection-kinds does, or by its id
+ *  while that has not answered. */
 export function kindLabel(kind, kinds) {
   const d = (kinds || []).find((k) => k.kind === kind);
-  return (d && d.label) || KIND_LABELS[kind] || kind;
+  return (d && d.label) || kind;
 }
 
 /** BUILTINS are the tools every agent may be given, each in one line. */

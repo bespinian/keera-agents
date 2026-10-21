@@ -5,7 +5,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  amount,
   money,
   francs,
   microsOf,
@@ -29,10 +28,10 @@ import { trimLog } from "../assets/views/logs.js";
 
 test("money reads in francs with the currency first", () => {
   assert.equal(money(12_500_000), "CHF 12.50");
-  assert.equal(amount(0), "0.00");
-  assert.equal(amount(1_000_000), "1.00");
+  assert.equal(money(0), "CHF 0.00");
+  assert.equal(money(1_000_000), "CHF 1.00");
   // Small amounts keep their digits rather than rounding to zero.
-  assert.equal(amount(1234), "0.0012");
+  assert.equal(money(1234), "CHF 0.0012");
 });
 
 test("a budget field round-trips through micro-CHF", () => {
@@ -114,7 +113,7 @@ test("a channel offers the modes its kind supports", () => {
     "files",
     "repo",
   ]);
-  assert.equal(kindLabel("slack", []), "Slack");
+  assert.equal(kindLabel("slack", []), "slack");
   assert.equal(
     kindLabel("teams", [{ kind: "teams", label: "Teams" }]),
     "Teams",

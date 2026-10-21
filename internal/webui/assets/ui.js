@@ -59,14 +59,10 @@ export function compact(n) {
   return numberFmt.format(n);
 }
 
-/** money renders integer micro-units of CHF, with the currency first: CHF 3.00. */
+/** money renders integer micro-units of CHF, with the currency first: CHF 3.00.
+ *  Under a franc it keeps two significant digits, so a fraction of a cent is
+ *  not 0.00. */
 export function money(micros) {
-  return `CHF ${amount(micros)}`;
-}
-
-/** amount renders integer micro-units without the currency. Under a franc
- *  it keeps two significant digits, so a fraction of a cent is not 0.00. */
-export function amount(micros) {
   const v = (micros || 0) / 1e6;
   let s;
   if (v === 0) s = "0.00";
@@ -74,7 +70,7 @@ export function amount(micros) {
   else s = String(Number(v.toPrecision(2)));
   if (!s.includes(".")) s += ".00";
   else if (s.split(".")[1].length < 2) s += "0";
-  return s;
+  return `CHF ${s}`;
 }
 
 /** plural picks word for one and many for the rest. */
@@ -1671,7 +1667,7 @@ const AGENT_ICONS = [
     path: "M3 11v3a1 1 0 0 0 1 1h3l6 4V6l-6 4H4a1 1 0 0 0-1 1zM17 9a4 4 0 0 1 0 6M20 6a8 8 0 0 1 0 12",
   },
   { name: "person", label: "Person", path: icons.person },
-  { name: "code", label: "Code", path: "M16 18l6-6-6-6M8 6l-6 6 6 6" },
+  { name: "code", label: "Code", path: icons.code },
   { name: "terminal", label: "Terminal", path: icons.terminal },
   { name: "tool", label: "Wrench", path: icons.tool },
   { name: "shield", label: "Shield", path: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" },
