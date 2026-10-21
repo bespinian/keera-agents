@@ -64,13 +64,13 @@ func (s *Server) workspaceRef(w http.ResponseWriter, r *http.Request, p Principa
 	return s.loadWorkspace(w, r, p, ref)
 }
 
-func (s *Server) writeWorkspace(w http.ResponseWriter, r *http.Request, p Principal, status int, a store.Agent) {
+func (s *Server) writeWorkspace(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent) {
 	bindings, err := s.st.AgentBindings(r.Context(), a.ID)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, status, viewWorkspace(p, a, len(bindings)))
+	writeJSON(w, http.StatusOK, viewWorkspace(p, a, len(bindings)))
 }
 
 // listWorkspaces lists the caller's workspaces, or with ?all=true every one
@@ -167,14 +167,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		}
 		in.Model = &cat.Models[0].Alias
 	}
-	if in.Class == nil || in.Class.Isolation == "" {
-		c := runtime.DefaultClass
-		if in.Class != nil {
-			c = *in.Class
-		}
-		c.Isolation = strongestTier(s.fleet.Tiers())
-		in.Class = &c
-	}
+	in.Class = s.newClass(in.Class)
 	if err := s.applyWorkspace(r.Context(), p, &a, in); err != nil {
 		badRequest(w, err.Error())
 		return
@@ -209,17 +202,13 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		return
 	}
 	s.record(r.Context(), p, "workspace.update", out.ID, map[string]any{"name": out.Name})
-	if out.GatewayKeyID != "" && (before.ProjectID != out.ProjectID || before.BudgetMicros != out.BudgetMicros) {
-		if err := s.fleet.Rekey(r.Context(), out); err != nil {
-			s.log.Warn("could not replace a workspace's key", "workspace", out.ID, "error", err)
-		}
-	}
+	s.rekeyIfChanged(r.Context(), before, out)
 	// The runtime starts the experience once, so a new one needs a new
 	// container, as a new image or machine does. The volume stays.
 	if out.Enabled && (before.Image != out.Image || before.Class != out.Class || before.Experience != out.Experience) {
 		s.startLater(out)
 	}
-	s.writeWorkspace(w, r, p, http.StatusOK, out)
+	s.writeWorkspace(w, r, p, out)
 }
 
 func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -235,21 +224,16 @@ func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) startWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
-	s.setWorkspaceEnabled(w, r, p, true)
-}
-
-func (s *Server) stopWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
-	s.setWorkspaceEnabled(w, r, p, false)
-}
-
-func (s *Server) setWorkspaceEnabled(w http.ResponseWriter, r *http.Request, p Principal, enabled bool) {
-	a, ok := s.workspaceRef(w, r, p)
-	if !ok {
-		return
-	}
-	if out, ok := s.setMachineEnabled(w, r, p, a, enabled, false); ok {
-		s.writeWorkspace(w, r, p, http.StatusOK, out)
+// setWorkspaceEnabled starts or stops a workspace.
+func (s *Server) setWorkspaceEnabled(enabled bool) handler {
+	return func(w http.ResponseWriter, r *http.Request, p Principal) {
+		a, ok := s.workspaceRef(w, r, p)
+		if !ok {
+			return
+		}
+		if out, ok := s.setMachineEnabled(w, r, p, a, enabled, false); ok {
+			s.writeWorkspace(w, r, p, out)
+		}
 	}
 }
 

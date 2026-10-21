@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -23,13 +22,13 @@ func canSeeTask(p Principal, t store.Task) bool {
 		t.AgentOwnerID == p.UserID
 }
 
-// visibleTasks lists the tasks the caller may see, as canSeeTask decides,
-// with the database doing the filtering.
-func (s *Server) visibleTasks(ctx context.Context, p Principal, q store.TaskQuery) ([]store.Task, error) {
+// visibleTo narrows a query to the tasks the caller may see, as canSeeTask
+// decides, so the database does the filtering.
+func visibleTo(p Principal, q store.TaskQuery) store.TaskQuery {
 	if !p.CanAdmin() {
 		q.ViewerID, q.ViewerEmail = p.UserID, p.Email
 	}
-	return s.st.Tasks(ctx, q)
+	return q
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -46,7 +45,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request, p Principal) 
 		}
 		tq.Before = &t
 	}
-	tasks, err := s.visibleTasks(r.Context(), p, tq)
+	tasks, err := s.st.Tasks(r.Context(), visibleTo(p, tq))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -58,10 +57,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request, p Principal) 
 // agents, states and sources of the tasks the caller may see.
 func (s *Server) taskFacets(w http.ResponseWriter, r *http.Request, p Principal) {
 	q := store.TaskQuery{OrgID: p.OrgID, AgentID: r.URL.Query().Get("agent_id")}
-	if !p.CanAdmin() {
-		q.ViewerID, q.ViewerEmail = p.UserID, p.Email
-	}
-	f, err := s.st.TaskFacets(r.Context(), q)
+	f, err := s.st.TaskFacets(r.Context(), visibleTo(p, q))
 	if err != nil {
 		s.fail(w, err)
 		return

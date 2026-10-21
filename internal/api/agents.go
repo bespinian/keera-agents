@@ -52,7 +52,7 @@ func viewAgent(p Principal, a store.Agent, l store.AgentLoad, channels int) agen
 }
 
 // writeAgent answers a changed agent as the list shows it.
-func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, p Principal, status int, a store.Agent) {
+func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent) {
 	l, err := s.st.AgentLoad(r.Context(), a.ID)
 	if err != nil {
 		s.fail(w, err)
@@ -63,7 +63,7 @@ func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, p Principal,
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, status, viewAgent(p, a, l, len(bindings)))
+	writeJSON(w, http.StatusOK, viewAgent(p, a, l, len(bindings)))
 }
 
 // loadAgent finds an agent in the caller's organisation. Another
@@ -72,15 +72,6 @@ func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, p Principal,
 func (s *Server) loadAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
 	a, err := s.st.Agent(r.Context(), id)
 	return a, s.found(w, err, a.OrgID == p.OrgID && a.Kind == store.KindAgent, "agent")
-}
-
-// editableMachine finds an agent or a workspace the caller may change.
-func (s *Server) editableMachine(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
-	a, err := s.st.Agent(r.Context(), id)
-	if err == nil && a.Kind == store.KindWorkspace {
-		return s.loadWorkspace(w, r, p, id)
-	}
-	return s.editableAgent(w, r, p, id)
 }
 
 func (s *Server) editableAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
@@ -328,6 +319,20 @@ func (s *Server) apply(ctx context.Context, p Principal, a *store.Agent, in agen
 	return nil
 }
 
+// newClass is a new agent's or workspace's machine. With no tier named, it
+// is the strongest this deployment has, since an agent runs code a model
+// wrote.
+func (s *Server) newClass(in *runtime.Class) *runtime.Class {
+	c := runtime.DefaultClass
+	if in != nil {
+		c = *in
+	}
+	if c.Isolation == "" {
+		c.Isolation = strongestTier(s.fleet.Tiers())
+	}
+	return &c
+}
+
 func strongestTier(tiers []runtime.Isolation) runtime.Isolation {
 	for _, t := range []runtime.Isolation{runtime.VM, runtime.Isolated} {
 		if slices.Contains(tiers, t) {
@@ -355,16 +360,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 		MaxSteps: protocol.DefaultMaxSteps, Access: store.AccessOrg, Enabled: true, Class: runtime.DefaultClass,
 		Builtins: []string{protocol.BuiltinMemory, protocol.BuiltinFiles},
 	}
-	if in.Class == nil || in.Class.Isolation == "" {
-		// The strongest tier this deployment has, since an agent runs code a
-		// model wrote.
-		c := runtime.DefaultClass
-		if in.Class != nil {
-			c = *in.Class
-		}
-		c.Isolation = strongestTier(s.fleet.Tiers())
-		in.Class = &c
-	}
+	in.Class = s.newClass(in.Class)
 	if err := s.apply(r.Context(), p, &a, in); err != nil {
 		badRequest(w, err.Error())
 		return
@@ -377,6 +373,17 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 	s.startLater(out)
 	// A new agent has no tasks and no channels yet.
 	writeJSON(w, http.StatusCreated, viewAgent(p, out, store.AgentLoad{}, 0))
+}
+
+// rekeyIfChanged gives a changed agent or workspace a new key when its
+// project or budget changed, as the key carries both.
+func (s *Server) rekeyIfChanged(ctx context.Context, before, after store.Agent) {
+	if after.GatewayKeyID == "" || (before.ProjectID == after.ProjectID && before.BudgetMicros == after.BudgetMicros) {
+		return
+	}
+	if err := s.fleet.Rekey(ctx, after); err != nil {
+		s.log.Warn("could not replace a key", after.Kind, after.ID, "error", err)
+	}
 }
 
 // startLater starts a new or changed agent's machine in the background:
@@ -413,14 +420,8 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 		return
 	}
 	s.record(r.Context(), p, "agent.update", out.ID, map[string]any{"name": out.Name})
-
-	// The key carries the project and the budget, so changing them needs a
-	// new key. Instructions and the model reach the runtime at its next task.
-	if out.GatewayKeyID != "" && (before.ProjectID != out.ProjectID || before.BudgetMicros != out.BudgetMicros) {
-		if err := s.fleet.Rekey(r.Context(), out); err != nil {
-			s.log.Warn("could not replace an agent's key", "agent", out.ID, "error", err)
-		}
-	}
+	// Instructions and the model reach the runtime at its next task.
+	s.rekeyIfChanged(r.Context(), before, out)
 	switch {
 	case before.Enabled && !out.Enabled:
 		if err := s.fleet.Stop(r.Context(), out, "the agent was stopped"); err != nil {
@@ -430,7 +431,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 		out.Enabled && (before.Image != out.Image || before.Class != out.Class):
 		s.startLater(out)
 	}
-	s.writeAgent(w, r, p, http.StatusOK, out)
+	s.writeAgent(w, r, p, out)
 }
 
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -446,13 +447,17 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, p Principal
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request, p Principal, enabled, restart bool) {
-	a, ok := s.editableAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
-	}
-	if out, ok := s.setMachineEnabled(w, r, p, a, enabled, restart); ok {
-		s.writeAgent(w, r, p, http.StatusOK, out)
+// setEnabled starts, stops or restarts an agent. A restart replaces the
+// container and keeps its files.
+func (s *Server) setEnabled(enabled, restart bool) handler {
+	return func(w http.ResponseWriter, r *http.Request, p Principal) {
+		a, ok := s.editableAgent(w, r, p, r.PathValue("id"))
+		if !ok {
+			return
+		}
+		if out, ok := s.setMachineEnabled(w, r, p, a, enabled, restart); ok {
+			s.writeAgent(w, r, p, out)
+		}
 	}
 }
 
@@ -488,19 +493,6 @@ func (s *Server) setMachineEnabled(w http.ResponseWriter, r *http.Request, p Pri
 	return out, true
 }
 
-func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, p Principal) {
-	s.setEnabled(w, r, p, true, false)
-}
-
-func (s *Server) stopAgent(w http.ResponseWriter, r *http.Request, p Principal) {
-	s.setEnabled(w, r, p, false, false)
-}
-
-// restartAgent replaces the container, keeping the workspace.
-func (s *Server) restartAgent(w http.ResponseWriter, r *http.Request, p Principal) {
-	s.setEnabled(w, r, p, true, true)
-}
-
 // takeOverAgent makes the caller the owner, as when the owner left. Only an
 // administrator may: the agent's spend and actions become the new owner's.
 func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -525,7 +517,7 @@ func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Princip
 	_ = s.st.SetAgentState(r.Context(), a.ID, a.State, "")
 	s.record(r.Context(), p, "agent.take_over", a.ID, map[string]string{"previous_owner": previous})
 	out, _ := s.st.Agent(r.Context(), a.ID)
-	s.writeAgent(w, r, p, http.StatusOK, out)
+	s.writeAgent(w, r, p, out)
 }
 
 func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -716,7 +708,14 @@ func (s *Server) deleteBinding(w http.ResponseWriter, r *http.Request, p Princip
 	if !s.found(w, err, b.OrgID == p.OrgID, "channel") {
 		return
 	}
-	if _, ok := s.editableMachine(w, r, p, b.AgentID); !ok {
+	// Another's workspace is not found, as on its own routes; another's
+	// agent is only forbidden.
+	a, err := s.st.Agent(r.Context(), b.AgentID)
+	if !s.found(w, err, a.OrgID == p.OrgID && (a.Kind == store.KindAgent || canEdit(p, a)), "channel") {
+		return
+	}
+	if !canEdit(p, a) {
+		forbid(w, "only "+a.OwnerEmail+" and administrators can change "+a.Name)
 		return
 	}
 	if err := s.st.DeleteBinding(r.Context(), b.ID); err != nil {

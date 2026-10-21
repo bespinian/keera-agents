@@ -99,9 +99,9 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/agents/{id}", s.getAgent)
 	route("PATCH /api/v1/agents/{id}", s.updateAgent)
 	route("DELETE /api/v1/agents/{id}", s.deleteAgent)
-	route("POST /api/v1/agents/{id}/start", s.startAgent)
-	route("POST /api/v1/agents/{id}/stop", s.stopAgent)
-	route("POST /api/v1/agents/{id}/restart", s.restartAgent)
+	route("POST /api/v1/agents/{id}/start", s.setEnabled(true, false))
+	route("POST /api/v1/agents/{id}/stop", s.setEnabled(false, false))
+	route("POST /api/v1/agents/{id}/restart", s.setEnabled(true, true))
 	route("POST /api/v1/agents/{id}/take-over", s.takeOverAgent)
 	route("GET /api/v1/agents/{id}/activity", s.agentActivity)
 	route("GET /api/v1/agents/{id}/logs", s.agentLogs)
@@ -115,8 +115,8 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/workspaces/{id}", s.getWorkspace)
 	route("PATCH /api/v1/workspaces/{id}", s.updateWorkspace)
 	route("DELETE /api/v1/workspaces/{id}", s.deleteWorkspace)
-	route("POST /api/v1/workspaces/{id}/start", s.startWorkspace)
-	route("POST /api/v1/workspaces/{id}/stop", s.stopWorkspace)
+	route("POST /api/v1/workspaces/{id}/start", s.setWorkspaceEnabled(true))
+	route("POST /api/v1/workspaces/{id}/stop", s.setWorkspaceEnabled(false))
 	route("GET /api/v1/workspaces/{id}/logs", s.workspaceLogs)
 	route("POST /api/v1/workspaces/{id}/bindings", s.createWorkspaceBinding)
 	route("POST /api/v1/workspaces/{id}/connect", s.connectWorkspace)
@@ -341,7 +341,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) {
 	if !ok {
 		return
 	}
-	recent, err := s.visibleTasks(ctx, p, store.TaskQuery{OrgID: p.OrgID, Limit: 10})
+	recent, err := s.st.Tasks(ctx, visibleTo(p, store.TaskQuery{OrgID: p.OrgID, Limit: 10}))
 	if err != nil {
 		s.fail(w, err)
 		return
