@@ -1,10 +1,8 @@
 package api
 
 import (
-	"crypto/subtle"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -27,11 +25,9 @@ const (
 )
 
 type pendingSignIn struct {
-	State        string `json:"s"`
-	Verifier     string `json:"v"`
+	pending
 	ConnectionID string `json:"c"`
 	UserID       string `json:"u"`
-	Expires      int64  `json:"x"`
 }
 
 type signInResult struct {
@@ -46,10 +42,7 @@ func (s *Server) startSignIn(w http.ResponseWriter, r *http.Request, p Principal
 	if !ok {
 		return
 	}
-	pending := pendingSignIn{
-		State: randomToken(), Verifier: randomToken(), ConnectionID: c.ID, UserID: p.UserID,
-		Expires: time.Now().Add(loginTTL).Unix(),
-	}
+	pending := pendingSignIn{pending: newPending(), ConnectionID: c.ID, UserID: p.UserID}
 	u, err := s.disp.SignInURL(c, pending.State, challenge(pending.Verifier))
 	if err != nil {
 		badRequest(w, err.Error())
@@ -68,19 +61,18 @@ func (s *Server) signInCallback(w http.ResponseWriter, r *http.Request) {
 	ok := s.readSealed(r, signInCookie, &pending)
 	s.clearCookie(w, signInCookie, signInPath)
 	q := r.URL.Query()
-	switch {
-	case !ok || time.Now().Unix() > pending.Expires:
-		s.signedInTo(w, r, "", "this sign-in took too long, or was started in another browser; try again")
-		return
-	// The state stops a link from connecting someone else's account.
-	case subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(pending.State)) != 1:
-		s.signedInTo(w, r, "", "this sign-in was not the one this browser started; try again")
-		return
-	case q.Get("error") != "":
-		s.signedInTo(w, r, pending.ConnectionID, "the service did not sign you in ("+trim(q.Get("error"), 60)+")")
-		return
-	case q.Get("code") == "":
-		s.signedInTo(w, r, pending.ConnectionID, "the sign-in came back without a code; try again")
+	msg, started := pending.check(ok, q)
+	// Only a return the state vouches for names the connector or shows the
+	// service's error.
+	if started && q.Get("error") != "" {
+		msg = "the service did not sign you in (" + trim(q.Get("error"), 60) + ")"
+	}
+	if msg != "" {
+		id := ""
+		if started {
+			id = pending.ConnectionID
+		}
+		s.signedInTo(w, r, id, msg)
 		return
 	}
 	// The person who started must still be the one signed in here, so an

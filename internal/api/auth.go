@@ -41,11 +41,33 @@ type session struct {
 	Expires int64  `json:"x"`
 }
 
-// pending is the login cookie, held while the person is at the gateway.
+// pending is the login cookie, held while the person is at the gateway. A
+// sign-in to a connector holds one too.
 type pending struct {
 	State    string `json:"s"`
 	Verifier string `json:"v"`
 	Expires  int64  `json:"x"`
+}
+
+func newPending() pending {
+	return pending{State: randomToken(), Verifier: randomToken(), Expires: time.Now().Add(loginTTL).Unix()}
+}
+
+// check says why the browser's return from signing in cannot go on, or ""
+// if it can. ok says the cookie was read. started says the state matched,
+// so the return belongs to the sign-in this browser started.
+func (p pending) check(ok bool, q url.Values) (msg string, started bool) {
+	switch {
+	case !ok || time.Now().Unix() > p.Expires:
+		return "this sign-in took too long, or was started in another browser; try again", false
+	// The state stops a link from signing someone in, or connecting an
+	// account, as somebody else.
+	case subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(p.State)) != 1:
+		return "this sign-in was not the one this browser started; try again", false
+	case q.Get("code") == "":
+		return "the sign-in came back without a code; try again", true
+	}
+	return "", true
 }
 
 func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
@@ -71,10 +93,7 @@ func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	p := pending{
-		State: randomToken(), Verifier: randomToken(),
-		Expires: time.Now().Add(loginTTL).Unix(),
-	}
+	p := newPending()
 	if err := s.setSealed(w, loginCookie, "/auth", p, loginTTL); err != nil {
 		s.fail(w, err)
 		return
@@ -95,16 +114,8 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	ok := s.readSealed(r, loginCookie, &p)
 	s.clearCookie(w, loginCookie, "/auth")
 	q := r.URL.Query()
-	switch {
-	case !ok || time.Now().Unix() > p.Expires:
-		s.failSignIn(w, r, "this sign-in took too long, or was started in another browser; try again")
-		return
-	// The state stops a link from signing someone in as somebody else.
-	case subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(p.State)) != 1:
-		s.failSignIn(w, r, "this sign-in was not the one this browser started; try again")
-		return
-	case q.Get("code") == "":
-		s.failSignIn(w, r, "the sign-in came back without a code; try again")
+	if msg, _ := p.check(ok, q); msg != "" {
+		s.failSignIn(w, r, msg)
 		return
 	}
 	tok, err := s.gw.Redeem(r.Context(), q.Get("code"), p.Verifier)
