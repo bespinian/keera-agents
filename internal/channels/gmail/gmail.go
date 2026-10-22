@@ -134,6 +134,9 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	}
 	switch web.Status(err) {
 	case 0:
+		if err != nil {
+			return "", err
+		}
 	case http.StatusBadRequest, http.StatusNotFound:
 		return "", fmt.Errorf("%s has no Gmail mailbox (%w)", s.Who(), err)
 	default:

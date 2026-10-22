@@ -131,6 +131,12 @@ func TestTarget(t *testing.T) {
 			t.Errorf("Target(%q) passed", bad)
 		}
 	}
+	// A check that could not run is no answer, so the mailbox is refused.
+	broken := shared(f)
+	broken.Secrets = map[string]string{"service_account_json": "{}"}
+	if _, err := a.Target(ctx, broken, "ada@acme.com"); err == nil {
+		t.Error("a bad key passed")
+	}
 	user := f.UserConn(channels.Gmail, "ws-token")
 	if got, err := a.Target(ctx, user, "me"); err != nil || got != "me" {
 		t.Errorf("Target(me) = %q, %v", got, err)
