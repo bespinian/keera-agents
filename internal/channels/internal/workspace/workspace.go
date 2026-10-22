@@ -7,7 +7,6 @@ package workspace
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -326,14 +325,11 @@ func (f Files) FindTool() apitool.Tool {
 		Parameters: apitool.Schema(`{"type":"object","properties":{
 			"name":{"type":"string","description":"Text the name contains. Empty lists the newest."},
 			"limit":{"type":"integer","description":"At most this many, 25 by default, up to 100."}}}`),
-		Run: func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-			in, err := apitool.Decode[struct {
-				Name  string `json:"name"`
-				Limit int    `json:"limit"`
-			}](args)
-			if err != nil {
-				return nil, err
-			}
+		Run: apitool.Typed(func(ctx context.Context, conn channels.Connection, target string, in struct {
+			Name  string `json:"name"`
+			Limit int    `json:"limit"`
+		},
+		) (any, error) {
 			s, err := SettingsOf(conn)
 			if err != nil {
 				return nil, err
@@ -343,7 +339,7 @@ func (f Files) FindTool() apitool.Tool {
 				return nil, fmt.Errorf("finding %s: %w", plural, err)
 			}
 			return files, nil
-		},
+		}),
 	}
 }
 

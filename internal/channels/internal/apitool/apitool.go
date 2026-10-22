@@ -67,6 +67,17 @@ func Decode[T any](args json.RawMessage) (T, error) {
 	return v, nil
 }
 
+// Typed makes a tool's function from one that takes its decoded arguments.
+func Typed[T any](f func(ctx context.Context, conn channels.Connection, target string, in T) (any, error)) Run {
+	return func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
+		in, err := Decode[T](args)
+		if err != nil {
+			return nil, err
+		}
+		return f(ctx, conn, target, in)
+	}
+}
+
 // Need is the error for a required argument left empty, or nil.
 func Need(name, value string) error {
 	if strings.TrimSpace(value) == "" {

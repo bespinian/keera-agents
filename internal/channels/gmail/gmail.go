@@ -14,7 +14,6 @@ package gmail
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -159,15 +158,11 @@ func id(what, s string) (string, error) {
 
 // run opens the binding's mailbox for a tool.
 func run[T any](f func(ctx context.Context, s workspace.Settings, in T) (any, error)) apitool.Run {
-	return func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
+	return apitool.Typed(func(ctx context.Context, conn channels.Connection, target string, in T) (any, error) {
 		s, err := mailbox(conn, target)
 		if err != nil {
 			return nil, err
 		}
-		in, err := apitool.Decode[T](args)
-		if err != nil {
-			return nil, err
-		}
 		return f(ctx, s, in)
-	}
+	})
 }

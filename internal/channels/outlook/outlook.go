@@ -14,7 +14,6 @@ package outlook
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -175,8 +174,8 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 }
 
 // run opens the connection and the binding's mailbox for a tool.
-func run(f func(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error)) apitool.Run {
-	return func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
+func run[T any](f func(ctx context.Context, app microsoft.App, box string, in T) (any, error)) apitool.Run {
+	return apitool.Typed(func(ctx context.Context, conn channels.Connection, target string, in T) (any, error) {
 		app, err := microsoft.AppOf(conn, scope)
 		if err != nil {
 			return nil, err
@@ -185,6 +184,6 @@ func run(f func(ctx context.Context, app microsoft.App, box string, args json.Ra
 		if err != nil {
 			return nil, err
 		}
-		return f(ctx, app, box, args)
-	}
+		return f(ctx, app, box, in)
+	})
 }

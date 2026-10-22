@@ -2,7 +2,6 @@ package outlook
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -177,16 +176,13 @@ func (m message) brief() Brief {
 // searchUnsafe is what would end the quoted $search early.
 var searchUnsafe = strings.NewReplacer(`"`, " ", `\`, " ")
 
-func (a *Adapter) listMessages(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Folder     string `json:"folder"`
-		Search     string `json:"search"`
-		UnreadOnly bool   `json:"unread_only"`
-		Limit      int    `json:"limit"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listMessages(ctx context.Context, app microsoft.App, box string, in struct {
+	Folder     string `json:"folder"`
+	Search     string `json:"search"`
+	UnreadOnly bool   `json:"unread_only"`
+	Limit      int    `json:"limit"`
+},
+) (any, error) {
 	if in.Folder == "" {
 		in.Folder = "inbox"
 	}
@@ -232,7 +228,7 @@ type Folder struct {
 	Total  int    `json:"total"`
 }
 
-func (a *Adapter) listFolders(ctx context.Context, app microsoft.App, box string, _ json.RawMessage) (any, error) {
+func (a *Adapter) listFolders(ctx context.Context, app microsoft.App, box string, _ struct{}) (any, error) {
 	var r struct {
 		Value []struct {
 			ID              string `json:"id"`
@@ -268,13 +264,10 @@ type Attachment struct {
 	Size int64  `json:"size"`
 }
 
-func (a *Adapter) readMessage(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ID string `json:"id"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) readMessage(ctx context.Context, app microsoft.App, box string, in struct {
+	ID string `json:"id"`
+},
+) (any, error) {
 	mid, err := id("message", in.ID)
 	if err != nil {
 		return nil, err
@@ -314,16 +307,13 @@ type body struct {
 	Content     string `json:"content"`
 }
 
-func (a *Adapter) sendMessage(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		To      []string `json:"to"`
-		Cc      []string `json:"cc"`
-		Subject string   `json:"subject"`
-		Body    string   `json:"body"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) sendMessage(ctx context.Context, app microsoft.App, box string, in struct {
+	To      []string `json:"to"`
+	Cc      []string `json:"cc"`
+	Subject string   `json:"subject"`
+	Body    string   `json:"body"`
+},
+) (any, error) {
 	if len(in.To) == 0 {
 		return nil, fmt.Errorf("give to, at least one address")
 	}
@@ -353,15 +343,12 @@ func (a *Adapter) sendMessage(ctx context.Context, app microsoft.App, box string
 	return map[string]any{"sent": true, "to": names(to)}, nil
 }
 
-func (a *Adapter) reply(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ID       string `json:"id"`
-		Body     string `json:"body"`
-		ReplyAll bool   `json:"reply_all"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) reply(ctx context.Context, app microsoft.App, box string, in struct {
+	ID       string `json:"id"`
+	Body     string `json:"body"`
+	ReplyAll bool   `json:"reply_all"`
+},
+) (any, error) {
 	mid, err := id("message", in.ID)
 	if err != nil {
 		return nil, err
@@ -382,14 +369,11 @@ func (a *Adapter) reply(ctx context.Context, app microsoft.App, box string, args
 	return map[string]any{"sent": true, "reply_all": in.ReplyAll}, nil
 }
 
-func (a *Adapter) moveMessage(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ID     string `json:"id"`
-		Folder string `json:"folder"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) moveMessage(ctx context.Context, app microsoft.App, box string, in struct {
+	ID     string `json:"id"`
+	Folder string `json:"folder"`
+},
+) (any, error) {
 	mid, err := id("message", in.ID)
 	if err != nil {
 		return nil, err

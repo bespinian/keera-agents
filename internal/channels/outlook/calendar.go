@@ -2,7 +2,6 @@ package outlook
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -130,16 +129,13 @@ func (e event) compact() Event {
 	return out
 }
 
-func (a *Adapter) listEvents(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Start    string `json:"start"`
-		End      string `json:"end"`
-		TimeZone string `json:"time_zone"`
-		Limit    int    `json:"limit"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listEvents(ctx context.Context, app microsoft.App, box string, in struct {
+	Start    string `json:"start"`
+	End      string `json:"end"`
+	TimeZone string `json:"time_zone"`
+	Limit    int    `json:"limit"`
+},
+) (any, error) {
 	tz, err := zone(in.TimeZone)
 	if err != nil {
 		return nil, err
@@ -183,20 +179,17 @@ func (a *Adapter) listEvents(ctx context.Context, app microsoft.App, box string,
 	return out, nil
 }
 
-func (a *Adapter) createEvent(ctx context.Context, app microsoft.App, box string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Subject       string   `json:"subject"`
-		Start         string   `json:"start"`
-		End           string   `json:"end"`
-		TimeZone      string   `json:"time_zone"`
-		Attendees     []string `json:"attendees"`
-		Body          string   `json:"body"`
-		Location      string   `json:"location"`
-		OnlineMeeting bool     `json:"online_meeting"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) createEvent(ctx context.Context, app microsoft.App, box string, in struct {
+	Subject       string   `json:"subject"`
+	Start         string   `json:"start"`
+	End           string   `json:"end"`
+	TimeZone      string   `json:"time_zone"`
+	Attendees     []string `json:"attendees"`
+	Body          string   `json:"body"`
+	Location      string   `json:"location"`
+	OnlineMeeting bool     `json:"online_meeting"`
+},
+) (any, error) {
 	if err := apitool.Need("subject", in.Subject); err != nil {
 		return nil, err
 	}

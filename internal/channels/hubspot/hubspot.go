@@ -150,7 +150,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many records, 25 by default."},
 				"after": {"type": "string", "description": "The next value of an earlier search, for the following page."}
 			}, "required": ["object_type"]}`),
-			Run: a.search,
+			Run: apitool.Typed(a.search),
 		},
 		{
 			Name:        "get",
@@ -159,7 +159,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"id": {"type": "string"},
 				` + propertiesArg + `
 			}, "required": ["object_type", "id"]}`),
-			Run: a.get,
+			Run: apitool.Typed(a.get),
 		},
 		{
 			Name:        "create",
@@ -168,7 +168,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				` + valuesArg + `
 			}, "required": ["object_type", "properties"]}`),
 			Write: true,
-			Run:   a.create,
+			Run:   apitool.Typed(a.create),
 		},
 		{
 			Name:        "update",
@@ -178,7 +178,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				` + valuesArg + `
 			}, "required": ["object_type", "id", "properties"]}`),
 			Write: true,
-			Run:   a.update,
+			Run:   apitool.Typed(a.update),
 		},
 		{
 			Name:        "add_note",
@@ -188,7 +188,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"body": {"type": "string", "description": "The note's text."}
 			}, "required": ["object_type", "id", "body"]}`),
 			Write: true,
-			Run:   a.addNote,
+			Run:   apitool.Typed(a.addNote),
 		},
 		{
 			Name:        "list_owners",
@@ -198,7 +198,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many owners, 100 by default."},
 				"after": {"type": "string", "description": "The next value of an earlier call, for the following page."}
 			}}`),
-			Run: a.listOwners,
+			Run: apitool.Typed(a.listOwners),
 		},
 	}
 }
@@ -292,18 +292,15 @@ type page struct {
 	} `json:"paging"`
 }
 
-func (a *Adapter) search(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ObjectType string            `json:"object_type"`
-		Query      string            `json:"query"`
-		Filters    map[string]string `json:"filters"`
-		Properties []string          `json:"properties"`
-		Limit      int               `json:"limit"`
-		After      string            `json:"after"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) search(ctx context.Context, conn channels.Connection, _ string, in struct {
+	ObjectType string            `json:"object_type"`
+	Query      string            `json:"query"`
+	Filters    map[string]string `json:"filters"`
+	Properties []string          `json:"properties"`
+	Limit      int               `json:"limit"`
+	After      string            `json:"after"`
+},
+) (any, error) {
 	t, err := typeOf(in.ObjectType)
 	if err != nil {
 		return nil, err
@@ -344,15 +341,12 @@ func (a *Adapter) search(ctx context.Context, conn channels.Connection, _ string
 	return out, nil
 }
 
-func (a *Adapter) get(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ObjectType string   `json:"object_type"`
-		ID         string   `json:"id"`
-		Properties []string `json:"properties"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) get(ctx context.Context, conn channels.Connection, _ string, in struct {
+	ObjectType string   `json:"object_type"`
+	ID         string   `json:"id"`
+	Properties []string `json:"properties"`
+},
+) (any, error) {
 	t, err := typeOf(in.ObjectType)
 	if err != nil {
 		return nil, err
@@ -388,11 +382,7 @@ type change struct {
 	Properties map[string]string `json:"properties"`
 }
 
-func (a *Adapter) create(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[change](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) create(ctx context.Context, conn channels.Connection, _ string, in change) (any, error) {
 	t, err := typeOf(in.ObjectType)
 	if err != nil {
 		return nil, err
@@ -407,11 +397,7 @@ func (a *Adapter) create(ctx context.Context, conn channels.Connection, _ string
 	return r.view(), nil
 }
 
-func (a *Adapter) update(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[change](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) update(ctx context.Context, conn channels.Connection, _ string, in change) (any, error) {
 	t, err := typeOf(in.ObjectType)
 	if err != nil {
 		return nil, err
@@ -434,15 +420,12 @@ func (a *Adapter) update(ctx context.Context, conn channels.Connection, _ string
 	return r.view(), nil
 }
 
-func (a *Adapter) addNote(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ObjectType string `json:"object_type"`
-		ID         string `json:"id"`
-		Body       string `json:"body"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) addNote(ctx context.Context, conn channels.Connection, _ string, in struct {
+	ObjectType string `json:"object_type"`
+	ID         string `json:"id"`
+	Body       string `json:"body"`
+},
+) (any, error) {
 	t, err := typeOf(in.ObjectType)
 	if err != nil {
 		return nil, err
@@ -482,15 +465,12 @@ type Owner struct {
 	Email string `json:"email,omitempty"`
 }
 
-func (a *Adapter) listOwners(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Email string `json:"email"`
-		Limit int    `json:"limit"`
-		After string `json:"after"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listOwners(ctx context.Context, conn channels.Connection, _ string, in struct {
+	Email string `json:"email"`
+	Limit int    `json:"limit"`
+	After string `json:"after"`
+},
+) (any, error) {
 	q := url.Values{"limit": {fmt.Sprint(apitool.Limit(in.Limit, 100, 100))}}
 	if e := strings.TrimSpace(in.Email); e != "" {
 		q.Set("email", e)

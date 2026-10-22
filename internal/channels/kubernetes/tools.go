@@ -42,7 +42,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"label_selector": {"type": "string", "description": "Only objects with these labels, such as app=web."},
 				"limit": {"type": "integer", "description": "How many to list, at most 100. Default 25."}
 			}, "required": ["kind"]}`),
-			Run: a.list,
+			Run: apitool.Typed(a.list),
 		},
 		{
 			Name:        "get",
@@ -50,7 +50,7 @@ func (a *Adapter) toolSet() apitool.Set {
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + kindArgs + `,
 				"name": {"type": "string"}
 			}, "required": ["kind", "name"]}`),
-			Run: a.get,
+			Run: apitool.Typed(a.get),
 		},
 		{
 			Name:        "logs",
@@ -62,7 +62,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"since_seconds": {"type": "integer", "description": "Only lines from the last this many seconds."},
 				"previous": {"type": "boolean", "description": "The container's previous run, after a crash or restart."}
 			}, "required": ["pod"]}`),
-			Run: a.logs,
+			Run: apitool.Typed(a.logs),
 		},
 		{
 			Name:        "events",
@@ -71,7 +71,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"name": {"type": "string", "description": "Only events about the object with this name."},
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}}`),
-			Run: a.events,
+			Run: apitool.Typed(a.events),
 		},
 		{
 			Name: "apply",
@@ -81,7 +81,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"manifest": {"type": "object", "description": "The whole object, with apiVersion, kind and metadata.name."}
 			}, "required": ["manifest"]}`),
 			Write: true,
-			Run:   a.apply,
+			Run:   apitool.Typed(a.apply),
 		},
 		{
 			Name:        "delete",
@@ -90,7 +90,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"name": {"type": "string"}
 			}, "required": ["kind", "name"]}`),
 			Write: true,
-			Run:   a.delete,
+			Run:   apitool.Typed(a.delete),
 		},
 		{
 			Name:        "scale",
@@ -101,7 +101,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"replicas": {"type": "integer", "minimum": 0, "maximum": 1000}
 			}, "required": ["kind", "name", "replicas"]}`),
 			Write: true,
-			Run:   a.scale,
+			Run:   apitool.Typed(a.scale),
 		},
 		{
 			Name:        "restart",
@@ -111,7 +111,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"name": {"type": "string"}
 			}, "required": ["kind", "name"]}`),
 			Write: true,
-			Run:   a.restart,
+			Run:   apitool.Typed(a.restart),
 		},
 	}
 }
@@ -149,15 +149,12 @@ type listResult struct {
 	More bool `json:"more,omitempty"`
 }
 
-func (a *Adapter) list(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		kindArgsT
-		LabelSelector string `json:"label_selector"`
-		Limit         int    `json:"limit"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) list(ctx context.Context, conn channels.Connection, target string, args struct {
+	kindArgsT
+	LabelSelector string `json:"label_selector"`
+	Limit         int    `json:"limit"`
+},
+) (any, error) {
 	c, ns, err := a.start(conn, target)
 	if err != nil {
 		return nil, err
@@ -187,11 +184,7 @@ func (a *Adapter) list(ctx context.Context, conn channels.Connection, target str
 	return out, nil
 }
 
-func (a *Adapter) get(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[kindArgsT](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) get(ctx context.Context, conn channels.Connection, target string, args kindArgsT) (any, error) {
 	if err := checkName("name", args.Name); err != nil {
 		return nil, err
 	}
@@ -243,17 +236,14 @@ func clean(kind string, o map[string]any) {
 	o["data_keys"] = slices.Compact(keys)
 }
 
-func (a *Adapter) logs(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Pod          string `json:"pod"`
-		Container    string `json:"container"`
-		TailLines    int    `json:"tail_lines"`
-		SinceSeconds int    `json:"since_seconds"`
-		Previous     bool   `json:"previous"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) logs(ctx context.Context, conn channels.Connection, target string, args struct {
+	Pod          string `json:"pod"`
+	Container    string `json:"container"`
+	TailLines    int    `json:"tail_lines"`
+	SinceSeconds int    `json:"since_seconds"`
+	Previous     bool   `json:"previous"`
+},
+) (any, error) {
 	if err := checkName("pod", args.Pod); err != nil {
 		return nil, err
 	}
@@ -296,14 +286,11 @@ type event struct {
 	Count   int    `json:"count,omitempty"`
 }
 
-func (a *Adapter) events(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Name  string `json:"name"`
-		Limit int    `json:"limit"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) events(ctx context.Context, conn channels.Connection, target string, args struct {
+	Name  string `json:"name"`
+	Limit int    `json:"limit"`
+},
+) (any, error) {
 	c, ns, err := a.start(conn, target)
 	if err != nil {
 		return nil, err
@@ -357,13 +344,10 @@ type changed struct {
 	Status    *item  `json:"status,omitempty"`
 }
 
-func (a *Adapter) apply(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Manifest json.RawMessage `json:"manifest"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) apply(ctx context.Context, conn channels.Connection, target string, args struct {
+	Manifest json.RawMessage `json:"manifest"`
+},
+) (any, error) {
 	var m map[string]any
 	if s := strings.TrimSpace(string(args.Manifest)); !strings.HasPrefix(s, "{") || json.Unmarshal(args.Manifest, &m) != nil {
 		return nil, errors.New("give the manifest as a JSON object; YAML is not accepted")
@@ -401,11 +385,7 @@ func (a *Adapter) apply(ctx context.Context, conn channels.Connection, target st
 	return changed{Kind: k.Kind, Name: name, Namespace: ns, Done: "applied", Status: &s}, nil
 }
 
-func (a *Adapter) delete(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[kindArgsT](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) delete(ctx context.Context, conn channels.Connection, target string, args kindArgsT) (any, error) {
 	if err := checkName("name", args.Name); err != nil {
 		return nil, err
 	}
@@ -440,15 +420,12 @@ func workload(kind string, allowed ...string) (kindRef, error) {
 	return workloads[k], nil
 }
 
-func (a *Adapter) scale(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Kind     string `json:"kind"`
-		Name     string `json:"name"`
-		Replicas *int   `json:"replicas"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) scale(ctx context.Context, conn channels.Connection, target string, args struct {
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	Replicas *int   `json:"replicas"`
+},
+) (any, error) {
 	k, err := workload(args.Kind, "deployment", "statefulset")
 	if err != nil {
 		return nil, err
@@ -470,11 +447,7 @@ func (a *Adapter) scale(ctx context.Context, conn channels.Connection, target st
 	return changed{Kind: k.Kind, Name: args.Name, Namespace: ns, Done: fmt.Sprintf("scaled to %d replicas", *args.Replicas)}, nil
 }
 
-func (a *Adapter) restart(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[kindArgsT](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) restart(ctx context.Context, conn channels.Connection, target string, args kindArgsT) (any, error) {
 	k, err := workload(args.Kind, "deployment", "statefulset", "daemonset")
 	if err != nil {
 		return nil, err

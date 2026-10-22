@@ -13,7 +13,6 @@ package gslides
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -58,7 +57,7 @@ func New(opts channels.Options) *Adapter {
 			Name:        "read",
 			Description: "Read a Google Slides presentation: each slide's number, id, title, text and speaker notes.",
 			Parameters:  apitool.Schema(`{"type":"object","properties":{` + idParam + `}}`),
-			Run:         a.read,
+			Run:         apitool.Typed(a.read),
 		},
 		{
 			Name:        "replace_text",
@@ -70,7 +69,7 @@ func New(opts channels.Options) *Adapter {
 				"slide_ids":{"type":"array","items":{"type":"string"},"description":"Only on these slides, by the ids read returns. Empty is every slide."}},
 				"required":["find","replace"]}`),
 			Write: true,
-			Run:   a.replaceText,
+			Run:   apitool.Typed(a.replaceText),
 		},
 		{
 			Name:        "add_slide",
@@ -80,7 +79,7 @@ func New(opts channels.Options) *Adapter {
 				"body":{"type":"string","description":"Plain text. Each line becomes a paragraph."},
 				"position":{"type":"integer","description":"The slide's number once added, 1 for the first. Empty adds it at the end."}}}`),
 			Write: true,
-			Run:   a.addSlide,
+			Run:   apitool.Typed(a.addSlide),
 		},
 	}
 	a.Accounts = workspace.NewAccounts(a.files.Client, "Google Slides API and the Google Drive API")
@@ -225,13 +224,10 @@ type slideView struct {
 	Notes  string `json:"notes,omitempty"`
 }
 
-func (a *Adapter) read(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		PresentationID string `json:"presentation_id"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) read(ctx context.Context, conn channels.Connection, target string, in struct {
+	PresentationID string `json:"presentation_id"`
+},
+) (any, error) {
 	s, id, err := a.files.Open(conn, target, in.PresentationID)
 	if err != nil {
 		return nil, err
@@ -263,17 +259,14 @@ func slidesURL(id string) string {
 	return "https://docs.google.com/presentation/d/" + id + "/edit"
 }
 
-func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		PresentationID string   `json:"presentation_id"`
-		Find           string   `json:"find"`
-		Replace        string   `json:"replace"`
-		MatchCase      *bool    `json:"match_case"`
-		SlideIDs       []string `json:"slide_ids"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, target string, in struct {
+	PresentationID string   `json:"presentation_id"`
+	Find           string   `json:"find"`
+	Replace        string   `json:"replace"`
+	MatchCase      *bool    `json:"match_case"`
+	SlideIDs       []string `json:"slide_ids"`
+},
+) (any, error) {
 	if in.Find == "" {
 		return nil, apitool.Need("find", in.Find)
 	}
@@ -304,16 +297,13 @@ func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, tar
 	return map[string]any{"id": id, "occurrences_changed": n}, nil
 }
 
-func (a *Adapter) addSlide(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		PresentationID string `json:"presentation_id"`
-		Title          string `json:"title"`
-		Body           string `json:"body"`
-		Position       int    `json:"position"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) addSlide(ctx context.Context, conn channels.Connection, target string, in struct {
+	PresentationID string `json:"presentation_id"`
+	Title          string `json:"title"`
+	Body           string `json:"body"`
+	Position       int    `json:"position"`
+},
+) (any, error) {
 	s, id, err := a.files.Open(conn, target, in.PresentationID)
 	if err != nil {
 		return nil, err

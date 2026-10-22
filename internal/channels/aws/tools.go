@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"net/url"
@@ -102,17 +101,13 @@ func tool[T any](a *Adapter, name, desc string, write bool, schema string, run f
 		Description: desc,
 		Parameters:  apitool.Schema(schema),
 		Write:       write,
-		Run: func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-			in, err := apitool.Decode[T](args)
-			if err != nil {
-				return nil, err
-			}
+		Run: apitool.Typed(func(ctx context.Context, conn channels.Connection, target string, in T) (any, error) {
 			c, err := a.client(ctx, conn, target)
 			if err != nil {
 				return nil, err
 			}
 			return run(ctx, c, in)
-		},
+		}),
 	}
 }
 

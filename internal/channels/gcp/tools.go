@@ -48,7 +48,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"asset_types": {"type": "array", "items": {"type": "string"}, "description": "Only these types, such as compute.googleapis.com/Instance."},
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}}`),
-			Run: a.searchResources,
+			Run: apitool.Typed(a.searchResources),
 		},
 		{
 			Name:        "list_instances",
@@ -57,7 +57,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"filter": {"type": "string", "description": "Compute Engine filter, such as status = RUNNING or labels.env = prod."},
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}}`),
-			Run: a.listInstances,
+			Run: apitool.Typed(a.listInstances),
 		},
 		{
 			Name:        "logs",
@@ -67,7 +67,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				` + sinceArg + `,
 				"limit": {"type": "integer", "description": "How many entries, at most 100. Default 25."}
 			}}`),
-			Run: a.logs,
+			Run: apitool.Typed(a.logs),
 		},
 		{
 			Name:        "metrics",
@@ -79,7 +79,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"aligner": {"type": "string", "description": "How points are combined, such as ALIGN_MEAN (the default), ALIGN_MAX or ALIGN_RATE for counters."},
 				"limit": {"type": "integer", "description": "How many series, at most 100. Default 25."}
 			}, "required": ["filter"]}`),
-			Run: a.metrics,
+			Run: apitool.Typed(a.metrics),
 		},
 		{
 			Name:        "list_buckets",
@@ -87,7 +87,7 @@ func (a *Adapter) toolSet() apitool.Set {
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}}`),
-			Run: a.listBuckets,
+			Run: apitool.Typed(a.listBuckets),
 		},
 		{
 			Name:        "list_objects",
@@ -97,7 +97,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"prefix": {"type": "string", "description": "Only objects whose names start with this, such as reports/2024/."},
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}, "required": ["bucket"]}`),
-			Run: a.listObjects,
+			Run: apitool.Typed(a.listObjects),
 		},
 		{
 			Name:        "read_object",
@@ -107,7 +107,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"name": {"type": "string", "description": "The object's whole name, such as reports/2024/q1.csv."},
 				"offset": {"type": "integer", "description": "The byte to start from: 0, or an earlier read's next_offset."}
 			}, "required": ["bucket", "name"]}`),
-			Run: a.readObject,
+			Run: apitool.Typed(a.readObject),
 		},
 		{
 			Name:        "instance_start",
@@ -140,15 +140,12 @@ type resource struct {
 	Labels      map[string]string `json:"labels,omitempty"`
 }
 
-func (a *Adapter) searchResources(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Query      string   `json:"query"`
-		AssetTypes []string `json:"asset_types"`
-		Limit      int      `json:"limit"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) searchResources(ctx context.Context, conn channels.Connection, target string, args struct {
+	Query      string   `json:"query"`
+	AssetTypes []string `json:"asset_types"`
+	Limit      int      `json:"limit"`
+},
+) (any, error) {
 	id, err := project(target)
 	if err != nil {
 		return nil, err
@@ -197,14 +194,11 @@ type instance struct {
 	Labels      map[string]string `json:"labels,omitempty"`
 }
 
-func (a *Adapter) listInstances(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Filter string `json:"filter"`
-		Limit  int    `json:"limit"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listInstances(ctx context.Context, conn channels.Connection, target string, args struct {
+	Filter string `json:"filter"`
+	Limit  int    `json:"limit"`
+},
+) (any, error) {
 	id, err := project(target)
 	if err != nil {
 		return nil, err
@@ -273,15 +267,12 @@ type logEntry struct {
 	Text     string            `json:"text,omitempty"`
 }
 
-func (a *Adapter) logs(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Filter       string `json:"filter"`
-		SinceMinutes int    `json:"since_minutes"`
-		Limit        int    `json:"limit"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) logs(ctx context.Context, conn channels.Connection, target string, args struct {
+	Filter       string `json:"filter"`
+	SinceMinutes int    `json:"since_minutes"`
+	Limit        int    `json:"limit"`
+},
+) (any, error) {
 	id, err := project(target)
 	if err != nil {
 		return nil, err
@@ -358,17 +349,14 @@ type point struct {
 	Value any    `json:"value"`
 }
 
-func (a *Adapter) metrics(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Filter                 string `json:"filter"`
-		SinceMinutes           int    `json:"since_minutes"`
-		AlignmentPeriodSeconds int    `json:"alignment_period_seconds"`
-		Aligner                string `json:"aligner"`
-		Limit                  int    `json:"limit"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) metrics(ctx context.Context, conn channels.Connection, target string, args struct {
+	Filter                 string `json:"filter"`
+	SinceMinutes           int    `json:"since_minutes"`
+	AlignmentPeriodSeconds int    `json:"alignment_period_seconds"`
+	Aligner                string `json:"aligner"`
+	Limit                  int    `json:"limit"`
+},
+) (any, error) {
 	if err := apitool.Need("filter", args.Filter); err != nil {
 		return nil, err
 	}
@@ -467,13 +455,10 @@ type bucket struct {
 	Created      string `json:"created,omitempty"`
 }
 
-func (a *Adapter) listBuckets(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Limit int `json:"limit"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listBuckets(ctx context.Context, conn channels.Connection, target string, args struct {
+	Limit int `json:"limit"`
+},
+) (any, error) {
 	id, err := project(target)
 	if err != nil {
 		return nil, err
@@ -512,15 +497,12 @@ type objectList struct {
 	More    bool     `json:"more,omitempty"`
 }
 
-func (a *Adapter) listObjects(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Bucket string `json:"bucket"`
-		Prefix string `json:"prefix"`
-		Limit  int    `json:"limit"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listObjects(ctx context.Context, conn channels.Connection, target string, args struct {
+	Bucket string `json:"bucket"`
+	Prefix string `json:"prefix"`
+	Limit  int    `json:"limit"`
+},
+) (any, error) {
 	id, err := project(target)
 	if err != nil {
 		return nil, err
@@ -560,15 +542,12 @@ type objectText struct {
 	web.Chunk
 }
 
-func (a *Adapter) readObject(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-	args, err := apitool.Decode[struct {
-		Bucket string `json:"bucket"`
-		Name   string `json:"name"`
-		Offset int64  `json:"offset"`
-	}](raw)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) readObject(ctx context.Context, conn channels.Connection, target string, args struct {
+	Bucket string `json:"bucket"`
+	Name   string `json:"name"`
+	Offset int64  `json:"offset"`
+},
+) (any, error) {
 	if err := apitool.Need("name", args.Name); err != nil {
 		return nil, err
 	}
@@ -640,15 +619,12 @@ type operation struct {
 	Status    string `json:"status,omitempty"`
 }
 
-func (a *Adapter) instanceAction(action string) func(context.Context, channels.Connection, string, json.RawMessage) (any, error) {
-	return func(ctx context.Context, conn channels.Connection, target string, raw json.RawMessage) (any, error) {
-		args, err := apitool.Decode[struct {
-			Zone string `json:"zone"`
-			Name string `json:"name"`
-		}](raw)
-		if err != nil {
-			return nil, err
-		}
+func (a *Adapter) instanceAction(action string) apitool.Run {
+	return apitool.Typed(func(ctx context.Context, conn channels.Connection, target string, args struct {
+		Zone string `json:"zone"`
+		Name string `json:"name"`
+	},
+	) (any, error) {
 		if !validZone.MatchString(args.Zone) {
 			return nil, errors.New("give the VM's zone, such as europe-west6-a")
 		}
@@ -669,5 +645,5 @@ func (a *Adapter) instanceAction(action string) func(context.Context, channels.C
 		}
 		done := map[string]string{"start": "starting", "stop": "stopping"}[action]
 		return operation{Instance: args.Name, Zone: args.Zone, Done: done, Operation: op.Name, Status: op.Status}, nil
-	}
+	})
 }

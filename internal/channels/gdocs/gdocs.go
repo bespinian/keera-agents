@@ -11,7 +11,6 @@ package gdocs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -52,7 +51,7 @@ func New(opts channels.Options) *Adapter {
 				"and table rows are written | cell | cell |.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
 				"document_id":{"type":"string","description":"The document's id or link. Optional when the connector is bound to one document."}}}`),
-			Run: a.read,
+			Run: apitool.Typed(a.read),
 		},
 		{
 			Name:        "append",
@@ -62,7 +61,7 @@ func New(opts channels.Options) *Adapter {
 				"text":{"type":"string","description":"Plain text. Each line becomes a paragraph."}},
 				"required":["text"]}`),
 			Write: true,
-			Run:   a.append,
+			Run:   apitool.Typed(a.append),
 		},
 		{
 			Name:        "replace_text",
@@ -74,7 +73,7 @@ func New(opts channels.Options) *Adapter {
 				"match_case":{"type":"boolean","description":"Match upper and lower case exactly. True by default."}},
 				"required":["find","replace"]}`),
 			Write: true,
-			Run:   a.replaceText,
+			Run:   apitool.Typed(a.replaceText),
 		},
 		{
 			Name: "create",
@@ -86,7 +85,7 @@ func New(opts channels.Options) *Adapter {
 				"folder_id":{"type":"string","description":"The id or link of the Drive folder to create it in."}},
 				"required":["title"]}`),
 			Write: true,
-			Run:   a.create,
+			Run:   apitool.Typed(a.create),
 		},
 	}
 	a.Accounts = workspace.NewAccounts(a.files.Client, "Google Docs API and the Google Drive API")
@@ -126,13 +125,10 @@ type docView struct {
 	Truncated bool   `json:"truncated,omitempty"`
 }
 
-func (a *Adapter) read(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		DocumentID string `json:"document_id"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) read(ctx context.Context, conn channels.Connection, target string, in struct {
+	DocumentID string `json:"document_id"`
+},
+) (any, error) {
 	s, id, err := a.files.Open(conn, target, in.DocumentID)
 	if err != nil {
 		return nil, err
@@ -150,14 +146,11 @@ func docURL(id string) string {
 	return "https://docs.google.com/document/d/" + id + "/edit"
 }
 
-func (a *Adapter) append(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		DocumentID string `json:"document_id"`
-		Text       string `json:"text"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) append(ctx context.Context, conn channels.Connection, target string, in struct {
+	DocumentID string `json:"document_id"`
+	Text       string `json:"text"`
+},
+) (any, error) {
 	if err := apitool.Need("text", in.Text); err != nil {
 		return nil, err
 	}
@@ -176,16 +169,13 @@ func (a *Adapter) append(ctx context.Context, conn channels.Connection, target s
 	return map[string]any{"id": id, "url": docURL(id), "appended": true}, nil
 }
 
-func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		DocumentID string `json:"document_id"`
-		Find       string `json:"find"`
-		Replace    string `json:"replace"`
-		MatchCase  *bool  `json:"match_case"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, target string, in struct {
+	DocumentID string `json:"document_id"`
+	Find       string `json:"find"`
+	Replace    string `json:"replace"`
+	MatchCase  *bool  `json:"match_case"`
+},
+) (any, error) {
 	if in.Find == "" {
 		return nil, apitool.Need("find", in.Find)
 	}
@@ -207,15 +197,12 @@ func (a *Adapter) replaceText(ctx context.Context, conn channels.Connection, tar
 	return map[string]any{"id": id, "occurrences_changed": n}, nil
 }
 
-func (a *Adapter) create(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Title    string `json:"title"`
-		Text     string `json:"text"`
-		FolderID string `json:"folder_id"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) create(ctx context.Context, conn channels.Connection, target string, in struct {
+	Title    string `json:"title"`
+	Text     string `json:"text"`
+	FolderID string `json:"folder_id"`
+},
+) (any, error) {
 	s, err := workspace.SettingsOf(conn)
 	if err != nil {
 		return nil, err

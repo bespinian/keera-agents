@@ -114,8 +114,8 @@ func vmTool(name, desc, action string, a *Adapter) apitool.Tool {
 		Parameters: apitool.Schema(`{"type":"object","required":["id"],"properties":{
 			"id":{"type":"string","description":"The virtual machine's resource id."}}}`),
 		Write: true,
-		Run: run(func(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
-			return a.vmAction(ctx, app, sub, args, action)
+		Run: run(func(ctx context.Context, app microsoft.App, sub string, in vmArgs) (any, error) {
+			return a.vmAction(ctx, app, sub, in, action)
 		}),
 	}
 }
@@ -175,13 +175,10 @@ func group(s string) (string, error) {
 	return url.PathEscape(s), nil
 }
 
-func (a *Adapter) listGroups(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Limit int `json:"limit"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listGroups(ctx context.Context, app microsoft.App, sub string, in struct {
+	Limit int `json:"limit"`
+},
+) (any, error) {
 	limit := apitool.Limit(in.Limit, 50, 100)
 	q := map[string]string{"api-version": resourcesVersion, "$top": strconv.Itoa(limit)}
 	list, err := a.list(ctx, app, a.arm+"/subscriptions/"+sub+"/resourcegroups"+microsoft.Query(q), limit)
@@ -195,15 +192,12 @@ func (a *Adapter) listGroups(ctx context.Context, app microsoft.App, sub string,
 	return out, nil
 }
 
-func (a *Adapter) listResources(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ResourceGroup string `json:"resource_group"`
-		Type          string `json:"type"`
-		Limit         int    `json:"limit"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listResources(ctx context.Context, app microsoft.App, sub string, in struct {
+	ResourceGroup string `json:"resource_group"`
+	Type          string `json:"type"`
+	Limit         int    `json:"limit"`
+},
+) (any, error) {
 	limit := apitool.Limit(in.Limit, 25, 100)
 	path := "/subscriptions/" + sub
 	if in.ResourceGroup != "" {
@@ -231,13 +225,10 @@ func (a *Adapter) listResources(ctx context.Context, app microsoft.App, sub stri
 	return out, nil
 }
 
-func (a *Adapter) getResource(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ID string `json:"id"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) getResource(ctx context.Context, app microsoft.App, sub string, in struct {
+	ID string `json:"id"`
+},
+) (any, error) {
 	id, err := parseID(sub, in.ID)
 	if err != nil {
 		return nil, err
@@ -326,17 +317,14 @@ func (l localized) String() string {
 	return l.Value
 }
 
-func (a *Adapter) activityLog(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Start         string `json:"start"`
-		End           string `json:"end"`
-		ResourceGroup string `json:"resource_group"`
-		ResourceID    string `json:"resource_id"`
-		Limit         int    `json:"limit"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) activityLog(ctx context.Context, app microsoft.App, sub string, in struct {
+	Start         string `json:"start"`
+	End           string `json:"end"`
+	ResourceGroup string `json:"resource_group"`
+	ResourceID    string `json:"resource_id"`
+	Limit         int    `json:"limit"`
+},
+) (any, error) {
 	from, to, err := timeRange(in.Start, in.End, 24*time.Hour, 90*24*time.Hour)
 	if err != nil {
 		return nil, err
@@ -410,18 +398,15 @@ type Point struct {
 
 var aggregations = []string{"Average", "Total", "Minimum", "Maximum", "Count"}
 
-func (a *Adapter) metrics(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		ResourceID  string   `json:"resource_id"`
-		Metrics     []string `json:"metrics"`
-		Start       string   `json:"start"`
-		End         string   `json:"end"`
-		Interval    string   `json:"interval"`
-		Aggregation string   `json:"aggregation"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) metrics(ctx context.Context, app microsoft.App, sub string, in struct {
+	ResourceID  string   `json:"resource_id"`
+	Metrics     []string `json:"metrics"`
+	Start       string   `json:"start"`
+	End         string   `json:"end"`
+	Interval    string   `json:"interval"`
+	Aggregation string   `json:"aggregation"`
+},
+) (any, error) {
 	id, err := parseID(sub, in.ResourceID)
 	if err != nil {
 		return nil, err
@@ -543,16 +528,13 @@ type CostRow struct {
 	Cost  float64 `json:"cost"`
 }
 
-func (a *Adapter) costs(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Start   string `json:"start"`
-		End     string `json:"end"`
-		GroupBy string `json:"group_by"`
-		Daily   bool   `json:"daily"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) costs(ctx context.Context, app microsoft.App, sub string, in struct {
+	Start   string `json:"start"`
+	End     string `json:"end"`
+	GroupBy string `json:"group_by"`
+	Daily   bool   `json:"daily"`
+},
+) (any, error) {
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	to, err := parseTime(in.End, today)
 	if err != nil {
@@ -669,13 +651,11 @@ func round(x float64) float64 {
 	return math.Round(x*100) / 100
 }
 
-func (a *Adapter) vmAction(ctx context.Context, app microsoft.App, sub string, args json.RawMessage, action string) (any, error) {
-	in, err := apitool.Decode[struct {
-		ID string `json:"id"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+type vmArgs struct {
+	ID string `json:"id"`
+}
+
+func (a *Adapter) vmAction(ctx context.Context, app microsoft.App, sub string, in vmArgs, action string) (any, error) {
 	id, err := parseID(sub, in.ID)
 	if err != nil {
 		return nil, err

@@ -311,7 +311,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"soql": {"type": "string"},
 				"limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "How many records to return at most, 50 by default. Add LIMIT and OFFSET to the query for more."}
 			}, "required": ["soql"]}`),
-			Run: a.query,
+			Run: apitool.Typed(a.query),
 		},
 		{
 			Name:        "search",
@@ -321,7 +321,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"sosl": {"type": "string", "description": "A whole SOSL search instead of text, such as FIND {Acme} IN NAME FIELDS RETURNING Account(Id, Name)."},
 				"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many records at most, 25 by default."}
 			}}`),
-			Run: a.search,
+			Run: apitool.Typed(a.search),
 		},
 		{
 			Name:        "get",
@@ -329,13 +329,13 @@ func (a *Adapter) toolSet() apitool.Set {
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectArg + `, ` + idArg + `,
 				"fields": {"type": "array", "items": {"type": "string"}, "description": "Fields to return. Empty returns every field with a value."}
 			}, "required": ["object", "id"]}`),
-			Run: a.get,
+			Run: apitool.Typed(a.get),
 		},
 		{
 			Name:        "describe",
 			Description: "List an object's fields: name, label, type, whether it is required or can be changed, and picklist values.",
 			Parameters:  apitool.Schema(`{"type": "object", "properties": {` + objectArg + `}, "required": ["object"]}`),
-			Run:         a.describe,
+			Run:         apitool.Typed(a.describe),
 		},
 		{
 			Name:        "create",
@@ -344,7 +344,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"fields": {"type": "object", "description": "Field API names and values, such as {\"LastName\": \"Lovelace\", \"Company\": \"Acme\"}."}
 			}, "required": ["object", "fields"]}`),
 			Write: true,
-			Run:   a.create,
+			Run:   apitool.Typed(a.create),
 		},
 		{
 			Name:        "update",
@@ -353,7 +353,7 @@ func (a *Adapter) toolSet() apitool.Set {
 				"fields": {"type": "object", "description": "Field API names and their new values."}
 			}, "required": ["object", "id", "fields"]}`),
 			Write: true,
-			Run:   a.update,
+			Run:   apitool.Typed(a.update),
 		},
 	}
 }
@@ -410,14 +410,11 @@ type QueryResult struct {
 	Records   []any `json:"records"`
 }
 
-func (a *Adapter) query(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		SOQL  string `json:"soql"`
-		Limit int    `json:"limit"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) query(ctx context.Context, conn channels.Connection, _ string, in struct {
+	SOQL  string `json:"soql"`
+	Limit int    `json:"limit"`
+},
+) (any, error) {
 	if err := apitool.Need("soql", in.SOQL); err != nil {
 		return nil, err
 	}
@@ -426,7 +423,7 @@ func (a *Adapter) query(ctx context.Context, conn channels.Connection, _ string,
 		Done      bool              `json:"done"`
 		Records   []json.RawMessage `json:"records"`
 	}
-	err = a.call(ctx, conn, http.MethodGet, "/query?"+url.Values{"q": {in.SOQL}}.Encode(), nil, &r)
+	err := a.call(ctx, conn, http.MethodGet, "/query?"+url.Values{"q": {in.SOQL}}.Encode(), nil, &r)
 	if errors.Is(err, web.ErrTooLarge) {
 		return nil, errors.New("the answer is too large; select fewer fields or add a smaller LIMIT")
 	}
@@ -461,15 +458,12 @@ type Found struct {
 	Record any    `json:"record"`
 }
 
-func (a *Adapter) search(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Text  string `json:"text"`
-		SOSL  string `json:"sosl"`
-		Limit int    `json:"limit"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) search(ctx context.Context, conn channels.Connection, _ string, in struct {
+	Text  string `json:"text"`
+	SOSL  string `json:"sosl"`
+	Limit int    `json:"limit"`
+},
+) (any, error) {
 	limit := apitool.Limit(in.Limit, 25, 100)
 	q := strings.TrimSpace(in.SOSL)
 	if q == "" {
@@ -496,15 +490,12 @@ func (a *Adapter) search(ctx context.Context, conn channels.Connection, _ string
 	return out, nil
 }
 
-func (a *Adapter) get(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Object string   `json:"object"`
-		ID     string   `json:"id"`
-		Fields []string `json:"fields"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) get(ctx context.Context, conn channels.Connection, _ string, in struct {
+	Object string   `json:"object"`
+	ID     string   `json:"id"`
+	Fields []string `json:"fields"`
+},
+) (any, error) {
 	path, err := recordOf(in.Object, in.ID)
 	if err != nil {
 		return nil, err
@@ -548,13 +539,10 @@ type Field struct {
 // every country or currency.
 const maxPicklist = 50
 
-func (a *Adapter) describe(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Object string `json:"object"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) describe(ctx context.Context, conn channels.Connection, _ string, in struct {
+	Object string `json:"object"`
+},
+) (any, error) {
 	o, err := nameOf("an object", in.Object)
 	if err != nil {
 		return nil, err
@@ -604,11 +592,7 @@ type change struct {
 	Fields map[string]any `json:"fields"`
 }
 
-func (a *Adapter) create(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[change](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) create(ctx context.Context, conn channels.Connection, _ string, in change) (any, error) {
 	o, err := nameOf("an object", in.Object)
 	if err != nil {
 		return nil, err
@@ -625,11 +609,7 @@ func (a *Adapter) create(ctx context.Context, conn channels.Connection, _ string
 	return map[string]string{"id": r.ID}, nil
 }
 
-func (a *Adapter) update(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[change](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) update(ctx context.Context, conn channels.Connection, _ string, in change) (any, error) {
 	path, err := recordOf(in.Object, in.ID)
 	if err != nil {
 		return nil, err

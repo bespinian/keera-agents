@@ -253,17 +253,13 @@ func (c *Client) CheckError(s Site, err error) error {
 // Run makes a tool's function from one that takes the site and the
 // decoded arguments.
 func Run[T any](c *Client, f func(ctx context.Context, s Site, target string, in T) (any, error)) apitool.Run {
-	return func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
+	return apitool.Typed(func(ctx context.Context, conn channels.Connection, target string, in T) (any, error) {
 		s, err := c.Open(ctx, conn)
 		if err != nil {
 			return nil, err
 		}
-		in, err := apitool.Decode[T](args)
-		if err != nil {
-			return nil, err
-		}
 		return f(ctx, s, target, in)
-	}
+	})
 }
 
 // Quote makes s a string in JQL or CQL.

@@ -96,7 +96,7 @@ func New(opts channels.Options) *Adapter {
 				strings.Replace(rowsParam, "Rows of cells", "Optional first rows of cells", 1) + `},
 				"required":["title"]}`),
 			Write: true,
-			Run:   a.create,
+			Run:   apitool.Typed(a.create),
 		},
 	}
 	a.Accounts = workspace.NewAccounts(a.files.Client, "Google Sheets API and the Google Drive API")
@@ -301,15 +301,12 @@ func (a *Adapter) appendRows(ctx context.Context, conn channels.Connection, targ
 	return r.Updates.view(), nil
 }
 
-func (a *Adapter) create(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Title    string  `json:"title"`
-		FolderID string  `json:"folder_id"`
-		Rows     [][]any `json:"rows"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) create(ctx context.Context, conn channels.Connection, target string, in struct {
+	Title    string  `json:"title"`
+	FolderID string  `json:"folder_id"`
+	Rows     [][]any `json:"rows"`
+},
+) (any, error) {
 	s, err := workspace.SettingsOf(conn)
 	if err != nil {
 		return nil, err

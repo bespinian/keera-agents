@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	"github.com/bespinian/keera-agents/internal/channels"
@@ -43,14 +42,14 @@ func (a *Adapter) toolSet() apitool.Set {
 			Description: "List the tables and views you may read, with their estimated row counts and comments.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
 				"schema":{"type":"string","description":"Only this schema, such as public."}}}`),
-			Run: a.listTables,
+			Run: apitool.Typed(a.listTables),
 		},
 		{
 			Name:        "describe_table",
 			Description: "Describe a table or view: its columns with their types, nullability, defaults and comments, and its keys and checks.",
 			Parameters: apitool.Schema(`{"type":"object","required":["table"],"properties":{
 				"table":{"type":"string","description":"The table's name, with its schema if it is not on the search path, such as shop.orders."}}}`),
-			Run: a.describeTable,
+			Run: apitool.Typed(a.describeTable),
 		},
 		{
 			Name: "query",
@@ -59,7 +58,7 @@ func (a *Adapter) toolSet() apitool.Set {
 			Parameters: apitool.Schema(`{"type":"object","required":["sql"],"properties":{
 				"sql":{"type":"string","description":"One statement, without a trailing semicolon needed."},
 				"limit":{"type":"integer","description":"Rows to return at most, 100 by default, up to 1000."}}}`),
-			Run: a.query,
+			Run: apitool.Typed(a.query),
 		},
 		{
 			Name: "execute",
@@ -68,18 +67,15 @@ func (a *Adapter) toolSet() apitool.Set {
 			Parameters: apitool.Schema(`{"type":"object","required":["sql"],"properties":{
 				"sql":{"type":"string","description":"One statement."}}}`),
 			Write: true,
-			Run:   a.execute,
+			Run:   apitool.Typed(a.execute),
 		},
 	}
 }
 
-func (a *Adapter) listTables(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Schema string `json:"schema"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) listTables(ctx context.Context, conn channels.Connection, _ string, in struct {
+	Schema string `json:"schema"`
+},
+) (any, error) {
 	res, err := a.run(ctx, conn, false, tables, 1000, strings.TrimSpace(in.Schema))
 	return objects(res), err
 }
@@ -100,13 +96,10 @@ func objects(res Result) []map[string]any {
 	return out
 }
 
-func (a *Adapter) describeTable(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		Table string `json:"table"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) describeTable(ctx context.Context, conn channels.Connection, _ string, in struct {
+	Table string `json:"table"`
+},
+) (any, error) {
 	if err := apitool.Need("table", in.Table); err != nil {
 		return nil, err
 	}
@@ -122,23 +115,17 @@ func (a *Adapter) describeTable(ctx context.Context, conn channels.Connection, _
 	return map[string]any{"table": table, "columns": objects(cols), "constraints": objects(keys)}, nil
 }
 
-func (a *Adapter) query(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		SQL   string `json:"sql"`
-		Limit int    `json:"limit"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) query(ctx context.Context, conn channels.Connection, _ string, in struct {
+	SQL   string `json:"sql"`
+	Limit int    `json:"limit"`
+},
+) (any, error) {
 	return a.run(ctx, conn, false, in.SQL, apitool.Limit(in.Limit, 100, 1000))
 }
 
-func (a *Adapter) execute(ctx context.Context, conn channels.Connection, _ string, args json.RawMessage) (any, error) {
-	in, err := apitool.Decode[struct {
-		SQL string `json:"sql"`
-	}](args)
-	if err != nil {
-		return nil, err
-	}
+func (a *Adapter) execute(ctx context.Context, conn channels.Connection, _ string, in struct {
+	SQL string `json:"sql"`
+},
+) (any, error) {
 	return a.run(ctx, conn, true, in.SQL, 100)
 }
