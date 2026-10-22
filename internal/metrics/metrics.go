@@ -182,6 +182,7 @@ type family struct {
 }
 
 type series struct {
+	// count is a counter's value. A histogram counts in hist.
 	count atomic.Int64
 	// micros is a histogram's sum, in microseconds so it stays an integer.
 	micros atomic.Int64
@@ -224,7 +225,6 @@ func (f *family) inc(values ...string) { f.with(values...).count.Add(1) }
 func (f *family) observe(d time.Duration, values ...string) {
 	d = max(d, 0) // clocks of two replicas may disagree
 	s := f.with(values...)
-	s.count.Add(1)
 	s.micros.Add(d.Microseconds())
 	i, _ := slices.BinarySearch(f.buckets, d.Seconds())
 	s.hist[i].Add(1)
