@@ -282,7 +282,7 @@ async function settingsTab(ctx, agent) {
   const form = await agentForm(ctx, agent);
   const enabled = checkRow(
     "Takes new tasks",
-    "When off, it finishes what it is doing and takes nothing new. Its channels and schedules stay.",
+    "When off, its machine stops and the tasks it has are cancelled. Its channels and schedules stay.",
     agent.enabled !== false,
   );
   const err = h("div");

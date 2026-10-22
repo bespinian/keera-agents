@@ -422,6 +422,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 	s.record(r.Context(), p, "agent.update", out.ID, map[string]any{"name": out.Name})
 	// Instructions and the model reach the runtime at its next task.
 	s.rekeyIfChanged(r.Context(), before, out)
+	if before.Enabled != out.Enabled {
+		// As the start and stop routes do.
+		s.record(r.Context(), p, "agent"+startOrStop(out.Enabled), out.ID, nil)
+	}
 	switch {
 	case before.Enabled && !out.Enabled:
 		if err := s.fleet.Stop(r.Context(), out, "the agent was stopped"); err != nil {
@@ -475,7 +479,7 @@ func (s *Server) setMachineEnabled(w http.ResponseWriter, r *http.Request, p Pri
 		s.fail(w, err)
 		return a, false
 	}
-	action := map[bool]string{true: ".start", false: ".stop"}[enabled]
+	action := startOrStop(enabled)
 	if restart {
 		action = ".restart"
 	}
@@ -491,6 +495,14 @@ func (s *Server) setMachineEnabled(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	out, _ = s.st.Agent(r.Context(), a.ID)
 	return out, true
+}
+
+// startOrStop is the end of the audit action for starting or stopping.
+func startOrStop(enabled bool) string {
+	if enabled {
+		return ".start"
+	}
+	return ".stop"
 }
 
 // takeOverAgent makes the caller the owner, as when the owner left. Only an
