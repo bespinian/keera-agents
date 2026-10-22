@@ -6,8 +6,8 @@
 //
 // A Connection is one organisation's credentials for one service, such as
 // its Slack app. Each kind has an adapter in a package of its own, which
-// registers itself here. The control plane only ever talks to Chat, Files,
-// Code and API.
+// registers itself here. The control plane reaches it through the interfaces
+// it implements: Chat, Files, Code, API and PerUser.
 package channels
 
 import (
@@ -399,82 +399,49 @@ var (
 	mu       sync.RWMutex
 	descs    = map[Kind]Descriptor{}
 	adapters = map[Kind]Adapter{}
-	chats    = map[Kind]Chat{}
-	files    = map[Kind]Files{}
-	codes    = map[Kind]Code{}
-	apis     = map[Kind]API{}
-	perUsers = map[Kind]PerUser{}
 )
 
 // Register makes an adapter available. Adapters are created by the server at
 // start-up, with its HTTP client.
 func Register(a Adapter) {
 	d := a.Descriptor()
-	mu.Lock()
-	defer mu.Unlock()
-	adapters[d.Kind] = a
-	if c, ok := a.(Chat); ok {
-		chats[d.Kind], d.Chat = c, true
-	}
-	if f, ok := a.(Files); ok {
-		files[d.Kind], d.Files = f, true
-	}
-	if c, ok := a.(Code); ok {
-		codes[d.Kind], d.Code = c, true
-	}
+	_, d.Chat = a.(Chat)
+	_, d.Files = a.(Files)
+	_, d.Code = a.(Code)
 	if x, ok := a.(API); ok {
-		apis[d.Kind], d.API, d.Tools = x, true, x.Tools()
+		d.API, d.Tools = true, x.Tools()
 	}
 	if p, ok := a.(PerUser); ok {
 		signIn := p.SignIn()
-		perUsers[d.Kind], d.SignIn = p, &signIn
+		d.SignIn = &signIn
 	}
+	mu.Lock()
+	defer mu.Unlock()
+	adapters[d.Kind] = a
 	descs[d.Kind] = d
 }
 
+// lookup returns a kind's adapter as T, if it is one.
+func lookup[T any](k Kind) (T, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	t, ok := adapters[k].(T)
+	return t, ok
+}
+
 // AdapterFor returns a kind's adapter, whatever it does.
-func AdapterFor(k Kind) (Adapter, bool) {
-	mu.RLock()
-	defer mu.RUnlock()
-	a, ok := adapters[k]
-	return a, ok
-}
+func AdapterFor(k Kind) (Adapter, bool) { return lookup[Adapter](k) }
 
-func ChatFor(k Kind) (Chat, bool) {
-	mu.RLock()
-	defer mu.RUnlock()
-	c, ok := chats[k]
-	return c, ok
-}
+func ChatFor(k Kind) (Chat, bool) { return lookup[Chat](k) }
 
-func FilesFor(k Kind) (Files, bool) {
-	mu.RLock()
-	defer mu.RUnlock()
-	f, ok := files[k]
-	return f, ok
-}
+func FilesFor(k Kind) (Files, bool) { return lookup[Files](k) }
 
-func CodeFor(k Kind) (Code, bool) {
-	mu.RLock()
-	defer mu.RUnlock()
-	c, ok := codes[k]
-	return c, ok
-}
+func CodeFor(k Kind) (Code, bool) { return lookup[Code](k) }
 
-func APIFor(k Kind) (API, bool) {
-	mu.RLock()
-	defer mu.RUnlock()
-	x, ok := apis[k]
-	return x, ok
-}
+func APIFor(k Kind) (API, bool) { return lookup[API](k) }
 
 // PerUserFor returns the adapter of a kind people may sign in to.
-func PerUserFor(k Kind) (PerUser, bool) {
-	mu.RLock()
-	defer mu.RUnlock()
-	p, ok := perUsers[k]
-	return p, ok
-}
+func PerUserFor(k Kind) (PerUser, bool) { return lookup[PerUser](k) }
 
 // Descriptors lists the registered kinds in order.
 func Descriptors() []Descriptor {
@@ -498,8 +465,8 @@ func Describe(k Kind) (Descriptor, bool) {
 }
 
 // SameServer is a CheckRedirect that follows redirects only on the server
-// first asked. A code host's address is the organisation's own setting, so
-// its server could otherwise send the control plane to an internal address.
+// first asked. A service's address can be a connection's setting, so its
+// server could otherwise send the control plane to an internal address.
 // Go keeps custom headers such as GitLab's PRIVATE-TOKEN across hosts, too.
 func SameServer(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
