@@ -22,9 +22,11 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -328,10 +330,8 @@ func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target s
 	if err != nil {
 		return "", fmt.Errorf("could not use %s; check the region exists and is enabled for the account (%w)", c.region, err)
 	}
-	for _, r := range out.Regions {
-		if r == c.region {
-			return c.region, nil
-		}
+	if slices.Contains(out.Regions, c.region) {
+		return c.region, nil
 	}
 	return "", fmt.Errorf("%s is not enabled for the account; enable it in the AWS console under Account, AWS Regions", c.region)
 }
@@ -367,9 +367,7 @@ func (c client) request(ctx context.Context, service, method, u string, body []b
 	if err != nil {
 		return nil, err
 	}
-	for k, v := range header {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, header)
 	// Only AssumeRoleWithWebIdentity goes without credentials.
 	if c.creds.id != "" {
 		sign(req, body, c.creds, c.region, service, c.a.now())

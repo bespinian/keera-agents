@@ -18,70 +18,58 @@ import (
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
 		{
-			Tool: channels.Tool{
-				Name: "search",
-				Description: "Search pages and blog posts by text, or anything with CQL. " +
-					"A connector limited to one space searches only that space.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"text":{"type":"string","description":"Words to look for in pages and blog posts"},
-					"cql":{"type":"string","description":"A CQL query instead, such as type = page AND title ~ \"onboarding\""},
-					"limit":{"type":"integer","description":"At most this many results; default 25, up to 100"}}}`),
-			},
+			Name: "search",
+			Description: "Search pages and blog posts by text, or anything with CQL. " +
+				"A connector limited to one space searches only that space.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"text":{"type":"string","description":"Words to look for in pages and blog posts"},
+				"cql":{"type":"string","description":"A CQL query instead, such as type = page AND title ~ \"onboarding\""},
+				"limit":{"type":"integer","description":"At most this many results; default 25, up to 100"}}}`),
 			Run: atlassian.Run(a.c, a.search),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "get_page",
-				Description: "Read a page or blog post as plain text, with its title, version and address.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"id":{"type":"string","description":"The page's id, a number"}},"required":["id"]}`),
-			},
+			Name:        "get_page",
+			Description: "Read a page or blog post as plain text, with its title, version and address.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"id":{"type":"string","description":"The page's id, a number"}},"required":["id"]}`),
 			Run: atlassian.Run(a.c, a.getPage),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "list_spaces",
-				Description: "List the spaces this connector may use.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"limit":{"type":"integer","description":"At most this many spaces; default 25, up to 100"}}}`),
-			},
+			Name:        "list_spaces",
+			Description: "List the spaces this connector may use.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"limit":{"type":"integer","description":"At most this many spaces; default 25, up to 100"}}}`),
 			Run: atlassian.Run(a.c, a.listSpaces),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "create_page",
-				Description: "Create a page.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"space":{"type":"string","description":"The space's key; only needed when the connector may use every space"},
-					"title":{"type":"string"},
-					"body":{"type":"string","description":"The content in Confluence storage format, which is XHTML such as <h2>Goals</h2><p>Text</p><ul><li>Item</li></ul>. Plain text becomes paragraphs."},
-					"parent_id":{"type":"string","description":"The id of the page to put it under; empty for the top of the space"}},"required":["title","body"]}`),
-				Write: true,
-			},
-			Run: atlassian.Run(a.c, a.createPage),
+			Name:        "create_page",
+			Description: "Create a page.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"space":{"type":"string","description":"The space's key; only needed when the connector may use every space"},
+				"title":{"type":"string"},
+				"body":{"type":"string","description":"The content in Confluence storage format, which is XHTML such as <h2>Goals</h2><p>Text</p><ul><li>Item</li></ul>. Plain text becomes paragraphs."},
+				"parent_id":{"type":"string","description":"The id of the page to put it under; empty for the top of the space"}},"required":["title","body"]}`),
+			Write: true,
+			Run:   atlassian.Run(a.c, a.createPage),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "update_page",
-				Description: "Replace a page's body, its title, or both. Read it with get_page first, so nothing is lost.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"id":{"type":"string","description":"The page's id"},
-					"title":{"type":"string","description":"A new title; leave out to keep it"},
-					"body":{"type":"string","description":"The whole new content in Confluence storage format (XHTML); leave out to keep it"}},"required":["id"]}`),
-				Write: true,
-			},
-			Run: atlassian.Run(a.c, a.updatePage),
+			Name:        "update_page",
+			Description: "Replace a page's body, its title, or both. Read it with get_page first, so nothing is lost.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"id":{"type":"string","description":"The page's id"},
+				"title":{"type":"string","description":"A new title; leave out to keep it"},
+				"body":{"type":"string","description":"The whole new content in Confluence storage format (XHTML); leave out to keep it"}},"required":["id"]}`),
+			Write: true,
+			Run:   atlassian.Run(a.c, a.updatePage),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "comment",
-				Description: "Comment on a page or blog post.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"page_id":{"type":"string","description":"The page's id"},
-					"body":{"type":"string","description":"Plain text, or Confluence storage format (XHTML)"}},"required":["page_id","body"]}`),
-				Write: true,
-			},
-			Run: atlassian.Run(a.c, a.comment),
+			Name:        "comment",
+			Description: "Comment on a page or blog post.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"page_id":{"type":"string","description":"The page's id"},
+				"body":{"type":"string","description":"Plain text, or Confluence storage format (XHTML)"}},"required":["page_id","body"]}`),
+			Write: true,
+			Run:   atlassian.Run(a.c, a.comment),
 		},
 	}
 }

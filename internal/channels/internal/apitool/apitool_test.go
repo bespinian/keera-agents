@@ -11,7 +11,7 @@ import (
 
 func TestSet(t *testing.T) {
 	set := Set{
-		{Tool: channels.Tool{Name: "echo"}, Run: func(_ context.Context, _ channels.Connection, target string, args json.RawMessage) (any, error) {
+		{Name: "echo", Run: func(_ context.Context, _ channels.Connection, target string, args json.RawMessage) (any, error) {
 			in, err := Decode[struct {
 				Text string `json:"text"`
 			}](args)

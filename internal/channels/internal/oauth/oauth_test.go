@@ -34,8 +34,7 @@ func TestClientCredentials(t *testing.T) {
 		t.Fatalf("token = %+v, %v", tok, err)
 	}
 	_, err = ClientCredentials(context.Background(), srv.Client(), srv.URL, "id", "wrong", "s")
-	var oe *Error
-	if !errors.As(err, &oe) || oe.Code != "invalid_client" || oe.Status != 401 {
+	if oe, ok := errors.AsType[*Error](err); !ok || oe.Code != "invalid_client" || oe.Status != 401 {
 		t.Fatalf("err = %v", err)
 	}
 	if strings.Contains(err.Error(), "wrong") || strings.Contains(err.Error(), "Trace") {

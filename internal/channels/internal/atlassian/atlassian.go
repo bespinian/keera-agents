@@ -288,9 +288,9 @@ func Scope(clause, query, order string) (string, error) {
 	}
 	where := query
 	ms := orderBy.FindAllStringIndex(query, -1)
-	for i := len(ms) - 1; i >= 0; i-- {
-		if top[ms[i][0]] {
-			where, order = strings.TrimSpace(query[:ms[i][0]]), query[ms[i][0]:]
+	for _, m := range slices.Backward(ms) {
+		if top[m[0]] {
+			where, order = strings.TrimSpace(query[:m[0]]), query[m[0]:]
 			break
 		}
 	}

@@ -38,34 +38,38 @@ const constraints = `SELECT conname AS name, pg_get_constraintdef(oid) AS defini
 
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
-		{Tool: channels.Tool{
+		{
 			Name:        "list_tables",
 			Description: "List the tables and views you may read, with their estimated row counts and comments.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
 				"schema":{"type":"string","description":"Only this schema, such as public."}}}`),
-		}, Run: a.listTables},
-		{Tool: channels.Tool{
+			Run: a.listTables,
+		},
+		{
 			Name:        "describe_table",
 			Description: "Describe a table or view: its columns with their types, nullability, defaults and comments, and its keys and checks.",
 			Parameters: apitool.Schema(`{"type":"object","required":["table"],"properties":{
 				"table":{"type":"string","description":"The table's name, with its schema if it is not on the search path, such as shop.orders."}}}`),
-		}, Run: a.describeTable},
-		{Tool: channels.Tool{
+			Run: a.describeTable,
+		},
+		{
 			Name: "query",
 			Description: "Run one read-only SQL statement, such as a SELECT, and return its rows as text. " +
 				"Values are as psql shows them, and NULL is null. Add ORDER BY and LIMIT, and aggregate in SQL rather than reading many rows.",
 			Parameters: apitool.Schema(`{"type":"object","required":["sql"],"properties":{
 				"sql":{"type":"string","description":"One statement, without a trailing semicolon needed."},
 				"limit":{"type":"integer","description":"Rows to return at most, 100 by default, up to 1000."}}}`),
-		}, Run: a.query},
-		{Tool: channels.Tool{
+			Run: a.query,
+		},
+		{
 			Name: "execute",
 			Description: "Run one SQL statement that changes data, such as an INSERT, UPDATE or DELETE, and commit it. " +
 				"It returns how many rows it changed, and the rows of a RETURNING clause. Check with query first what it will change.",
 			Parameters: apitool.Schema(`{"type":"object","required":["sql"],"properties":{
 				"sql":{"type":"string","description":"One statement."}}}`),
 			Write: true,
-		}, Run: a.execute},
+			Run:   a.execute,
+		},
 	}
 }
 

@@ -354,8 +354,7 @@ func (s *Server) dialFront(ctx context.Context, addr, secret, port string) (io.R
 		if err == nil {
 			return conn, nil
 		}
-		var refused *stream.Error
-		if errors.As(err, &refused) || time.Now().After(deadline) || ctx.Err() != nil {
+		if _, refused := errors.AsType[*stream.Error](err); refused || time.Now().After(deadline) || ctx.Err() != nil {
 			return nil, err
 		}
 		select {

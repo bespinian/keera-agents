@@ -35,22 +35,24 @@ const kindArgs = `
 
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
-		{Tool: channels.Tool{
+		{
 			Name:        "list",
 			Description: "Lists objects of a kind in the namespace, with their age and a short status.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + kindArgs + `,
 				"label_selector": {"type": "string", "description": "Only objects with these labels, such as app=web."},
 				"limit": {"type": "integer", "description": "How many to list, at most 100. Default 25."}
 			}, "required": ["kind"]}`),
-		}, Run: a.list},
-		{Tool: channels.Tool{
+			Run: a.list,
+		},
+		{
 			Name:        "get",
 			Description: "Reads one object in the namespace as JSON. A Secret's values are left out; only its keys are shown.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + kindArgs + `,
 				"name": {"type": "string"}
 			}, "required": ["kind", "name"]}`),
-		}, Run: a.get},
-		{Tool: channels.Tool{
+			Run: a.get,
+		},
+		{
 			Name:        "logs",
 			Description: "Reads the last lines a pod's container logged.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -60,16 +62,18 @@ func (a *Adapter) toolSet() apitool.Set {
 				"since_seconds": {"type": "integer", "description": "Only lines from the last this many seconds."},
 				"previous": {"type": "boolean", "description": "The container's previous run, after a crash or restart."}
 			}, "required": ["pod"]}`),
-		}, Run: a.logs},
-		{Tool: channels.Tool{
+			Run: a.logs,
+		},
+		{
 			Name:        "events",
 			Description: "Lists the namespace's recent events, newest first, such as failed scheduling or image pulls.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
 				"name": {"type": "string", "description": "Only events about the object with this name."},
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}}`),
-		}, Run: a.events},
-		{Tool: channels.Tool{
+			Run: a.events,
+		},
+		{
 			Name: "apply",
 			Description: "Creates or updates an object in the namespace with server-side apply. " +
 				"Give the manifest as a JSON object; YAML is not accepted.",
@@ -77,16 +81,18 @@ func (a *Adapter) toolSet() apitool.Set {
 				"manifest": {"type": "object", "description": "The whole object, with apiVersion, kind and metadata.name."}
 			}, "required": ["manifest"]}`),
 			Write: true,
-		}, Run: a.apply},
-		{Tool: channels.Tool{
+			Run:   a.apply,
+		},
+		{
 			Name:        "delete",
 			Description: "Deletes one object in the namespace.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + kindArgs + `,
 				"name": {"type": "string"}
 			}, "required": ["kind", "name"]}`),
 			Write: true,
-		}, Run: a.delete},
-		{Tool: channels.Tool{
+			Run:   a.delete,
+		},
+		{
 			Name:        "scale",
 			Description: "Sets how many replicas a Deployment or StatefulSet runs.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -95,8 +101,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"replicas": {"type": "integer", "minimum": 0, "maximum": 1000}
 			}, "required": ["kind", "name", "replicas"]}`),
 			Write: true,
-		}, Run: a.scale},
-		{Tool: channels.Tool{
+			Run:   a.scale,
+		},
+		{
 			Name:        "restart",
 			Description: "Restarts a Deployment's, StatefulSet's or DaemonSet's pods one by one, as kubectl rollout restart does.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -104,7 +111,8 @@ func (a *Adapter) toolSet() apitool.Set {
 				"name": {"type": "string"}
 			}, "required": ["kind", "name"]}`),
 			Write: true,
-		}, Run: a.restart},
+			Run:   a.restart,
+		},
 	}
 }
 

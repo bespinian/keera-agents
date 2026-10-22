@@ -304,15 +304,16 @@ const idArg = `"id": {"type": "string", "description": "The record's 15 or 18 ch
 
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
-		{Tool: channels.Tool{
+		{
 			Name:        "query",
 			Description: "Run a SOQL query, such as SELECT Id, Name FROM Account WHERE Industry = 'Energy' LIMIT 20. Use describe to learn an object's fields.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
 				"soql": {"type": "string"},
 				"limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "How many records to return at most, 50 by default. Add LIMIT and OFFSET to the query for more."}
 			}, "required": ["soql"]}`),
-		}, Run: a.query},
-		{Tool: channels.Tool{
+			Run: a.query,
+		},
+		{
 			Name:        "search",
 			Description: "Search accounts, contacts, opportunities, leads and cases for text, such as a name or email address. Or run your own SOSL.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -320,35 +321,40 @@ func (a *Adapter) toolSet() apitool.Set {
 				"sosl": {"type": "string", "description": "A whole SOSL search instead of text, such as FIND {Acme} IN NAME FIELDS RETURNING Account(Id, Name)."},
 				"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many records at most, 25 by default."}
 			}}`),
-		}, Run: a.search},
-		{Tool: channels.Tool{
+			Run: a.search,
+		},
+		{
 			Name:        "get",
 			Description: "Read one record by its id.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectArg + `, ` + idArg + `,
 				"fields": {"type": "array", "items": {"type": "string"}, "description": "Fields to return. Empty returns every field with a value."}
 			}, "required": ["object", "id"]}`),
-		}, Run: a.get},
-		{Tool: channels.Tool{
+			Run: a.get,
+		},
+		{
 			Name:        "describe",
 			Description: "List an object's fields: name, label, type, whether it is required or can be changed, and picklist values.",
 			Parameters:  apitool.Schema(`{"type": "object", "properties": {` + objectArg + `}, "required": ["object"]}`),
-		}, Run: a.describe},
-		{Tool: channels.Tool{
+			Run:         a.describe,
+		},
+		{
 			Name:        "create",
 			Description: "Create a record.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectArg + `,
 				"fields": {"type": "object", "description": "Field API names and values, such as {\"LastName\": \"Lovelace\", \"Company\": \"Acme\"}."}
 			}, "required": ["object", "fields"]}`),
 			Write: true,
-		}, Run: a.create},
-		{Tool: channels.Tool{
+			Run:   a.create,
+		},
+		{
 			Name:        "update",
 			Description: "Change fields of a record. Fields left out keep their value.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectArg + `, ` + idArg + `,
 				"fields": {"type": "object", "description": "Field API names and their new values."}
 			}, "required": ["object", "id", "fields"]}`),
 			Write: true,
-		}, Run: a.update},
+			Run:   a.update,
+		},
 	}
 }
 

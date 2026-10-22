@@ -361,8 +361,8 @@ func (e *podmanError) Unwrap() error { return e.Err }
 // isNoSuch matches the message, since podman's exit code 125 is shared with
 // every usage error.
 func isNoSuch(err error) bool {
-	var pe *podmanError
-	if !errors.As(err, &pe) {
+	pe, ok := errors.AsType[*podmanError](err)
+	if !ok {
 		return false
 	}
 	msg := strings.ToLower(pe.Msg)

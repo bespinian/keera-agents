@@ -156,8 +156,8 @@ func isNotFound(err error) bool { return hasKubeStatus(err, http.StatusNotFound)
 func isConflict(err error) bool { return hasKubeStatus(err, http.StatusConflict) }
 
 func hasKubeStatus(err error, status int) bool {
-	var ke *kubeError
-	return errors.As(err, &ke) && ke.Status == status
+	ke, ok := errors.AsType[*kubeError](err)
+	return ok && ke.Status == status
 }
 
 // kubeNotFound maps a 404 to ErrNotFound.

@@ -320,14 +320,12 @@ func (f Files) find(ctx context.Context, s Settings, target, name string, limit 
 func (f Files) FindTool() apitool.Tool {
 	plural := f.Noun + "s"
 	return apitool.Tool{
-		Tool: channels.Tool{
-			Name: "find",
-			Description: "Find Google " + plural + " by a part of their name, newest first. " +
-				"A connector bound to one " + f.Noun + " always returns that one.",
-			Parameters: apitool.Schema(`{"type":"object","properties":{
-				"name":{"type":"string","description":"Text the name contains. Empty lists the newest."},
-				"limit":{"type":"integer","description":"At most this many, 25 by default, up to 100."}}}`),
-		},
+		Name: "find",
+		Description: "Find Google " + plural + " by a part of their name, newest first. " +
+			"A connector bound to one " + f.Noun + " always returns that one.",
+		Parameters: apitool.Schema(`{"type":"object","properties":{
+			"name":{"type":"string","description":"Text the name contains. Empty lists the newest."},
+			"limit":{"type":"integer","description":"At most this many, 25 by default, up to 100."}}}`),
 		Run: func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
 			in, err := apitool.Decode[struct {
 				Name  string `json:"name"`

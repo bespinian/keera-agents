@@ -88,8 +88,8 @@ func (r *runner) serveMCP(w http.ResponseWriter, req *http.Request) {
 	out := rpcMessage{JSONRPC: "2.0", ID: msg.ID}
 	result, err := r.mcpMethod(req.Context(), msg)
 	if err != nil {
-		var re *rpcError
-		if !errors.As(err, &re) {
+		re, ok := errors.AsType[*rpcError](err)
+		if !ok {
 			re = &rpcError{Code: -32603, Message: err.Error()}
 		}
 		out.Error = re

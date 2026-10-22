@@ -60,84 +60,72 @@ func New(opts channels.Options) *Adapter {
 	}
 	a.Set = apitool.Set{
 		{
-			Tool: channels.Tool{
-				Name:        "list_events",
-				Description: "List the calendar's events in a time range, by start time. Recurring events are listed one occurrence at a time.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"from":{"type":"string","description":"RFC 3339. Now by default. A date alone is midnight UTC."},
-					"to":{"type":"string","description":"RFC 3339. Seven days after from by default."},
-					"query":{"type":"string","description":"Only events with this text, such as in their title, place or guests."},
-					"limit":{"type":"integer","description":"At most this many, 25 by default, up to 100."}}}`),
-			},
+			Name:        "list_events",
+			Description: "List the calendar's events in a time range, by start time. Recurring events are listed one occurrence at a time.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"from":{"type":"string","description":"RFC 3339. Now by default. A date alone is midnight UTC."},
+				"to":{"type":"string","description":"RFC 3339. Seven days after from by default."},
+				"query":{"type":"string","description":"Only events with this text, such as in their title, place or guests."},
+				"limit":{"type":"integer","description":"At most this many, 25 by default, up to 100."}}}`),
 			Run: a.listEvents,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "get_event",
-				Description: "Read one event of the calendar, with its description and guests.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"event_id":{"type":"string"}},"required":["event_id"]}`),
-			},
+			Name:        "get_event",
+			Description: "Read one event of the calendar, with its description and guests.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"event_id":{"type":"string"}},"required":["event_id"]}`),
 			Run: a.getEvent,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "free_busy",
-				Description: "List when the calendar is busy in a time range, without the events' details.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"from":{"type":"string","description":"RFC 3339. Now by default. A date alone is midnight UTC."},
-					"to":{"type":"string","description":"RFC 3339. Seven days after from by default."}}}`),
-			},
+			Name:        "free_busy",
+			Description: "List when the calendar is busy in a time range, without the events' details.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"from":{"type":"string","description":"RFC 3339. Now by default. A date alone is midnight UTC."},
+				"to":{"type":"string","description":"RFC 3339. Seven days after from by default."}}}`),
 			Run: a.freeBusy,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "create_event",
-				Description: "Create an event in the calendar. Guests get an invitation only when notify is true.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"summary":{"type":"string","description":"The event's title."},
-					"start":{"type":"string","description":"` + timeHelp + `"},
-					"end":{"type":"string","description":"Like start. For an all-day event, the day after the last day."},
-					"time_zone":{"type":"string","description":"An IANA time zone, such as Europe/Zurich. Needed for start and end without an offset, and for recurring events."},
-					"description":{"type":"string"},
-					"location":{"type":"string"},
-					"attendees":{"type":"array","items":{"type":"string"},"description":"The guests' emails."},
-					"notify":{"type":"boolean","description":"Email the guests. False by default."}},
-					"required":["summary","start","end"]}`),
-				Write: true,
-			},
-			Run: a.createEvent,
+			Name:        "create_event",
+			Description: "Create an event in the calendar. Guests get an invitation only when notify is true.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"summary":{"type":"string","description":"The event's title."},
+				"start":{"type":"string","description":"` + timeHelp + `"},
+				"end":{"type":"string","description":"Like start. For an all-day event, the day after the last day."},
+				"time_zone":{"type":"string","description":"An IANA time zone, such as Europe/Zurich. Needed for start and end without an offset, and for recurring events."},
+				"description":{"type":"string"},
+				"location":{"type":"string"},
+				"attendees":{"type":"array","items":{"type":"string"},"description":"The guests' emails."},
+				"notify":{"type":"boolean","description":"Email the guests. False by default."}},
+				"required":["summary","start","end"]}`),
+			Write: true,
+			Run:   a.createEvent,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "update_event",
-				Description: "Change an event of the calendar. Only the fields given change; attendees, if given, replaces the guest list.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"event_id":{"type":"string"},
-					"summary":{"type":"string"},
-					"start":{"type":"string","description":"` + timeHelp + `"},
-					"end":{"type":"string"},
-					"time_zone":{"type":"string"},
-					"description":{"type":"string"},
-					"location":{"type":"string"},
-					"attendees":{"type":"array","items":{"type":"string"}},
-					"notify":{"type":"boolean","description":"Email the guests about the change. False by default."}},
-					"required":["event_id"]}`),
-				Write: true,
-			},
-			Run: a.updateEvent,
+			Name:        "update_event",
+			Description: "Change an event of the calendar. Only the fields given change; attendees, if given, replaces the guest list.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"event_id":{"type":"string"},
+				"summary":{"type":"string"},
+				"start":{"type":"string","description":"` + timeHelp + `"},
+				"end":{"type":"string"},
+				"time_zone":{"type":"string"},
+				"description":{"type":"string"},
+				"location":{"type":"string"},
+				"attendees":{"type":"array","items":{"type":"string"}},
+				"notify":{"type":"boolean","description":"Email the guests about the change. False by default."}},
+				"required":["event_id"]}`),
+			Write: true,
+			Run:   a.updateEvent,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "delete_event",
-				Description: "Delete an event of the calendar.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"event_id":{"type":"string"},
-					"notify":{"type":"boolean","description":"Email the guests that it was cancelled. False by default."}},
-					"required":["event_id"]}`),
-				Write: true,
-			},
-			Run: a.deleteEvent,
+			Name:        "delete_event",
+			Description: "Delete an event of the calendar.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"event_id":{"type":"string"},
+				"notify":{"type":"boolean","description":"Email the guests that it was cancelled. False by default."}},
+				"required":["event_id"]}`),
+			Write: true,
+			Run:   a.deleteEvent,
 		},
 	}
 	a.Accounts = workspace.NewAccounts(a.client, "Google Calendar API")

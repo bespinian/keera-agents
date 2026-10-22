@@ -98,7 +98,10 @@ func (a *Adapter) toolSet() apitool.Set {
 // the binding's region.
 func tool[T any](a *Adapter, name, desc string, write bool, schema string, run func(context.Context, client, T) (any, error)) apitool.Tool {
 	return apitool.Tool{
-		Tool: channels.Tool{Name: name, Description: desc, Parameters: apitool.Schema(schema), Write: write},
+		Name:        name,
+		Description: desc,
+		Parameters:  apitool.Schema(schema),
+		Write:       write,
 		Run: func(ctx context.Context, conn channels.Connection, target string, args json.RawMessage) (any, error) {
 			in, err := apitool.Decode[T](args)
 			if err != nil {

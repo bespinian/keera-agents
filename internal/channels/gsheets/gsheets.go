@@ -55,58 +55,48 @@ func New(opts channels.Options) *Adapter {
 	a.Set = apitool.Set{
 		a.files.FindTool(),
 		{
-			Tool: channels.Tool{
-				Name:        "get",
-				Description: "Get a Google Sheet's title and its tabs, with how many rows and columns each has.",
-				Parameters:  apitool.Schema(`{"type":"object","properties":{` + idParam + `}}`),
-			},
-			Run: a.get,
+			Name:        "get",
+			Description: "Get a Google Sheet's title and its tabs, with how many rows and columns each has.",
+			Parameters:  apitool.Schema(`{"type":"object","properties":{` + idParam + `}}`),
+			Run:         a.get,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "read_range",
-				Description: fmt.Sprintf("Read the cells of a range, as rows of their shown values. At most %d cells, fewer when they are long.", maxCells),
-				Parameters: apitool.Schema(`{"type":"object","properties":{` + idParam + `,
-					"range":{"type":"string","description":"In A1 notation, such as Sheet1!A1:D20, or a tab's name for all of it."}},
-					"required":["range"]}`),
-			},
+			Name:        "read_range",
+			Description: fmt.Sprintf("Read the cells of a range, as rows of their shown values. At most %d cells, fewer when they are long.", maxCells),
+			Parameters: apitool.Schema(`{"type":"object","properties":{` + idParam + `,
+				"range":{"type":"string","description":"In A1 notation, such as Sheet1!A1:D20, or a tab's name for all of it."}},
+				"required":["range"]}`),
 			Run: a.readRange,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "write_range",
-				Description: "Write rows of cells into a range, starting at its top left cell, replacing what is there.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{` + idParam + `,
-					"range":{"type":"string","description":"In A1 notation, such as Sheet1!A1, or Sheet1!A1:C3."},` + rowsParam + `},
-					"required":["range","rows"]}`),
-				Write: true,
-			},
-			Run: a.writeRange,
+			Name:        "write_range",
+			Description: "Write rows of cells into a range, starting at its top left cell, replacing what is there.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{` + idParam + `,
+				"range":{"type":"string","description":"In A1 notation, such as Sheet1!A1, or Sheet1!A1:C3."},` + rowsParam + `},
+				"required":["range","rows"]}`),
+			Write: true,
+			Run:   a.writeRange,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "append_rows",
-				Description: "Add rows below the table in a range, such as a tab's name.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{` + idParam + `,
-					"range":{"type":"string","description":"The table, in A1 notation, such as Sheet1 or Sheet1!A:D."},` + rowsParam + `},
-					"required":["range","rows"]}`),
-				Write: true,
-			},
-			Run: a.appendRows,
+			Name:        "append_rows",
+			Description: "Add rows below the table in a range, such as a tab's name.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{` + idParam + `,
+				"range":{"type":"string","description":"The table, in A1 notation, such as Sheet1 or Sheet1!A:D."},` + rowsParam + `},
+				"required":["range","rows"]}`),
+			Write: true,
+			Run:   a.appendRows,
 		},
 		{
-			Tool: channels.Tool{
-				Name: "create",
-				Description: "Create a Google Sheet. Only for a connector bound to every spreadsheet. " +
-					"Give a folder unless the connector acts as a user: a service account has no storage of its own.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"title":{"type":"string"},
-					"folder_id":{"type":"string","description":"The id or link of the Drive folder to create it in."},` +
-					strings.Replace(rowsParam, "Rows of cells", "Optional first rows of cells", 1) + `},
-					"required":["title"]}`),
-				Write: true,
-			},
-			Run: a.create,
+			Name: "create",
+			Description: "Create a Google Sheet. Only for a connector bound to every spreadsheet. " +
+				"Give a folder unless the connector acts as a user: a service account has no storage of its own.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"title":{"type":"string"},
+				"folder_id":{"type":"string","description":"The id or link of the Drive folder to create it in."},` +
+				strings.Replace(rowsParam, "Rows of cells", "Optional first rows of cells", 1) + `},
+				"required":["title"]}`),
+			Write: true,
+			Run:   a.create,
 		},
 	}
 	a.Accounts = workspace.NewAccounts(a.files.Client, "Google Sheets API and the Google Drive API")

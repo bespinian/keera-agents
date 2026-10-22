@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/mailtext"
 	"github.com/bespinian/keera-agents/internal/channels/internal/microsoft"
@@ -26,7 +25,7 @@ const (
 
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
-		{Tool: channels.Tool{
+		{
 			Name: "list_messages",
 			Description: "List messages in a mail folder, newest first, with a short preview. " +
 				"Search finds words in the subject, body and addresses.",
@@ -35,19 +34,22 @@ func (a *Adapter) toolSet() apitool.Set {
 				"search":{"type":"string","description":"Words to search for."},
 				"unread_only":{"type":"boolean"},
 				"limit":{"type":"integer","description":"At most 100. Default 25."}}}`),
-		}, Run: run(a.listMessages)},
-		{Tool: channels.Tool{
+			Run: run(a.listMessages),
+		},
+		{
 			Name:        "list_folders",
 			Description: "List the mailbox's top-level mail folders, with their ids and counts.",
 			Parameters:  apitool.Schema(`{"type":"object","properties":{}}`),
-		}, Run: run(a.listFolders)},
-		{Tool: channels.Tool{
+			Run:         run(a.listFolders),
+		},
+		{
 			Name:        "read_message",
 			Description: "Read one message: its addresses, body as text and attachments' names.",
 			Parameters: apitool.Schema(`{"type":"object","required":["id"],"properties":{
 				"id":{"type":"string","description":"The message's id, from list_messages."}}}`),
-		}, Run: run(a.readMessage)},
-		{Tool: channels.Tool{
+			Run: run(a.readMessage),
+		},
+		{
 			Name:        "send_message",
 			Description: "Send a new email from the mailbox. The body is sent as plain text.",
 			Parameters: apitool.Schema(`{"type":"object","required":["to","subject","body"],"properties":{
@@ -56,8 +58,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"subject":{"type":"string"},
 				"body":{"type":"string","description":"Plain text or simple Markdown."}}}`),
 			Write: true,
-		}, Run: run(a.sendMessage)},
-		{Tool: channels.Tool{
+			Run:   run(a.sendMessage),
+		},
+		{
 			Name:        "reply",
 			Description: "Reply to a message, above the quoted original.",
 			Parameters: apitool.Schema(`{"type":"object","required":["id","body"],"properties":{
@@ -65,16 +68,18 @@ func (a *Adapter) toolSet() apitool.Set {
 				"body":{"type":"string"},
 				"reply_all":{"type":"boolean","description":"Reply to everyone on the message, not only its sender."}}}`),
 			Write: true,
-		}, Run: run(a.reply)},
-		{Tool: channels.Tool{
+			Run:   run(a.reply),
+		},
+		{
 			Name:        "move_message",
 			Description: "Move a message to another folder. Its id changes; the new one is returned.",
 			Parameters: apitool.Schema(`{"type":"object","required":["id","folder"],"properties":{
 				"id":{"type":"string","description":"The message's id."},
 				"folder":{"type":"string","description":"A well-known folder (inbox, archive, deleteditems, junkemail) or a folder id from list_folders."}}}`),
 			Write: true,
-		}, Run: run(a.moveMessage)},
-		{Tool: channels.Tool{
+			Run:   run(a.moveMessage),
+		},
+		{
 			Name:        "list_events",
 			Description: "List calendar events in a time range, earliest first. Default the next 7 days.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
@@ -82,8 +87,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"end":{"type":"string","description":"RFC 3339 time or a date. Default 7 days after start."},
 				"time_zone":{"type":"string","description":"The time zone to show times in, such as Europe/Zurich. Default UTC."},
 				"limit":{"type":"integer","description":"At most 100. Default 50."}}}`),
-		}, Run: run(a.listEvents)},
-		{Tool: channels.Tool{
+			Run: run(a.listEvents),
+		},
+		{
 			Name:        "create_event",
 			Description: "Create a calendar event. Attendees get an invitation by email.",
 			Parameters: apitool.Schema(`{"type":"object","required":["subject","start","end"],"properties":{
@@ -96,7 +102,8 @@ func (a *Adapter) toolSet() apitool.Set {
 				"location":{"type":"string"},
 				"online_meeting":{"type":"boolean","description":"Add a Teams meeting."}}}`),
 			Write: true,
-		}, Run: run(a.createEvent)},
+			Run:   run(a.createEvent),
+		},
 	}
 }
 

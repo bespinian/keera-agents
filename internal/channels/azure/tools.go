@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/microsoft"
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
@@ -45,27 +44,30 @@ var (
 
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
-		{Tool: channels.Tool{
+		{
 			Name:        "list_resource_groups",
 			Description: "List the subscription's resource groups.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
 				"limit":{"type":"integer","description":"At most 100. Default 50."}}}`),
-		}, Run: run(a.listGroups)},
-		{Tool: channels.Tool{
+			Run: run(a.listGroups),
+		},
+		{
 			Name:        "list_resources",
 			Description: "List resources in the subscription or one resource group, with their ids, types, locations and tags.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
 				"resource_group":{"type":"string"},
 				"type":{"type":"string","description":"A resource type, such as Microsoft.Compute/virtualMachines."},
 				"limit":{"type":"integer","description":"At most 100. Default 25."}}}`),
-		}, Run: run(a.listResources)},
-		{Tool: channels.Tool{
+			Run: run(a.listResources),
+		},
+		{
 			Name:        "get_resource",
 			Description: "Read one resource's settings and state by its id. A virtual machine includes its power state.",
 			Parameters: apitool.Schema(`{"type":"object","required":["id"],"properties":{
 				"id":{"type":"string","description":"The resource's id, starting /subscriptions/."}}}`),
-		}, Run: run(a.getResource)},
-		{Tool: channels.Tool{
+			Run: run(a.getResource),
+		},
+		{
 			Name:        "activity_log",
 			Description: "List who changed what in the subscription, newest first. Default the last 24 hours.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
@@ -74,8 +76,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"resource_group":{"type":"string"},
 				"resource_id":{"type":"string","description":"Only this resource. Not with resource_group."},
 				"limit":{"type":"integer","description":"At most 100. Default 50."}}}`),
-		}, Run: run(a.activityLog)},
-		{Tool: channels.Tool{
+			Run: run(a.activityLog),
+		},
+		{
 			Name: "metrics",
 			Description: "Read a resource's metrics from Azure Monitor, such as Percentage CPU of a virtual machine. " +
 				"Without metric names, lists the ones the resource has.",
@@ -86,8 +89,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"end":{"type":"string","description":"Default now."},
 				"interval":{"type":"string","description":"ISO 8601, such as PT5M, PT1H or P1D. Default PT1H."},
 				"aggregation":{"type":"string","enum":["Average","Total","Minimum","Maximum","Count"],"description":"Default Average."}}}`),
-		}, Run: run(a.metrics)},
-		{Tool: channels.Tool{
+			Run: run(a.metrics),
+		},
+		{
 			Name:        "costs",
 			Description: "Read the subscription's actual costs for a date range, in total or by resource group or service.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
@@ -95,7 +99,8 @@ func (a *Adapter) toolSet() apitool.Set {
 				"end":{"type":"string","description":"A date, included. Default today."},
 				"group_by":{"type":"string","enum":["resource_group","service"]},
 				"daily":{"type":"boolean","description":"A row per day, not one for the whole range."}}}`),
-		}, Run: run(a.costs)},
+			Run: run(a.costs),
+		},
 		vmTool("vm_start", "Start a virtual machine.", "start", a),
 		vmTool("vm_stop", "Stop a virtual machine and release its compute, so it stops costing. Its disks are kept.", "deallocate", a),
 		vmTool("vm_restart", "Restart a running virtual machine.", "restart", a),
@@ -103,15 +108,16 @@ func (a *Adapter) toolSet() apitool.Set {
 }
 
 func vmTool(name, desc, action string, a *Adapter) apitool.Tool {
-	return apitool.Tool{Tool: channels.Tool{
+	return apitool.Tool{
 		Name:        name,
 		Description: desc + " Azure does it in the background; check with get_resource.",
 		Parameters: apitool.Schema(`{"type":"object","required":["id"],"properties":{
 			"id":{"type":"string","description":"The virtual machine's resource id."}}}`),
 		Write: true,
-	}, Run: run(func(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
-		return a.vmAction(ctx, app, sub, args, action)
-	})}
+		Run: run(func(ctx context.Context, app microsoft.App, sub string, args json.RawMessage) (any, error) {
+			return a.vmAction(ctx, app, sub, args, action)
+		}),
+	}
 }
 
 // Resource is one Azure resource. Properties is set only when it is read

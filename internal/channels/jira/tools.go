@@ -20,96 +20,80 @@ import (
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
 		{
-			Tool: channels.Tool{
-				Name: "search_issues",
-				Description: "Search issues with JQL, newest change first unless the query has its own ORDER BY. " +
-					"A connector limited to one project searches only that project.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"jql":{"type":"string","description":"A JQL query, such as status = \"In Progress\" AND assignee = currentUser()"},
-					"limit":{"type":"integer","description":"At most this many issues; default 25, up to 100"}}}`),
-			},
+			Name: "search_issues",
+			Description: "Search issues with JQL, newest change first unless the query has its own ORDER BY. " +
+				"A connector limited to one project searches only that project.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"jql":{"type":"string","description":"A JQL query, such as status = \"In Progress\" AND assignee = currentUser()"},
+				"limit":{"type":"integer","description":"At most this many issues; default 25, up to 100"}}}`),
 			Run: atlassian.Run(a.c, a.searchIssues),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "get_issue",
-				Description: "Read one issue: its fields, description and latest comments.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"key":{"type":"string","description":"The issue's key, such as WEB-12"}},"required":["key"]}`),
-			},
+			Name:        "get_issue",
+			Description: "Read one issue: its fields, description and latest comments.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"key":{"type":"string","description":"The issue's key, such as WEB-12"}},"required":["key"]}`),
 			Run: atlassian.Run(a.c, a.getIssue),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "list_projects",
-				Description: "List the projects this connector may use.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"query":{"type":"string","description":"Only projects whose name or key contains this"},
-					"limit":{"type":"integer","description":"At most this many projects; default 25, up to 100"}}}`),
-			},
+			Name:        "list_projects",
+			Description: "List the projects this connector may use.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"query":{"type":"string","description":"Only projects whose name or key contains this"},
+				"limit":{"type":"integer","description":"At most this many projects; default 25, up to 100"}}}`),
 			Run: atlassian.Run(a.c, a.listProjects),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "find_users",
-				Description: "Find people by name or email, to get the id update_issue assigns with. In a project, only people who may be assigned there.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"query":{"type":"string","description":"Part of a name or email"},
-					"project":{"type":"string","description":"Only people assignable in this project, by key"},
-					"limit":{"type":"integer","description":"At most this many people; default 25, up to 100"}},"required":["query"]}`),
-			},
+			Name:        "find_users",
+			Description: "Find people by name or email, to get the id update_issue assigns with. In a project, only people who may be assigned there.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"query":{"type":"string","description":"Part of a name or email"},
+				"project":{"type":"string","description":"Only people assignable in this project, by key"},
+				"limit":{"type":"integer","description":"At most this many people; default 25, up to 100"}},"required":["query"]}`),
 			Run: atlassian.Run(a.c, a.findUsers),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "create_issue",
-				Description: "Create an issue. Text is in Jira's wiki markup.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"project":{"type":"string","description":"The project's key; only needed when the connector may use every project"},
-					"summary":{"type":"string"},
-					"description":{"type":"string"},
-					"issue_type":{"type":"string","description":"Such as Task, Bug or Story; default Task"},
-					"labels":{"type":"array","items":{"type":"string"}},
-					"priority":{"type":"string","description":"Such as High"}},"required":["summary"]}`),
-				Write: true,
-			},
-			Run: atlassian.Run(a.c, a.createIssue),
+			Name:        "create_issue",
+			Description: "Create an issue. Text is in Jira's wiki markup.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"project":{"type":"string","description":"The project's key; only needed when the connector may use every project"},
+				"summary":{"type":"string"},
+				"description":{"type":"string"},
+				"issue_type":{"type":"string","description":"Such as Task, Bug or Story; default Task"},
+				"labels":{"type":"array","items":{"type":"string"}},
+				"priority":{"type":"string","description":"Such as High"}},"required":["summary"]}`),
+			Write: true,
+			Run:   atlassian.Run(a.c, a.createIssue),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "update_issue",
-				Description: "Change an issue's summary, description, labels or assignee. Leave out what stays the same.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"key":{"type":"string","description":"The issue's key, such as WEB-12"},
-					"summary":{"type":"string"},
-					"description":{"type":"string","description":"Replaces the description; Jira wiki markup"},
-					"labels":{"type":"array","items":{"type":"string"},"description":"Replaces all labels"},
-					"assignee":{"type":"string","description":"A person's id from find_users or get_issue, or none to unassign"}},"required":["key"]}`),
-				Write: true,
-			},
-			Run: atlassian.Run(a.c, a.updateIssue),
+			Name:        "update_issue",
+			Description: "Change an issue's summary, description, labels or assignee. Leave out what stays the same.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"key":{"type":"string","description":"The issue's key, such as WEB-12"},
+				"summary":{"type":"string"},
+				"description":{"type":"string","description":"Replaces the description; Jira wiki markup"},
+				"labels":{"type":"array","items":{"type":"string"},"description":"Replaces all labels"},
+				"assignee":{"type":"string","description":"A person's id from find_users or get_issue, or none to unassign"}},"required":["key"]}`),
+			Write: true,
+			Run:   atlassian.Run(a.c, a.updateIssue),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "comment",
-				Description: "Comment on an issue, in Jira's wiki markup.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"key":{"type":"string","description":"The issue's key, such as WEB-12"},
-					"body":{"type":"string"}},"required":["key","body"]}`),
-				Write: true,
-			},
-			Run: atlassian.Run(a.c, a.comment),
+			Name:        "comment",
+			Description: "Comment on an issue, in Jira's wiki markup.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"key":{"type":"string","description":"The issue's key, such as WEB-12"},
+				"body":{"type":"string"}},"required":["key","body"]}`),
+			Write: true,
+			Run:   atlassian.Run(a.c, a.comment),
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "transition",
-				Description: "Move an issue to another status, such as In Progress or Done.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"key":{"type":"string","description":"The issue's key, such as WEB-12"},
-					"to":{"type":"string","description":"The status, or the workflow transition's name"}},"required":["key","to"]}`),
-				Write: true,
-			},
-			Run: atlassian.Run(a.c, a.transition),
+			Name:        "transition",
+			Description: "Move an issue to another status, such as In Progress or Done.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"key":{"type":"string","description":"The issue's key, such as WEB-12"},
+				"to":{"type":"string","description":"The status, or the workflow transition's name"}},"required":["key","to"]}`),
+			Write: true,
+			Run:   atlassian.Run(a.c, a.transition),
 		},
 	}
 }

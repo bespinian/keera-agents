@@ -139,7 +139,7 @@ const valuesArg = `"properties": {"type": "object", "additionalProperties": {"ty
 
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
-		{Tool: channels.Tool{
+		{
 			Name:        "search",
 			Description: "Search contacts, companies, deals or tickets by text and exact property values. Returns the matching records, newest first when there is no text.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectType + `,
@@ -150,24 +150,27 @@ func (a *Adapter) toolSet() apitool.Set {
 				"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many records, 25 by default."},
 				"after": {"type": "string", "description": "The next value of an earlier search, for the following page."}
 			}, "required": ["object_type"]}`),
-		}, Run: a.search},
-		{Tool: channels.Tool{
+			Run: a.search,
+		},
+		{
 			Name:        "get",
 			Description: "Read one record by its id, with the ids of the contacts, companies, deals and tickets it is associated with.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectType + `,
 				"id": {"type": "string"},
 				` + propertiesArg + `
 			}, "required": ["object_type", "id"]}`),
-		}, Run: a.get},
-		{Tool: channels.Tool{
+			Run: a.get,
+		},
+		{
 			Name:        "create",
 			Description: "Create a contact, company, deal or ticket.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectType + `,
 				` + valuesArg + `
 			}, "required": ["object_type", "properties"]}`),
 			Write: true,
-		}, Run: a.create},
-		{Tool: channels.Tool{
+			Run:   a.create,
+		},
+		{
 			Name:        "update",
 			Description: "Change properties of a contact, company, deal or ticket. Properties left out keep their value.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectType + `,
@@ -175,8 +178,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				` + valuesArg + `
 			}, "required": ["object_type", "id", "properties"]}`),
 			Write: true,
-		}, Run: a.update},
-		{Tool: channels.Tool{
+			Run:   a.update,
+		},
+		{
 			Name:        "add_note",
 			Description: "Add a note to a contact, company, deal or ticket, shown on its timeline.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {` + objectType + `,
@@ -184,8 +188,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"body": {"type": "string", "description": "The note's text."}
 			}, "required": ["object_type", "id", "body"]}`),
 			Write: true,
-		}, Run: a.addNote},
-		{Tool: channels.Tool{
+			Run:   a.addNote,
+		},
+		{
 			Name:        "list_owners",
 			Description: "List the HubSpot users records can be assigned to, with the id to set as hubspot_owner_id.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -193,7 +198,8 @@ func (a *Adapter) toolSet() apitool.Set {
 				"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many owners, 100 by default."},
 				"after": {"type": "string", "description": "The next value of an earlier call, for the following page."}
 			}}`),
-		}, Run: a.listOwners},
+			Run: a.listOwners,
+		},
 	}
 }
 

@@ -40,7 +40,7 @@ const sinceArg = `"since_minutes": {"type": "integer", "description": "How far b
 
 func (a *Adapter) toolSet() apitool.Set {
 	return apitool.Set{
-		{Tool: channels.Tool{
+		{
 			Name:        "search_resources",
 			Description: "Searches the project's resources of every kind, such as VMs, buckets, clusters and databases, with Cloud Asset Inventory.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -48,16 +48,18 @@ func (a *Adapter) toolSet() apitool.Set {
 				"asset_types": {"type": "array", "items": {"type": "string"}, "description": "Only these types, such as compute.googleapis.com/Instance."},
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}}`),
-		}, Run: a.searchResources},
-		{Tool: channels.Tool{
+			Run: a.searchResources,
+		},
+		{
 			Name:        "list_instances",
 			Description: "Lists the project's Compute Engine VMs in every zone, with status, machine type and IP addresses.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
 				"filter": {"type": "string", "description": "Compute Engine filter, such as status = RUNNING or labels.env = prod."},
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}}`),
-		}, Run: a.listInstances},
-		{Tool: channels.Tool{
+			Run: a.listInstances,
+		},
+		{
 			Name:        "logs",
 			Description: "Reads the project's log entries from Cloud Logging, newest first.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -65,8 +67,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				` + sinceArg + `,
 				"limit": {"type": "integer", "description": "How many entries, at most 100. Default 25."}
 			}}`),
-		}, Run: a.logs},
-		{Tool: channels.Tool{
+			Run: a.logs,
+		},
+		{
 			Name:        "metrics",
 			Description: "Reads time series from Cloud Monitoring, newest points first.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -76,15 +79,17 @@ func (a *Adapter) toolSet() apitool.Set {
 				"aligner": {"type": "string", "description": "How points are combined, such as ALIGN_MEAN (the default), ALIGN_MAX or ALIGN_RATE for counters."},
 				"limit": {"type": "integer", "description": "How many series, at most 100. Default 25."}
 			}, "required": ["filter"]}`),
-		}, Run: a.metrics},
-		{Tool: channels.Tool{
+			Run: a.metrics,
+		},
+		{
 			Name:        "list_buckets",
 			Description: "Lists the project's Cloud Storage buckets.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}}`),
-		}, Run: a.listBuckets},
-		{Tool: channels.Tool{
+			Run: a.listBuckets,
+		},
+		{
 			Name:        "list_objects",
 			Description: "Lists the objects in a bucket of the project, one folder level at a time.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -92,8 +97,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"prefix": {"type": "string", "description": "Only objects whose names start with this, such as reports/2024/."},
 				"limit": {"type": "integer", "description": "How many, at most 100. Default 25."}
 			}, "required": ["bucket"]}`),
-		}, Run: a.listObjects},
-		{Tool: channels.Tool{
+			Run: a.listObjects,
+		},
+		{
 			Name:        "read_object",
 			Description: "Reads a text object in a bucket of the project, 48 KiB at a time. For the rest, read again from next_offset.",
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
@@ -101,19 +107,22 @@ func (a *Adapter) toolSet() apitool.Set {
 				"name": {"type": "string", "description": "The object's whole name, such as reports/2024/q1.csv."},
 				"offset": {"type": "integer", "description": "The byte to start from: 0, or an earlier read's next_offset."}
 			}, "required": ["bucket", "name"]}`),
-		}, Run: a.readObject},
-		{Tool: channels.Tool{
+			Run: a.readObject,
+		},
+		{
 			Name:        "instance_start",
 			Description: "Starts a stopped Compute Engine VM.",
 			Parameters:  apitool.Schema(instanceArgs),
 			Write:       true,
-		}, Run: a.instanceAction("start")},
-		{Tool: channels.Tool{
+			Run:         a.instanceAction("start"),
+		},
+		{
 			Name:        "instance_stop",
 			Description: "Stops a running Compute Engine VM.",
 			Parameters:  apitool.Schema(instanceArgs),
 			Write:       true,
-		}, Run: a.instanceAction("stop")},
+			Run:         a.instanceAction("stop"),
+		},
 	}
 }
 

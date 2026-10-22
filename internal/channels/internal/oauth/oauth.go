@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -132,9 +133,7 @@ func (a App) SignInURL(redirect, state, challenge string) string {
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
 	}
-	for k, v := range a.Params {
-		q[k] = v
-	}
+	maps.Copy(q, a.Params)
 	sep := "?"
 	if strings.Contains(a.AuthURL, "?") {
 		sep = "&"

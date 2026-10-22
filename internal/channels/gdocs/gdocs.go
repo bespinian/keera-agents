@@ -47,54 +47,46 @@ func New(opts channels.Options) *Adapter {
 	a.Set = apitool.Set{
 		a.files.FindTool(),
 		{
-			Tool: channels.Tool{
-				Name: "read",
-				Description: "Read a Google Doc as text: headings start with #, list items with - or 1., " +
-					"and table rows are written | cell | cell |.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"document_id":{"type":"string","description":"The document's id or link. Optional when the connector is bound to one document."}}}`),
-			},
+			Name: "read",
+			Description: "Read a Google Doc as text: headings start with #, list items with - or 1., " +
+				"and table rows are written | cell | cell |.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"document_id":{"type":"string","description":"The document's id or link. Optional when the connector is bound to one document."}}}`),
 			Run: a.read,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "append",
-				Description: "Add text at the end of a Google Doc, as new paragraphs.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"document_id":{"type":"string","description":"The document's id or link. Optional when the connector is bound to one document."},
-					"text":{"type":"string","description":"Plain text. Each line becomes a paragraph."}},
-					"required":["text"]}`),
-				Write: true,
-			},
-			Run: a.append,
+			Name:        "append",
+			Description: "Add text at the end of a Google Doc, as new paragraphs.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"document_id":{"type":"string","description":"The document's id or link. Optional when the connector is bound to one document."},
+				"text":{"type":"string","description":"Plain text. Each line becomes a paragraph."}},
+				"required":["text"]}`),
+			Write: true,
+			Run:   a.append,
 		},
 		{
-			Tool: channels.Tool{
-				Name:        "replace_text",
-				Description: "Replace every occurrence of a text in a Google Doc, and say how many were changed.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"document_id":{"type":"string","description":"The document's id or link. Optional when the connector is bound to one document."},
-					"find":{"type":"string","description":"The text to find."},
-					"replace":{"type":"string","description":"What to put in its place. Empty deletes it."},
-					"match_case":{"type":"boolean","description":"Match upper and lower case exactly. True by default."}},
-					"required":["find","replace"]}`),
-				Write: true,
-			},
-			Run: a.replaceText,
+			Name:        "replace_text",
+			Description: "Replace every occurrence of a text in a Google Doc, and say how many were changed.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"document_id":{"type":"string","description":"The document's id or link. Optional when the connector is bound to one document."},
+				"find":{"type":"string","description":"The text to find."},
+				"replace":{"type":"string","description":"What to put in its place. Empty deletes it."},
+				"match_case":{"type":"boolean","description":"Match upper and lower case exactly. True by default."}},
+				"required":["find","replace"]}`),
+			Write: true,
+			Run:   a.replaceText,
 		},
 		{
-			Tool: channels.Tool{
-				Name: "create",
-				Description: "Create a Google Doc. Only for a connector bound to every document. " +
-					"Give a folder unless the connector acts as a user: a service account has no storage of its own.",
-				Parameters: apitool.Schema(`{"type":"object","properties":{
-					"title":{"type":"string"},
-					"text":{"type":"string","description":"The document's first text, plain. Optional."},
-					"folder_id":{"type":"string","description":"The id or link of the Drive folder to create it in."}},
-					"required":["title"]}`),
-				Write: true,
-			},
-			Run: a.create,
+			Name: "create",
+			Description: "Create a Google Doc. Only for a connector bound to every document. " +
+				"Give a folder unless the connector acts as a user: a service account has no storage of its own.",
+			Parameters: apitool.Schema(`{"type":"object","properties":{
+				"title":{"type":"string"},
+				"text":{"type":"string","description":"The document's first text, plain. Optional."},
+				"folder_id":{"type":"string","description":"The id or link of the Drive folder to create it in."}},
+				"required":["title"]}`),
+			Write: true,
+			Run:   a.create,
 		},
 	}
 	a.Accounts = workspace.NewAccounts(a.files.Client, "Google Docs API and the Google Drive API")

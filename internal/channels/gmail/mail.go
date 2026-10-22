@@ -17,7 +17,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/mailtext"
 	"github.com/bespinian/keera-agents/internal/channels/internal/workspace"
@@ -36,40 +35,45 @@ func (a *Adapter) toolSet() apitool.Set {
 		"cc":{"type":"array","items":{"type":"string"}},
 		"bcc":{"type":"array","items":{"type":"string"}},`
 	return apitool.Set{
-		{Tool: channels.Tool{
+		{
 			Name: "search_messages",
 			Description: "Search messages, newest first, with a short preview. The query is Gmail's search syntax, such as " +
 				"from:ada@example.com is:unread newer_than:7d label:invoices. Without one, it lists the inbox.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
 				"query":{"type":"string"},
 				"limit":{"type":"integer","description":"At most 50. Default 20."}}}`),
-		}, Run: run(a.search)},
-		{Tool: channels.Tool{
+			Run: run(a.search),
+		},
+		{
 			Name:        "read_message",
 			Description: "Read one message: its addresses, its body as text and its attachments' names.",
 			Parameters: apitool.Schema(`{"type":"object","required":["id"],"properties":{
 				"id":{"type":"string","description":"The message's id, from search_messages."}}}`),
-		}, Run: run(a.readMessage)},
-		{Tool: channels.Tool{
+			Run: run(a.readMessage),
+		},
+		{
 			Name:        "read_thread",
 			Description: "Read a whole conversation, oldest message first, each body cut short.",
 			Parameters: apitool.Schema(`{"type":"object","required":["thread_id"],"properties":{
 				"thread_id":{"type":"string","description":"The thread's id, from search_messages."}}}`),
-		}, Run: run(a.readThread)},
-		{Tool: channels.Tool{
+			Run: run(a.readThread),
+		},
+		{
 			Name:        "list_labels",
 			Description: "List the mailbox's labels: the system ones, such as INBOX, UNREAD and STARRED, and its own.",
 			Parameters:  apitool.Schema(`{"type":"object","properties":{}}`),
-		}, Run: run(a.listLabels)},
-		{Tool: channels.Tool{
+			Run:         run(a.listLabels),
+		},
+		{
 			Name:        "send_message",
 			Description: "Send a new email, as plain text.",
 			Parameters: apitool.Schema(`{"type":"object","required":["to","subject","body"],"properties":{` + recipients + `
 				"subject":{"type":"string"},
 				"body":{"type":"string","description":"Plain text."}}}`),
 			Write: true,
-		}, Run: run(a.send)},
-		{Tool: channels.Tool{
+			Run:   run(a.send),
+		},
+		{
 			Name:        "reply",
 			Description: "Reply to a message, in its thread, above the quoted original.",
 			Parameters: apitool.Schema(`{"type":"object","required":["id","body"],"properties":{
@@ -77,8 +81,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"body":{"type":"string","description":"Plain text."},
 				"reply_all":{"type":"boolean","description":"Reply to everyone on the message, not only its sender."}}}`),
 			Write: true,
-		}, Run: run(a.reply)},
-		{Tool: channels.Tool{
+			Run:   run(a.reply),
+		},
+		{
 			Name: "create_draft",
 			Description: "Save an email as a draft, for a person to check and send. Give reply_to to draft a reply " +
 				"in that message's thread; to then defaults to its sender.",
@@ -87,8 +92,9 @@ func (a *Adapter) toolSet() apitool.Set {
 				"body":{"type":"string","description":"Plain text."},
 				"reply_to":{"type":"string","description":"The id of the message it answers."}}}`),
 			Write: true,
-		}, Run: run(a.draft)},
-		{Tool: channels.Tool{
+			Run:   run(a.draft),
+		},
+		{
 			Name: "change_labels",
 			Description: "Add labels to a message or remove them. Archive it by removing INBOX, mark it read by removing UNREAD, " +
 				"star it by adding STARRED.",
@@ -97,7 +103,8 @@ func (a *Adapter) toolSet() apitool.Set {
 				"add":{"type":"array","items":{"type":"string"},"description":"Label names or ids."},
 				"remove":{"type":"array","items":{"type":"string"},"description":"Label names or ids."}}}`),
 			Write: true,
-		}, Run: run(a.changeLabels)},
+			Run:   run(a.changeLabels),
+		},
 	}
 }
 
