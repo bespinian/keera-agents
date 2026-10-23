@@ -1,8 +1,7 @@
 // Package oauth gets and caches the access tokens adapters call services
-// with: client credentials for Microsoft, and a signed service account
-// assertion for Google. Other adapters, such as Salesforce, use its cache
-// and errors with their own sign-in. App signs people in themselves, with an
-// authorization code.
+// with: client credentials for Microsoft and Salesforce, and a signed
+// service account assertion for Google. App signs people in themselves,
+// with an authorization code.
 package oauth
 
 import (
@@ -27,13 +26,15 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
-// Token is an access token and when it stops working. Refresh and IDToken
-// are set only when the service sent them.
+// Token is an access token and when it stops working. Refresh, IDToken and
+// Instance are set only when the service sent them.
 type Token struct {
 	Access  string
 	Expiry  time.Time
 	Refresh string
 	IDToken string
+	// Instance is the server to call, as Salesforce names it.
+	Instance string
 }
 
 // Error is a token endpoint's refusal. It holds the service's error code and
@@ -56,13 +57,17 @@ func (e *Error) Error() string {
 }
 
 // ClientCredentials gets an app-only token, as Microsoft Entra issues them.
+// An empty scope is left out, as Salesforce takes none.
 func ClientCredentials(ctx context.Context, hc *http.Client, tokenURL, clientID, secret, scope string) (Token, error) {
-	return post(ctx, hc, tokenURL, url.Values{
+	form := url.Values{
 		"grant_type":    {"client_credentials"},
 		"client_id":     {clientID},
 		"client_secret": {secret},
-		"scope":         {scope},
-	})
+	}
+	if scope != "" {
+		form.Set("scope", scope)
+	}
+	return post(ctx, hc, tokenURL, form)
 }
 
 // JWTBearer exchanges a signed assertion for a token, as Google does for
@@ -94,6 +99,7 @@ func post(ctx context.Context, hc *http.Client, tokenURL string, form url.Values
 		ExpiresIn        json.Number `json:"expires_in"`
 		RefreshToken     string      `json:"refresh_token"`
 		IDToken          string      `json:"id_token"`
+		InstanceURL      string      `json:"instance_url"`
 		Error            string      `json:"error"`
 		ErrorDescription string      `json:"error_description"`
 	}
@@ -107,7 +113,7 @@ func post(ctx context.Context, hc *http.Client, tokenURL string, form url.Values
 	}
 	return Token{
 		Access: r.AccessToken, Expiry: time.Now().Add(time.Duration(secs) * time.Second),
-		Refresh: r.RefreshToken, IDToken: r.IDToken,
+		Refresh: r.RefreshToken, IDToken: r.IDToken, Instance: r.InstanceURL,
 	}, nil
 }
 

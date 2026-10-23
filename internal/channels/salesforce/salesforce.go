@@ -176,45 +176,17 @@ func (a *Adapter) sessionFor(ctx context.Context, conn channels.Connection, o or
 	return session{token: conn.Token, instance: o.domain}, nil
 }
 
-// signIn asks for a token with the client credentials flow. It posts the
-// form itself, since the answer's instance_url matters too.
+// signIn asks for a token with the client credentials flow.
 func (a *Adapter) signIn(ctx context.Context, o org) (session, error) {
-	form := url.Values{
-		"grant_type":    {"client_credentials"},
-		"client_id":     {o.clientID},
-		"client_secret": {o.secret},
+	t, err := oauth.ClientCredentials(ctx, a.hc, o.domain+"/services/oauth2/token", o.clientID, o.secret, "")
+	if err != nil {
+		return session{}, oauth.Describe("Salesforce", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.domain+"/services/oauth2/token", strings.NewReader(form.Encode()))
+	instance, err := instanceOf(o.domain, t.Instance)
 	if err != nil {
 		return session{}, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	resp, err := a.hc.Do(req)
-	if err != nil {
-		return session{}, fmt.Errorf("could not reach Salesforce to sign in: %w", err)
-	}
-	body, err := web.ReadBody(resp, 1<<20)
-	if err != nil {
-		return session{}, err
-	}
-	var r struct {
-		AccessToken      string `json:"access_token"`
-		InstanceURL      string `json:"instance_url"`
-		Error            string `json:"error"`
-		ErrorDescription string `json:"error_description"`
-	}
-	_ = json.Unmarshal(body, &r)
-	if resp.StatusCode != http.StatusOK || r.AccessToken == "" {
-		return session{}, oauth.Describe("Salesforce", &oauth.Error{
-			Status: resp.StatusCode, Code: r.Error, Description: web.Short(r.ErrorDescription, 300),
-		})
-	}
-	instance, err := instanceOf(o.domain, r.InstanceURL)
-	if err != nil {
-		return session{}, err
-	}
-	return session{token: r.AccessToken, instance: instance}, nil
+	return session{token: t.Access, instance: instance}, nil
 }
 
 // instanceOf checks the server Salesforce says to call. Only its own
