@@ -28,7 +28,6 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/channels"
@@ -54,9 +53,8 @@ var (
 type Adapter struct {
 	hc *http.Client
 
-	mu sync.Mutex
 	// withCA are clients trusting a cluster's own CA, by its fingerprint.
-	withCA map[string]*http.Client
+	withCA *web.Cache[*http.Client]
 	// discovery is what kinds each server serves, by server and apiVersion.
 	discovery *web.Cache[[]resource]
 	apitool.Set
@@ -66,7 +64,7 @@ type Adapter struct {
 func New(opts channels.Options) *Adapter {
 	a := &Adapter{
 		hc:        web.SameServerClient(opts),
-		withCA:    map[string]*http.Client{},
+		withCA:    web.NewCache[*http.Client](24*time.Hour, 100),
 		discovery: web.NewCache[[]resource](10*time.Minute, 500),
 	}
 	a.Set = a.toolSet()
@@ -160,9 +158,7 @@ func (a *Adapter) client(ca string) (*http.Client, error) {
 		return a.hc, nil
 	}
 	key := web.Fingerprint(ca)
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if c, ok := a.withCA[key]; ok {
+	if c, ok := a.withCA.Get(key, time.Now()); ok {
 		return c, nil
 	}
 	roots := x509.NewCertPool()
@@ -183,11 +179,7 @@ func (a *Adapter) client(ca string) (*http.Client, error) {
 	t.TLSClientConfig.RootCAs = roots
 	c := *a.hc
 	c.Transport = t
-	// CAs change rarely, so a full map is only from many organisations.
-	if len(a.withCA) >= 100 {
-		clear(a.withCA)
-	}
-	a.withCA[key] = &c
+	a.withCA.Put(key, &c, time.Now())
 	return &c, nil
 }
 
