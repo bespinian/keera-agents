@@ -76,7 +76,7 @@ func (p Principal) CanAdmin() bool { return p.CanAdminOrg || p.Role == "operator
 
 // User is the principal as the gateway's service routes describe a person.
 func (p Principal) User() gateway.User {
-	return gateway.User{ID: p.UserID, Email: p.Email, Name: p.Name, Role: p.Role}
+	return gateway.User{ID: p.UserID, Email: p.Email, Name: p.Name}
 }
 
 func (s *Server) Handler() http.Handler {

@@ -57,9 +57,9 @@ func oidcFields() []channels.Field {
 // Accounts signs people in for service. setup is the steps on the
 // service's side, which may name {callback}. first are the kind's own
 // settings, shown before the provider's, such as the cluster's address.
-func (o *OIDC) Accounts(service, setup string, first ...channels.Field) Accounts {
+func (o *OIDC) Accounts(setup string, first ...channels.Field) Accounts {
 	return NewAccounts(AccountsConfig{
-		Service: service,
+		Service: "the identity provider",
 		HTTP:    o.hc,
 		SignIn:  channels.SignIn{Fields: append(slices.Clone(first), oidcFields()...), Setup: setup},
 		App:     o.app,

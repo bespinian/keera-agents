@@ -37,7 +37,7 @@ func TestOIDC(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	accounts := NewOIDC(srv.Client()).Accounts("the identity provider", "Register {callback}.")
+	accounts := NewOIDC(srv.Client()).Accounts("Register {callback}.")
 	conn := channels.Connection{
 		PerUser: true,
 		Config:  map[string]string{"issuer_url": srv.URL + "/", "client_id": "cid", "scopes": "groups"},

@@ -68,7 +68,7 @@ func New(opts channels.Options) *Adapter {
 		discovery: web.NewCache[[]resource](10*time.Minute, 500),
 	}
 	a.Set = a.toolSet()
-	a.Accounts = oauth.NewOIDC(a.hc).Accounts("the identity provider",
+	a.Accounts = oauth.NewOIDC(a.hc).Accounts(
 		"1. Configure the API server to trust your identity provider: --oidc-issuer-url, --oidc-client-id and "+
 			"--oidc-username-claim=email, or a structured AuthenticationConfiguration. On EKS, associate an OIDC identity provider.\n"+
 			"2. In the provider, register a web app for that client ID, with the redirect URI {callback}, and create a secret.\n"+

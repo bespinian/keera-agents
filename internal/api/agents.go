@@ -357,7 +357,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	a := store.Agent{
 		ID: id.New("agt"), OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email,
-		MaxSteps: protocol.DefaultMaxSteps, Access: store.AccessOrg, Enabled: true, Class: runtime.DefaultClass,
+		MaxSteps: protocol.DefaultMaxSteps, Access: store.AccessOrg, Enabled: true,
 		Builtins: []string{protocol.BuiltinMemory, protocol.BuiltinFiles},
 	}
 	in.Class = s.newClass(in.Class)

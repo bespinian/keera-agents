@@ -67,7 +67,7 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/control/v1/service/users" && service:
 		q := r.URL.Query()
 		if strings.EqualFold(q.Get("email"), "ada@example.ch") || q.Get("id") == "usr_ada" {
-			reply(gateway.User{ID: "usr_ada", Email: "ada@example.ch", Name: "Ada", Role: "admin"})
+			reply(gateway.User{ID: "usr_ada", Email: "ada@example.ch", Name: "Ada"})
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

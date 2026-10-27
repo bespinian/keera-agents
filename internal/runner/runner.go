@@ -270,7 +270,7 @@ func (rn *Runner) events(w http.ResponseWriter, r *http.Request, a store.Agent) 
 		return
 	}
 	var in protocol.Events
-	if !readJSON(w, r, &in, 4<<20) {
+	if !readJSON(w, r, &in) {
 		return
 	}
 	if len(in.Events) > maxEvents {
@@ -299,7 +299,7 @@ func (rn *Runner) finish(w http.ResponseWriter, r *http.Request, a store.Agent) 
 		return
 	}
 	var in protocol.Finish
-	if !readJSON(w, r, &in, 4<<20) {
+	if !readJSON(w, r, &in) {
 		return
 	}
 	state := store.TaskFailed
@@ -382,8 +382,8 @@ func (rn *Runner) callTool(w http.ResponseWriter, r *http.Request, a store.Agent
 	writeJSON(w, http.StatusOK, res)
 }
 
-func readJSON(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v); err != nil {
+func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(v); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "the body is not valid JSON: "+err.Error())
 		return false
 	}

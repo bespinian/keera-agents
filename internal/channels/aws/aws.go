@@ -93,12 +93,12 @@ func New(opts channels.Options) *Adapter {
 		buckets:  web.NewCache[string](time.Hour, 10000),
 	}
 	a.Set = a.toolSet()
-	a.Accounts = oauth.NewOIDC(a.hc).Accounts("the identity provider",
-		"1. In IAM, add your identity provider as an **OpenID Connect** provider, with the client ID as its audience.\n"+
-			"2. Create a role for web identity from that provider, with the permissions agents may use, as listed for a shared key. "+
-			"Its trust policy decides who may assume it: narrow it with conditions on the token's sub or email.\n"+
-			"3. In the provider, register a web app for that client ID, with the redirect URI {callback}, and create a secret.\n"+
-			"4. Enter the issuer, the client and the role's ARN here. Then each person connects their own account under Connectors. "+
+	a.Accounts = oauth.NewOIDC(a.hc).Accounts(
+		"1. In IAM, add your identity provider as an **OpenID Connect** provider, with the client ID as its audience.\n" +
+			"2. Create a role for web identity from that provider, with the permissions agents may use, as listed for a shared key. " +
+			"Its trust policy decides who may assume it: narrow it with conditions on the token's sub or email.\n" +
+			"3. In the provider, register a web app for that client ID, with the redirect URI {callback}, and create a secret.\n" +
+			"4. Enter the issuer, the client and the role's ARN here. Then each person connects their own account under Connectors. " +
 			"Each assumes the role in a session named after them, so CloudTrail shows who did what.",
 	).WithFields(channels.Field{
 		Name: "role_arn", Label: "Role ARN", Required: true,
