@@ -31,6 +31,7 @@ import {
   busyButton,
   toast,
   modeTiles,
+  fold,
 } from "../ui.js";
 import { render } from "../markdown.js";
 import { kindLabel, gives } from "../common.js";
@@ -461,33 +462,41 @@ function openEditor(ctx, kinds, conn, kind = null) {
     const set = (conn && conn.secrets_set) || [];
     const signIn = perUser && kind.sign_in;
     const setup = signIn ? kind.sign_in.setup : kind.setup;
+    const fields = (signIn ? kind.sign_in.fields : kind.fields) || [];
+    const fieldOf = (f) => {
+      const isSet = set.includes(f.name);
+      const props = {
+        class: "input" + (f.secret ? " mono" : ""),
+        autocomplete: f.secret ? "new-password" : "off",
+        spellcheck: "false",
+      };
+      let input;
+      if (f.multiline) {
+        input = h("textarea", { ...props, rows: 4 }, f.secret ? "" : config[f.name] || "");
+      } else {
+        input = h("input", {
+          ...props,
+          type: f.secret ? "password" : "text",
+          value: f.secret ? "" : config[f.name] || "",
+        });
+      }
+      if (f.secret && conn) input.placeholder = isSet ? "Set. Leave empty to keep it." : "Not set";
+      inputs[f.name] = { f, input, isSet };
+      return field(f.label, input, f.help || null);
+    };
+    // Optional settings are folded, so what every connector needs comes
+    // first. The fold opens when one is set, so an edit shows what is saved.
+    const optional = fields.filter((f) => !f.required);
+    const advanced = optional.length ? fold("Advanced options", optional.map(fieldOf)) : null;
+    if (advanced) advanced.open = optional.some((f) => (f.secret ? set.includes(f.name) : !!config[f.name]));
     replace(
       fieldsHost,
       conn && conn.per_user
         ? field("Acts as", h("div", {}, "Each person's own account"), "Each person connects theirs on the connector.")
         : null,
       field("Name", name, "Shown when adding a channel to an agent."),
-      ((signIn ? kind.sign_in.fields : kind.fields) || []).map((f) => {
-        const isSet = set.includes(f.name);
-        const props = {
-          class: "input" + (f.secret ? " mono" : ""),
-          autocomplete: f.secret ? "new-password" : "off",
-          spellcheck: "false",
-        };
-        let input;
-        if (f.multiline) {
-          input = h("textarea", { ...props, rows: 4 }, f.secret ? "" : config[f.name] || "");
-        } else {
-          input = h("input", {
-            ...props,
-            type: f.secret ? "password" : "text",
-            value: f.secret ? "" : config[f.name] || "",
-          });
-        }
-        if (f.secret && conn) input.placeholder = isSet ? "Set. Leave empty to keep it." : "Not set";
-        inputs[f.name] = { f, input, isSet };
-        return field(f.label + (f.required ? "" : " (optional)"), input, f.help || null);
-      }),
+      fields.filter((f) => f.required).map(fieldOf),
+      advanced,
       setup
         ? h(
             "div",
