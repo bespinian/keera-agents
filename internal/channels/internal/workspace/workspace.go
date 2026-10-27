@@ -154,8 +154,8 @@ func (f driveFile) file() File {
 
 const fileFields = "id,name,mimeType,modifiedTime,webViewLink,trashed"
 
-// validID is Drive's alphabet. Ids go into URLs and Drive queries.
-var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,200}$`)
+// ValidID is Drive's alphabet. Ids go into URLs and Drive queries.
+var ValidID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,200}$`)
 
 // parseID reads a file's id, or a URL to it as people paste it, such as
 // https://docs.google.com/document/d/<id>/edit, or a folder's.
@@ -173,7 +173,7 @@ func parseID(s string) (string, error) {
 			}
 		}
 	}
-	if !validID.MatchString(id) {
+	if !ValidID.MatchString(id) {
 		return "", fmt.Errorf("%q is not a Google file id or link", web.Short(s, 80))
 	}
 	return id, nil
@@ -293,7 +293,7 @@ func (f Files) find(ctx context.Context, s Settings, target, name string, limit 
 	}
 	query := fmt.Sprintf("mimeType = '%s' and trashed = false", f.MimeType)
 	if name = strings.TrimSpace(name); name != "" {
-		query += fmt.Sprintf(" and name contains '%s'", quote(name))
+		query += fmt.Sprintf(" and name contains '%s'", Quote(name))
 	}
 	q := url.Values{
 		"q":                         {query},
@@ -373,8 +373,8 @@ func (f Files) Create(ctx context.Context, s Settings, target, name, folder stri
 	return d.file(), nil
 }
 
-// quote escapes a string for a Drive query.
-func quote(s string) string {
+// Quote escapes a string for a Drive query.
+func Quote(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s)
 }
 

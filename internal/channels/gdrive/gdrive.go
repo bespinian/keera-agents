@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -49,10 +48,6 @@ var exports = map[string]string{
 	"application/vnd.google-apps.presentation": "text/plain",
 	"application/vnd.google-apps.drawing":      "image/svg+xml",
 }
-
-// validID keeps ids to Drive's alphabet, since they go into queries and
-// paths.
-var validID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // Adapter is the Google Drive adapter.
 type Adapter struct {
@@ -103,7 +98,7 @@ func settingsOf(conn channels.Connection) (settings, error) {
 	if err != nil {
 		return s, err
 	}
-	if s.drive != "" && !validID.MatchString(s.drive) {
+	if s.drive != "" && !workspace.ValidID.MatchString(s.drive) {
 		return s, errors.New("the shared drive ID is not valid")
 	}
 	return s, nil
@@ -117,7 +112,7 @@ func (s settings) root(folder string) (string, error) {
 		}
 		return "root", nil
 	}
-	if !validID.MatchString(folder) {
+	if !workspace.ValidID.MatchString(folder) {
 		return "", fmt.Errorf("%q is not a Drive id", web.Short(folder, 80))
 	}
 	return folder, nil
@@ -239,7 +234,7 @@ func (a *Adapter) Read(ctx context.Context, conn channels.Connection, id string)
 	if err != nil {
 		return channels.File{}, nil, err
 	}
-	if !validID.MatchString(id) {
+	if !workspace.ValidID.MatchString(id) {
 		return channels.File{}, nil, fmt.Errorf("gdrive: %q is not a Drive id", web.Short(id, 80))
 	}
 	var meta driveFile
@@ -283,7 +278,7 @@ func (a *Adapter) Write(ctx context.Context, conn channels.Connection, folder, n
 
 	// Replace the file of that name if there is one, so writing twice does
 	// not leave two files with one name.
-	q := s.listQuery(fmt.Sprintf("name = '%s' and '%s' in parents and trashed = false and mimeType != '%s'", quote(name), parent, folderType))
+	q := s.listQuery(fmt.Sprintf("name = '%s' and '%s' in parents and trashed = false and mimeType != '%s'", workspace.Quote(name), parent, folderType))
 	q.Set("fields", "files(id)")
 	q.Set("pageSize", "1")
 	var found struct {
@@ -318,11 +313,6 @@ func (a *Adapter) Write(ctx context.Context, conn channels.Connection, folder, n
 		return channels.File{}, fmt.Errorf("gdrive: unreadable answer: %w", err)
 	}
 	return f.file(), nil
-}
-
-// quote escapes a string for a Drive query.
-func quote(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s)
 }
 
 func (a *Adapter) Changes(ctx context.Context, conn channels.Connection, folder, cursor string) ([]channels.File, string, error) {

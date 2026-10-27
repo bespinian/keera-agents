@@ -252,7 +252,7 @@ func (a *Adapter) getResource(ctx context.Context, app microsoft.App, sub string
 	}
 	out.SKU = r.SKU
 	if len(r.Properties) > maxProperties {
-		out.Properties = strings.ToValidUTF8(string(r.Properties[:maxProperties]), "") + " [trimmed]"
+		out.Properties = web.Cut(string(r.Properties), maxProperties, " [trimmed]")
 	} else if len(r.Properties) > 0 {
 		out.Properties = r.Properties
 	}
@@ -271,7 +271,7 @@ func parseTime(s string, def time.Time) (time.Time, error) {
 	if t, err := time.Parse(time.DateOnly, s); err == nil {
 		return t, nil
 	}
-	return time.Time{}, fmt.Errorf("%q is not a time; write 2026-11-04T08:00:00Z or 2026-11-04", s)
+	return time.Time{}, fmt.Errorf("%q is not a time; write 2026-11-04T08:00:00Z or 2026-11-04", web.Short(s, 40))
 }
 
 // timeRange reads start and end, by default the span before now, and

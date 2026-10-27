@@ -104,16 +104,11 @@ func (a *Adapter) call(ctx context.Context, token, method string, query url.Valu
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := web.Call(a.hc, req)
-	if err != nil {
-		return fmt.Errorf("could not reach Slack: %w", err)
-	}
-	b, err := web.ReadBody(resp, 4<<20)
+	b, err := web.Do(a.hc, req, "Slack", 4<<20, func(status int, _ []byte) error {
+		return &apiError{Method: method, Code: fmt.Sprintf("%d %s", status, http.StatusText(status))}
+	})
 	if err != nil {
 		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return &apiError{Method: method, Code: resp.Status}
 	}
 	var r result
 	if err := json.Unmarshal(b, &r); err != nil {
@@ -395,7 +390,7 @@ func (a *Adapter) Send(ctx context.Context, conn channels.Connection, to channel
 	if token == "" {
 		return "", errors.New("slack: the bot token is missing")
 	}
-	if to.Conversation == "" || to.Conversation == "*" {
+	if to.Conversation == "" || to.Conversation == channels.AnyTarget {
 		return "", errors.New("slack: no channel to post to")
 	}
 	msg := map[string]any{

@@ -248,7 +248,7 @@ func (a *Adapter) Send(ctx context.Context, conn channels.Connection, to channel
 	if !a.allowed(serviceURL) {
 		return "", errors.New("teams: the reply has no Microsoft service URL")
 	}
-	if to.Conversation == "" || to.Conversation == "*" {
+	if to.Conversation == "" || to.Conversation == channels.AnyTarget {
 		return "", errors.New("teams: no conversation to post to")
 	}
 	msg := map[string]any{"type": "message", "text": text, "textFormat": "markdown"}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/microsoft"
+	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
 const (
@@ -33,7 +34,7 @@ func zone(s string) (string, error) {
 		return "UTC", nil
 	}
 	if !validZone.MatchString(s) {
-		return "", fmt.Errorf("%q is not a time zone", s)
+		return "", fmt.Errorf("%q is not a time zone", web.Short(s, 40))
 	}
 	return s, nil
 }
@@ -58,7 +59,7 @@ func parseTime(s string, loc *time.Location) (t time.Time, offset bool, err erro
 			return t, false, nil
 		}
 	}
-	return time.Time{}, false, fmt.Errorf("%q is not a time; write 2026-11-05T14:00 or 2026-11-05", s)
+	return time.Time{}, false, fmt.Errorf("%q is not a time; write 2026-11-05T14:00 or 2026-11-05", web.Short(s, 40))
 }
 
 type graphTime struct {
@@ -208,7 +209,7 @@ func (a *Adapter) createEvent(ctx context.Context, app microsoft.App, box string
 			// Graph takes local times, so an absolute one is turned into
 			// the event's zone, which must be one Go knows.
 			if loc == time.UTC && tz != "UTC" {
-				return nil, fmt.Errorf("give times without an offset, or an IANA time zone such as Europe/Zurich instead of %q", tz)
+				return nil, fmt.Errorf("give times without an offset, or an IANA time zone such as Europe/Zurich instead of %q", web.Short(tz, 40))
 			}
 			t = t.In(loc)
 		}

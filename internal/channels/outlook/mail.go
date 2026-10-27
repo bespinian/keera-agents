@@ -2,7 +2,7 @@ package outlook
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"html"
 	"net/http"
 	"strconv"
@@ -12,6 +12,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/channels/internal/apitool"
 	"github.com/bespinian/keera-agents/internal/channels/internal/mailtext"
 	"github.com/bespinian/keera-agents/internal/channels/internal/microsoft"
+	"github.com/bespinian/keera-agents/internal/channels/internal/web"
 )
 
 const (
@@ -196,8 +197,7 @@ func (a *Adapter) listMessages(ctx context.Context, app microsoft.App, box strin
 	case search != "":
 		// Graph sorts search results itself and takes no $filter with
 		// them, so unread is filtered here.
-		r := []rune(search)
-		q["$search"] = `"` + string(r[:min(len(r), 200)]) + `"`
+		q["$search"] = `"` + web.Cut(search, 200, "") + `"`
 	case in.UnreadOnly:
 		// Graph wants the $orderby property in the $filter, first.
 		q["$filter"] = "receivedDateTime ge 1900-01-01T00:00:00Z and isRead eq false"
@@ -315,7 +315,7 @@ func (a *Adapter) sendMessage(ctx context.Context, app microsoft.App, box string
 },
 ) (any, error) {
 	if len(in.To) == 0 {
-		return nil, fmt.Errorf("give to, at least one address")
+		return nil, errors.New("give to, at least one address")
 	}
 	if err := apitool.Need("subject", in.Subject); err != nil {
 		return nil, err
