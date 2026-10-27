@@ -40,8 +40,8 @@ the person's ssh to the workspace's sshd.
 The terminal experience runs pi in a tmux session called `pi`. `ssh api.keera`
 and `tmux attach` join the same session the browser shows.
 
-**Only the owner gets in.** An administrator sees every workspace in the
-organisation, and can stop or delete one, but cannot connect to it. Other
+**Only the owner gets in.** An administrator sees, changes, stops and
+deletes every workspace in the organisation, but cannot connect to it. Other
 members do not see it at all: its id answers 404.
 
 ## How a connection travels

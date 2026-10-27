@@ -165,6 +165,7 @@ dev: dev-env dev-db
 	@echo "  gateway  $$(sed -n 's/^KEERA_AGENTS_GATEWAY_URL=//p' $(DEV_ENV))"
 	@echo
 	@echo "The gateway needs, in its compose/.env:"
+	@echo "  KEERA_PUBLIC_URL=http://localhost:8080"
 	@echo "  KEERA_AGENTS_URL=http://localhost:8070"
 	@echo "  KEERA_AGENTS_SERVICE_KEY=$$(sed -n 's/^KEERA_AGENTS_SERVICE_KEY=//p' $(DEV_ENV))"
 	@echo
