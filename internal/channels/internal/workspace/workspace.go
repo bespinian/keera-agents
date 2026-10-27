@@ -102,7 +102,7 @@ func (c *Client) Do(ctx context.Context, s Settings, method, u string, in, out a
 }
 
 // Check signs in and makes one cheap call, probe, to prove the key works and
-// the API is enabled. A nil probe asks Drive who the connector is.
+// the API is enabled.
 func (c *Client) Check(ctx context.Context, conn channels.Connection, api string, probe func(context.Context, Settings) error) error {
 	s, err := SettingsOf(conn)
 	if err != nil {
@@ -110,11 +110,6 @@ func (c *Client) Check(ctx context.Context, conn channels.Connection, api string
 	}
 	if err := c.auth.Check(ctx, s.Creds, c.scope); err != nil {
 		return err
-	}
-	if probe == nil {
-		probe = func(ctx context.Context, s Settings) error {
-			return c.Do(ctx, s, http.MethodGet, c.drive+"/drive/v3/about?fields=user", nil, &struct{}{})
-		}
 	}
 	err = probe(ctx, s)
 	switch web.Status(err) {
@@ -238,6 +233,13 @@ func (f Files) Get(ctx context.Context, s Settings, id string) (File, error) {
 		return File{}, fmt.Errorf("%q is not a Google %s (it is %s)", d.Name, f.Noun, d.MimeType)
 	}
 	return d.file(), nil
+}
+
+// Check proves the key works by asking Drive who the connector is.
+func (f Files) Check(ctx context.Context, conn channels.Connection) error {
+	return f.Client.Check(ctx, conn, "Google Drive API", func(ctx context.Context, s Settings) error {
+		return f.Do(ctx, s, http.MethodGet, f.drive+"/drive/v3/about?fields=user", nil, &struct{}{})
+	})
 }
 
 // Target checks a binding's target: AnyTarget, or one file's id or link,

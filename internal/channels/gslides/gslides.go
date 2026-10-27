@@ -104,7 +104,7 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
-	return a.files.Check(ctx, conn, "Google Drive API", nil)
+	return a.files.Check(ctx, conn)
 }
 
 func (a *Adapter) Target(ctx context.Context, conn channels.Connection, target string) (string, error) {
