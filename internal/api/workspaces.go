@@ -22,22 +22,18 @@ import (
 
 // A workspace is a machine of one person's, with a coding agent, that they
 // reach through the `keera` CLI. It is personal: other members do not see
-// it, and only its owner connects to it. Administrators see, stop and
-// delete every workspace in their organisation, but cannot get in.
+// it, and only its owner connects to it. Administrators see, change, stop
+// and delete every workspace in their organisation, but cannot get in.
 
 type workspaceView struct {
 	store.Agent
 	CanEdit bool `json:"can_edit"`
 	// CanConnect is whether the caller may open it: its owner only.
 	CanConnect bool `json:"can_connect"`
-	// Connectors counts its bindings.
-	Connectors int `json:"connectors"`
 }
 
-func viewWorkspace(p Principal, a store.Agent, connectors int) workspaceView {
-	return workspaceView{
-		Agent: a, CanEdit: canEdit(p, a), CanConnect: a.OwnerID == p.UserID, Connectors: connectors,
-	}
+func viewWorkspace(p Principal, a store.Agent) workspaceView {
+	return workspaceView{Agent: a, CanEdit: canEdit(p, a), CanConnect: a.OwnerID == p.UserID}
 }
 
 // loadWorkspace finds a workspace the caller may see. Another member's is
@@ -64,15 +60,6 @@ func (s *Server) workspaceRef(w http.ResponseWriter, r *http.Request, p Principa
 	return s.loadWorkspace(w, r, p, ref)
 }
 
-func (s *Server) writeWorkspace(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent) {
-	bindings, err := s.st.AgentBindings(r.Context(), a.ID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, viewWorkspace(p, a, len(bindings)))
-}
-
 // listWorkspaces lists the caller's workspaces, or with ?all=true every one
 // in the organisation, for an administrator.
 func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -89,14 +76,9 @@ func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request, p Princi
 		s.fail(w, err)
 		return
 	}
-	counts, err := s.st.AgentBindingCounts(r.Context(), p.OrgID)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
 	out := make([]workspaceView, 0, len(list))
 	for _, a := range list {
-		out = append(out, viewWorkspace(p, a, counts[a.ID]))
+		out = append(out, viewWorkspace(p, a))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
@@ -114,7 +96,7 @@ func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request, p Principa
 	writeJSON(w, http.StatusOK, struct {
 		workspaceView
 		Bindings []store.Binding `json:"bindings"`
-	}{viewWorkspace(p, a, len(bindings)), bindings})
+	}{viewWorkspace(p, a), bindings})
 }
 
 // workspaceInput is what people set on a workspace: an agent's machine
@@ -180,7 +162,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		"name": out.Name, "experience": out.Experience,
 	})
 	s.startLater(out)
-	writeJSON(w, http.StatusCreated, viewWorkspace(p, out, 0))
+	writeJSON(w, http.StatusCreated, viewWorkspace(p, out))
 }
 
 func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -208,7 +190,7 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 	if out.Enabled && (before.Image != out.Image || before.Class != out.Class || before.Experience != out.Experience) {
 		s.startLater(out)
 	}
-	s.writeWorkspace(w, r, p, out)
+	writeJSON(w, http.StatusOK, viewWorkspace(p, out))
 }
 
 func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -232,7 +214,7 @@ func (s *Server) setWorkspaceEnabled(enabled bool) handler {
 			return
 		}
 		if out, ok := s.setMachineEnabled(w, r, p, a, enabled, false); ok {
-			s.writeWorkspace(w, r, p, out)
+			writeJSON(w, http.StatusOK, viewWorkspace(p, out))
 		}
 	}
 }

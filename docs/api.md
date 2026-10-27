@@ -159,7 +159,7 @@ Task:
   caller's tasks have, so the panel offers only filters that find something
 - `GET /api/v1/tasks/{id}` → Task + `{events:[{id,kind:"message"|"tool_call"|"tool_result"|"log",text,data,at}]}`
   (`data`, on tool events only: `{tool,call_id,arguments}` or `{tool,call_id,is_error}`)
-- `GET /api/v1/tasks/{id}/events?after=<id>` → `{events:[...], state, task}` (poll every 2s while running)
+- `GET /api/v1/tasks/{id}/events?after=<id>` → `{events:[...], task}` (poll every 2s while running)
 - `POST /api/v1/tasks/{id}/cancel` → Task
 
 ## Keera Chat
@@ -217,7 +217,7 @@ A workspace is a row of agents with `kind:"workspace"` and an `experience`
 one of the caller's own.
 
 - `GET /api/v1/workspaces?all=true` → `{data:[Workspace]}`, the caller's, or with `all` every one in the
-  organisation (admins). Workspace = Agent fields + `{can_edit, can_connect, connectors}`.
+  organisation (admins). Workspace = Agent fields + `{can_edit, can_connect}`.
 - `POST /api/v1/workspaces {name, experience:"terminal"|"vscode", description?, model?, class?, project_id?, image?}`
   → 201 Workspace. Without a model, the project's first.
 - `GET /api/v1/workspaces/{id}` → Workspace + `bindings:[Binding]`

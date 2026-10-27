@@ -97,7 +97,7 @@ func (s *Server) taskEvents(w http.ResponseWriter, r *http.Request, p Principal)
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": events, "state": t.State, "task": t})
+	writeJSON(w, http.StatusOK, map[string]any{"events": events, "task": t})
 }
 
 // cancelTask may be done by whoever asked, and by whoever may change the
