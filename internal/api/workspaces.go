@@ -263,17 +263,12 @@ func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Prin
 			"connect with the keera CLI: keera workspace open "+a.Name)
 		return
 	}
-	if !a.Enabled {
-		writeError(w, http.StatusConflict, "workspace_stopped",
-			a.Name+" is stopped; start it with: keera workspace start "+a.Name)
-		return
-	}
-
 	ctx := r.Context()
 	addr, a, err := s.fleet.Reach(ctx, a.ID)
 	switch {
 	case errors.Is(err, fleet.ErrStopped):
-		writeError(w, http.StatusConflict, "workspace_stopped", err.Error())
+		writeError(w, http.StatusConflict, "workspace_stopped",
+			a.Name+" is stopped; start it with: keera workspace start "+a.Name)
 		return
 	case err != nil:
 		runtimeFailed(w, err)
@@ -316,8 +311,8 @@ func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Prin
 }
 
 // dialFront opens a stream to port through the workspace's front. A front
-// that was just started may not listen yet, so a refused connection is
-// tried again for a while.
+// that was just started may not listen yet, so a failed connection is tried
+// again for a while. An answer from the front is final.
 func (s *Server) dialFront(ctx context.Context, addr, secret, port string) (io.ReadWriteCloser, error) {
 	hc := &http.Client{Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
@@ -336,7 +331,7 @@ func (s *Server) dialFront(ctx context.Context, addr, secret, port string) (io.R
 		if err == nil {
 			return conn, nil
 		}
-		if _, refused := errors.AsType[*stream.Error](err); refused || time.Now().After(deadline) || ctx.Err() != nil {
+		if _, answered := errors.AsType[*stream.Error](err); answered || time.Now().After(deadline) || ctx.Err() != nil {
 			return nil, err
 		}
 		select {

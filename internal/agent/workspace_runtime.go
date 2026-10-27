@@ -29,7 +29,6 @@ func RunWorkspace(ctx context.Context, log *slog.Logger) error {
 }
 
 func (r *runner) runWorkspace(ctx context.Context) {
-	r.log = r.log.With("workspace", r.cfg.AgentID)
 	r.log.Info("workspace: starting", "workspace", r.cfg.Workspace)
 	if !r.bootstrapUntilReady(ctx) {
 		return

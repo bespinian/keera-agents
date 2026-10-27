@@ -626,8 +626,8 @@ func (m *Manager) Reach(ctx context.Context, agentID string) (string, store.Agen
 		case store.AgentFailed:
 			return "", a, errors.New(a.StateDetail)
 		case store.AgentRunning:
-			// Running means the runtime fetched its bootstrap; its front
-			// listens by then.
+			// Running means the runtime fetched its bootstrap. Its front
+			// may not listen yet, which the caller allows for.
 			addr, err := m.driver.Address(ctx, agentID)
 			if err == nil {
 				return addr, a, nil

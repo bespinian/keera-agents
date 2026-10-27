@@ -396,7 +396,7 @@ func (s *Server) startLater(a store.Agent) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if err := s.fleet.Start(ctx, a); err != nil {
-			s.log.Warn("could not start an agent", "agent", a.ID, "error", err)
+			s.log.Warn("could not start a machine", a.Kind, a.ID, "error", err)
 		}
 	}()
 }
@@ -675,16 +675,10 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 		badRequest(w, "name the "+strings.ToLower(cmp.Or(desc.TargetLabel, "target"))+"; * is not allowed here")
 		return
 	}
-	// A connector people sign in to works for whoever adds the channel, as
-	// for a folder watch, so they must have signed in.
-	if c.PerUser {
-		if _, err := s.disp.ConnFor(r.Context(), c, p.UserID); err != nil {
-			badRequest(w, err.Error())
-			return
-		}
-	}
 	// Checked now, so a typo, or credentials that cannot reach it, fail
-	// here and not in the middle of a task.
+	// here and not in the middle of a task. A connector people sign in to
+	// works for whoever adds the channel, so they must have signed in; the
+	// lookups check that too.
 	switch {
 	case in.Mode == store.ModeRepo:
 		repo, err := s.disp.LookupRepo(r.Context(), c, in.Target, p.UserID)
@@ -700,6 +694,11 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 			return
 		}
 		in.Target = target
+	case c.PerUser:
+		if _, err := s.disp.ConnFor(r.Context(), c, p.UserID); err != nil {
+			badRequest(w, err.Error())
+			return
+		}
 	}
 	b, err := s.st.CreateBinding(r.Context(), store.Binding{
 		ID: id.New("bnd"), AgentID: a.ID, ConnectionID: c.ID, Target: in.Target,
