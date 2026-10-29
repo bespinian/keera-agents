@@ -229,12 +229,22 @@ func (s *Store) RunningTask(ctx context.Context, agentID string) (Task, error) {
 		LIMIT 1`, agentID))
 }
 
-// FinishTask ends a running task. It reports false when the task was no
-// longer running, such as one cancelled meanwhile.
+// FinishTask ends a queued or running task, as a cancel does. It reports
+// false when the task had already ended.
 func (s *Store) FinishTask(ctx context.Context, id, state, result, errText string) (bool, error) {
+	return s.endTask(ctx, id, state, result, errText, `state IN ('queued', 'running')`)
+}
+
+// CompleteTask ends a running task with its result. It reports false when
+// the task was not running, such as one cancelled meanwhile, or one no
+// runtime claimed.
+func (s *Store) CompleteTask(ctx context.Context, id, state, result, errText string) (bool, error) {
+	return s.endTask(ctx, id, state, result, errText, `state = 'running'`)
+}
+
+func (s *Store) endTask(ctx context.Context, id, state, result, errText, from string) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `UPDATE tasks SET state = $2, result = $3, error = $4,
-		finished_at = now() WHERE id = $1 AND state IN ('queued', 'running')`,
-		id, state, result, errText)
+		finished_at = now() WHERE id = $1 AND `+from, id, state, result, errText)
 	return tag.RowsAffected() == 1, err
 }
 

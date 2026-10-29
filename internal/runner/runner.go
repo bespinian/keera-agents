@@ -273,6 +273,13 @@ func (rn *Runner) events(w http.ResponseWriter, r *http.Request, a store.Agent) 
 	if !readJSON(w, r, &in) {
 		return
 	}
+	// 409 tells the runtime to stop, as when someone cancelled the task.
+	// Checked first, so an ended task takes no more events.
+	if t.State != store.TaskRunning {
+		_ = rn.st.TouchAgent(r.Context(), a.ID)
+		notRunning(w, t)
+		return
+	}
 	if len(in.Events) > maxEvents {
 		in.Events = in.Events[:maxEvents]
 	}
@@ -285,12 +292,16 @@ func (rn *Runner) events(w http.ResponseWriter, r *http.Request, a store.Agent) 
 		return
 	}
 	_ = rn.st.TouchAgent(r.Context(), a.ID)
-	// 409 tells the runtime to stop: someone cancelled the task.
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// notRunning answers a report for a task the runtime does not run.
+func notRunning(w http.ResponseWriter, t store.Task) {
 	if t.Finished() {
 		writeError(w, http.StatusConflict, "task_finished", "this task has ended: "+t.State)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeError(w, http.StatusConflict, "task_finished", "this task is not running: "+t.State)
 }
 
 func (rn *Runner) finish(w http.ResponseWriter, r *http.Request, a store.Agent) {
@@ -306,14 +317,15 @@ func (rn *Runner) finish(w http.ResponseWriter, r *http.Request, a store.Agent) 
 	if in.State == protocol.Succeeded {
 		state = store.TaskSucceeded
 	}
-	ended, err := rn.st.FinishTask(r.Context(), t.ID, state, noNUL(in.Result), noNUL(in.Error))
+	// Only a running task: a queued one never ran, so it has no result.
+	ended, err := rn.st.CompleteTask(r.Context(), t.ID, state, noNUL(in.Result), noNUL(in.Error))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not store the result")
 		return
 	}
 	_ = rn.st.TouchAgent(r.Context(), a.ID)
 	if !ended {
-		writeError(w, http.StatusConflict, "task_finished", "this task had already ended")
+		writeError(w, http.StatusConflict, "task_finished", "this task was not running")
 		return
 	}
 	// Deliver at once rather than at the next sweep, so a chat reply comes
