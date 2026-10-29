@@ -71,6 +71,10 @@ month, day of week - in a time zone, `Europe/Zurich` unless chosen. `@daily`,
 `@weekly` and the like work too. A cron the picker cannot show, such as
 `0 8,17 * * *`, is kept as it is, under Custom.
 
+When the clocks go forward, a run in the hour that never happens runs right
+after the change. When they go back, a run in the hour that comes twice runs
+once. A schedule that runs every hour keeps its usual minutes either way.
+
 Exactly one replica starts each run: the run is claimed by moving the
 schedule's next time with a compare-and-set. A run missed by more than a day,
 as after a long outage, is skipped rather than run late. An expression that

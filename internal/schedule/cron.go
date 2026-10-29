@@ -188,13 +188,17 @@ func (c Cron) dayMatches(t time.Time) bool {
 var ErrNever = errors.New("this schedule never runs")
 
 // Next returns the first time after t that matches, in loc. A wall-clock
-// time a daylight-saving change skips runs at the next time that exists; one
-// it repeats runs once, unless the schedule runs every hour.
+// time a daylight-saving change skips runs right after the change; one it
+// repeats runs once. A schedule that runs every hour does neither: it has a
+// run in the next hour anyway.
 func (c Cron) Next(t time.Time, loc *time.Location) (time.Time, error) {
 	t = t.In(loc).Truncate(time.Minute).Add(time.Minute)
 	// Four years covers every leap day; beyond that it never matches.
 	limit := t.AddDate(4, 0, 1)
 	for t.Before(limit) {
+		if c.skipped(t) {
+			return t, nil
+		}
 		if !has(c.month, int(t.Month())) {
 			t = dayStart(t.Year(), t.Month()+1, 1, loc)
 			continue
@@ -219,6 +223,28 @@ func (c Cron) Next(t time.Time, loc *time.Location) (time.Time, error) {
 		return t, nil
 	}
 	return time.Time{}, ErrNever
+}
+
+// skipped reports whether t comes right after the clocks went forward, and
+// a wall-clock time they jumped over matches.
+func (c Cron) skipped(t time.Time) bool {
+	before := t.Add(-time.Minute)
+	_, now := t.Zone()
+	_, earlier := before.Zone()
+	if earlier >= now || all(c.hour, hourField) {
+		return false
+	}
+	// The wall-clock times from a minute after before up to t never were.
+	// Read in UTC, which has no gaps.
+	wall := func(t time.Time) time.Time {
+		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, time.UTC)
+	}
+	for w := wall(before).Add(time.Minute); w.Before(wall(t)); w = w.Add(time.Minute) {
+		if has(c.month, int(w.Month())) && c.dayMatches(w) && has(c.hour, w.Hour()) && has(c.minute, w.Minute()) {
+			return true
+		}
+	}
+	return false
 }
 
 // repeated reports whether t's wall-clock time already passed once, as in

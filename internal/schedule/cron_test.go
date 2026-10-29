@@ -44,11 +44,35 @@ func TestNext(t *testing.T) {
 
 func TestNextSkippedHour(t *testing.T) {
 	zurich := mustLoc(t, "Europe/Zurich")
-	// 02:30 does not exist on 29 March 2026 in Zurich.
-	c, _ := Parse("30 2 * * *")
-	got, err := c.Next(time.Date(2026, 3, 29, 0, 0, 0, 0, zurich), zurich)
-	if err != nil || got.Day() != 29 && got.Day() != 30 {
-		t.Fatalf("Next = %v, %v", got, err)
+	// 02:00 to 03:00 does not exist on 29 March 2026 in Zurich, so a run in
+	// it happens at 03:00, once.
+	changed := time.Date(2026, 3, 29, 3, 0, 0, 0, zurich)
+	for _, tc := range []struct {
+		expr      string
+		from      time.Time
+		want      time.Time
+		wantAfter time.Time
+	}{
+		{"30 2 * * *", time.Date(2026, 3, 29, 0, 0, 0, 0, zurich), changed, time.Date(2026, 3, 30, 2, 30, 0, 0, zurich)},
+		{"30 2 29 3 *", time.Date(2026, 3, 1, 0, 0, 0, 0, zurich), changed, time.Date(2027, 3, 29, 2, 30, 0, 0, zurich)},
+		{"*/15 2 * * *", time.Date(2026, 3, 29, 1, 59, 30, 0, zurich), changed, time.Date(2026, 3, 30, 2, 0, 0, 0, zurich)},
+		// The hour after the change still runs on its own.
+		{"30 2,3 * * *", time.Date(2026, 3, 29, 0, 0, 0, 0, zurich), changed, time.Date(2026, 3, 29, 3, 30, 0, 0, zurich)},
+		// Every hour: no run to make up, the next one comes anyway.
+		{"30 * * * *", time.Date(2026, 3, 29, 1, 45, 0, 0, zurich), time.Date(2026, 3, 29, 3, 30, 0, 0, zurich), time.Date(2026, 3, 29, 4, 30, 0, 0, zurich)},
+	} {
+		c, err := Parse(tc.expr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := c.Next(tc.from, zurich)
+		if err != nil || !got.Equal(tc.want) {
+			t.Errorf("%s: Next = %v, %v; want %v", tc.expr, got, err, tc.want)
+			continue
+		}
+		if after, err := c.Next(got, zurich); err != nil || !after.Equal(tc.wantAfter) {
+			t.Errorf("%s: after %v, Next = %v, %v; want %v", tc.expr, got, after, err, tc.wantAfter)
+		}
 	}
 }
 
