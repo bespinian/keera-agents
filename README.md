@@ -78,6 +78,10 @@ You need Go, podman and a Keera Gateway. Set the gateway up once as
 open <http://localhost:8070>. [docs/install.md](docs/install.md) has every
 setting.
 
+A new organisation sees **Getting started** in place of the dashboard: connect
+your services, create an agent and give it a first task. It stays until the
+organisation's first task ([docs/api.md](docs/api.md#overview)).
+
 ## Docs
 
 `docs/` is for operators and contributors:

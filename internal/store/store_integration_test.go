@@ -279,6 +279,33 @@ func TestExpireTasks(t *testing.T) {
 	}
 }
 
+// An organisation has started once it has had a task, and stays started
+// after its tasks are pruned.
+func TestStarted(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	now := time.Now()
+	a := newAgent(t, st, "org_a", "Scout")
+	if started, err := st.Started(ctx, "org_a", now); started || err != nil {
+		t.Fatalf("with no task: %v, %v", started, err)
+	}
+	if _, err := st.CreateTask(ctx, Task{ID: id.New("task"), OrgID: "org_a", AgentID: a.ID, Source: "manual", Prompt: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if started, err := st.Started(ctx, "org_a", now); !started || err != nil {
+		t.Fatalf("with a task: %v, %v", started, err)
+	}
+	if started, _ := st.Started(ctx, "org_b", now); started {
+		t.Fatal("another organisation's task counted")
+	}
+	if _, err := st.pool.Exec(ctx, `DELETE FROM tasks`); err != nil {
+		t.Fatal(err)
+	}
+	if started, _ := st.Started(ctx, "org_a", now.Add(TaskRetention+time.Hour)); !started {
+		t.Fatal("an agent older than the retention did not count")
+	}
+}
+
 func TestFailQueuedTasks(t *testing.T) {
 	st := openTest(t)
 	ctx := context.Background()

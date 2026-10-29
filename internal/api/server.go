@@ -92,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/me/org", s.switchOrg)
 	route("GET /api/v1/catalog", s.catalog)
 	route("GET /api/v1/overview", s.overview)
+	route("GET /api/v1/setup", s.setup)
 	route("GET /api/v1/audit", s.audit)
 
 	route("GET /api/v1/agents", s.listAgents)
@@ -361,6 +362,30 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"agents": counts, "tasks": act.Tasks, "series": act.Series, "bucket": act.Bucket,
 		"recent_tasks": recent, "upcoming": next,
+	})
+}
+
+// setup is what the panel's getting started guide ticks off. The panel reads
+// it at start, to name its first screen.
+func (s *Server) setup(w http.ResponseWriter, r *http.Request, p Principal) {
+	ctx := r.Context()
+	agents, err := s.st.Agents(ctx, p.OrgID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	conns, err := s.st.Connections(ctx, p.OrgID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	started, err := s.st.Started(ctx, p.OrgID, time.Now())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"agents": len(agents), "connections": len(conns), "started": started,
 	})
 }
 

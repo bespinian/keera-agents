@@ -19,8 +19,21 @@ import {
 import { tasksCard, taskTotal, agentPath } from "../common.js";
 import { taskRow } from "./agent.js";
 import { noAgents, noRuntime, openNewAgent } from "./agents.js";
+import { firstRun, firstRunDue } from "./firstrun.js";
 
 export async function dashboardView(ctx) {
+  // A dashboard of zeroes helps nobody, so the guide replaces it at first.
+  const setup = await api.setup().catch(() => null);
+  // The sidebar names this screen from it.
+  if (setup) ctx.setSetup(setup);
+  if (firstRunDue(setup)) {
+    ctx.setTitle("Getting started", ctx.state.me.org_name || "");
+    const agents = setup.agents
+      ? ((await api.agents()).data || []).filter((a) => a.enabled !== false && a.can_give)
+      : [];
+    return h("div", { class: "grid" }, noRuntime(ctx.state.me), firstRun(ctx, setup, agents));
+  }
+
   const since = currentRange();
   const range = rangeOf(since);
   const o = await api.overview(since);

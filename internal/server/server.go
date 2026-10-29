@@ -272,7 +272,7 @@ func (a *App) Background(ctx context.Context) {
 				lastOwners = now
 			}
 			if now.Sub(lastPrune) >= 24*time.Hour {
-				if n, err := st.PruneTasks(round, now.AddDate(0, 0, -90)); err == nil && n > 0 {
+				if n, err := st.PruneTasks(round, now.Add(-store.TaskRetention)); err == nil && n > 0 {
 					log.Info("deleted old tasks", "count", n)
 				}
 				_ = st.PruneWrites(round, now.AddDate(0, 0, -7))

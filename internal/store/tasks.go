@@ -393,11 +393,26 @@ func (s *Store) Events(ctx context.Context, taskID string, after int64) ([]Event
 		WHERE task_id = $1 AND id > $2 ORDER BY id LIMIT 1000`, taskID, after)
 }
 
+// TaskRetention is how long finished tasks are kept.
+const TaskRetention = 90 * 24 * time.Hour
+
 // PruneTasks deletes finished tasks older than the retention, with their
 // events.
 func (s *Store) PruneTasks(ctx context.Context, before time.Time) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM tasks WHERE finished_at < $1`, before)
 	return tag.RowsAffected(), err
+}
+
+// Started reports whether an organisation has had a task, which ends the
+// panel's getting started guide. Old tasks are pruned, so an agent older than
+// the retention counts too: the guide must not come back to an organisation
+// whose agents have been idle a while.
+func (s *Store) Started(ctx context.Context, orgID string, now time.Time) (bool, error) {
+	var started bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tasks WHERE org_id = $1)
+		OR EXISTS (SELECT 1 FROM agents WHERE org_id = $1 AND kind = 'agent' AND created_at < $2)`,
+		orgID, now.Add(-TaskRetention)).Scan(&started)
+	return started, err
 }
 
 // Gauges is the state /metrics reports, as the database has it now.

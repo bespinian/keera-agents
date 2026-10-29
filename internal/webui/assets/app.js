@@ -33,11 +33,14 @@ import { workspacesView } from "./views/workspaces.js";
 import { workspaceView } from "./views/workspace.js";
 import { connectorsView, catalogueView } from "./views/connectors.js";
 import { auditView } from "./views/audit.js";
+import { firstRunDue } from "./views/firstrun.js";
 
 const root = document.getElementById("root");
 
 const state = {
   me: null,
+  /** setup is what the getting started guide ticks off, or null. */
+  setup: null,
 };
 
 // The part of a screen's ctx that the shell's own links and checks need.
@@ -254,7 +257,7 @@ function navItem(r) {
   return h(
     "a",
     {
-      class: "nav-item",
+      class: "nav-item" + (r.highlight ? " nav-highlight" : ""),
       href: r.path,
       // The only label once the sidebar is collapsed.
       title: r.label,
@@ -264,6 +267,21 @@ function navItem(r) {
     icon(icons[r.icon]),
     h("span", { class: "nav-text" }, r.label),
   );
+}
+
+/** markHome names the first screen: the getting started guide until the
+ *  organisation's first task, then the dashboard. */
+function markHome() {
+  const home = routes[0];
+  const due = firstRunDue(state.setup);
+  home.label = due ? "Getting started" : "Dashboard";
+  home.icon = due ? "start" : "dashboard";
+  home.highlight = due;
+  const el = document.querySelector('.nav-item[data-path="/"]');
+  if (!el) return;
+  const next = navItem(home);
+  if (el.hasAttribute("aria-current")) next.setAttribute("aria-current", "page");
+  el.replaceWith(next);
 }
 
 function renderShell() {
@@ -422,6 +440,12 @@ async function renderRoute() {
     sub,
     setSubtitle: (s) => setTitle(title, s, titleMark),
     onTeardown: (fn) => (gen === rendering ? teardowns.push(fn) : fn()),
+    /** setSetup takes fresh counts, so the sidebar follows steps done since
+     *  the panel started. */
+    setSetup: (setup) => {
+      state.setup = setup;
+      markHome();
+    },
     /** setTitle heads a screen with what it shows, such as an agent's name. */
     setTitle: (t, s, mark) => {
       title = t;
@@ -535,6 +559,9 @@ async function boot() {
 
   state.me = me;
   setCsrf(me.csrf);
+  // Without it the first screen is named Dashboard until it is opened.
+  state.setup = await api.setup().catch(() => null);
+  markHome();
   renderShell();
   await renderRoute();
 }

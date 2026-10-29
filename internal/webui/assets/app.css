@@ -341,6 +341,11 @@ code,
   color: var(--accent);
   font-weight: 600;
 }
+.nav-item.nav-highlight {
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
 .nav-item svg {
   width: 16px;
   height: 16px;
@@ -1650,6 +1655,273 @@ a.pill-button:hover {
   color: var(--good);
 }
 
+/* Numbered steps, worked down once. */
+.steps {
+  display: grid;
+  gap: 14px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.step-n {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+  flex: none;
+}
+
+/* The first-run checklist adds two states: done, and next. */
+.step-done {
+  opacity: 0.62;
+}
+.step-done .step-n {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.step-done .step-n svg {
+  width: 13px;
+  height: 13px;
+}
+.step-now {
+  border-color: var(--accent);
+}
+
+/* A large icon, with the number or tick as a badge in its corner. */
+.step-icon {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  justify-self: start;
+}
+.step-icon > svg {
+  width: 30px;
+  height: 30px;
+}
+.step-icon .step-n {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  background: var(--accent);
+  color: var(--surface);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.step-done .step-icon {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.step-done .step-icon .step-n {
+  background: var(--good);
+  color: var(--surface);
+}
+
+.step-body {
+  min-width: 0;
+}
+.step-body p {
+  margin: 0 0 10px;
+}
+.step-body p:last-child {
+  margin-bottom: 0;
+}
+.step-body code {
+  background: var(--surface-3);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* Above the getting started guide: where work comes from, the agent and
+   where it works, joined by lines drawn from the lists' rows to its edges.
+   The class names are Keera Gateway's, where the middle is the gateway. */
+.flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px auto 56px minmax(0, 1fr);
+  row-gap: 10px;
+  margin: 0 0 28px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.flow-head {
+  grid-row: 1;
+  grid-column: 1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.flow-head-end {
+  grid-column: 5;
+}
+/* Equal rows with no gap: the lines end at fixed fractions of the list's
+   height, so each must meet the middle of a row. */
+.flow-list {
+  grid-row: 2;
+  display: grid;
+  grid-auto-rows: 1fr;
+}
+.flow-tools {
+  grid-column: 1;
+}
+.flow-models {
+  grid-column: 5;
+}
+.flow-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  margin: 4px 0;
+  padding: 8px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.flow-item > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flow-item > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.flow-item > .provider-mark {
+  width: auto;
+  height: 16px;
+}
+.flow-item > .provider-mark-wide {
+  height: 11px;
+}
+.flow-item > .brand-mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+.flow-lines {
+  grid-row: 2;
+  display: block;
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.flow-gateway {
+  grid-row: 2;
+  grid-column: 3;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 18px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+.flow-gateway > strong {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.flow-gateway ul {
+  display: grid;
+  gap: 5px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.flow-gateway li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.flow-gateway li svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--accent);
+}
+.flow figcaption {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  text-align: center;
+}
+
+/* Too narrow for three columns: the parts stack, without lines. */
+@media (max-width: 616px) {
+  .flow {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+  }
+  .flow > * {
+    grid-row: auto;
+    grid-column: 1;
+  }
+  .flow-lines {
+    display: none;
+  }
+  .flow-head {
+    order: 1;
+  }
+  .flow-tools {
+    order: 2;
+  }
+  .flow-gateway {
+    order: 3;
+    align-self: stretch;
+  }
+  .flow-head-end {
+    order: 4;
+  }
+  .flow-models {
+    order: 5;
+  }
+  .flow figcaption {
+    order: 6;
+  }
+  .flow-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .flow-item {
+    margin: 0;
+  }
+}
+
 @media (min-width: 991px) {
   .shell.nav-collapsed {
     grid-template-columns: 68px 1fr;
@@ -1785,6 +2057,10 @@ a.pill-button:hover {
   }
   .field-row {
     grid-template-columns: 1fr;
+  }
+  .step {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
   .toolbar-search {
     flex: 1 1 100%;

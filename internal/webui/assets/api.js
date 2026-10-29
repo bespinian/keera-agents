@@ -87,6 +87,7 @@ export const api = {
   switchOrg: (orgID) => post(V1 + "/me/org", { org_id: orgID }),
   catalog: (projectID) => get(V1 + "/catalog" + query({ project_id: projectID })),
   overview: (since) => get(V1 + "/overview" + query({ since })),
+  setup: () => get(V1 + "/setup"),
 
   agents: () => get(V1 + "/agents"),
   agent: (id) => get(V1 + path`/agents/${id}`),

@@ -61,6 +61,13 @@ that came in since then, and any still queued or running. `series` counts
 those that came in, per hour up to two days and per day beyond, with days in
 `Europe/Zurich`.
 
+- `GET /api/v1/setup` → `{agents, connections, started:bool}`
+
+What the panel's getting started guide ticks off. It takes the dashboard's
+place until `started`: once the organisation has had a task, or has an agent
+older than the 90 days finished tasks are kept. So the guide does not come
+back when old tasks are deleted.
+
 ## Agents
 
 Agent:
