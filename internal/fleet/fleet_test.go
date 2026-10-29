@@ -39,3 +39,22 @@ func TestRetryDueBacksOff(t *testing.T) {
 		t.Error("agents back off on their own")
 	}
 }
+
+func TestStuckAfterAnHourPending(t *testing.T) {
+	m := New(nil, nil, nil, nil, Options{})
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	if m.stuck("agt", true, now) || m.stuck("agt", true, now.Add(maxStartWait)) {
+		t.Fatal("stuck before the wait is over")
+	}
+	if !m.stuck("agt", true, now.Add(maxStartWait+time.Minute)) {
+		t.Fatal("not stuck after the wait")
+	}
+	// Starting, or having no task, resets the clock.
+	if m.stuck("agt", false, now.Add(2*maxStartWait)) || m.stuck("agt", true, now.Add(2*maxStartWait)) {
+		t.Fatal("the clock did not reset")
+	}
+	if m.stuck("other", true, now.Add(3*maxStartWait)) {
+		t.Fatal("agents share a clock")
+	}
+}

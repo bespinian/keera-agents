@@ -64,7 +64,8 @@ gateway limits it is in Keera Gateway's `docs/agents.md`.
 A queued task wakes a suspended agent. While a task waits for a `failed`
 agent, keera-agents tries to start it again after 30 seconds, then less and
 less often, up to every 10 minutes. A task that waited an hour fails, so the
-person who asked hears back. Each agent runs **one task at a time**:
+person who asked hears back. The same goes for an agent whose machine has
+waited an hour to start, as when no node has room for its pod. Each agent runs **one task at a time**:
 it is one machine with one workspace, and two tasks writing the same files
 would trip over each other. Tasks wait in the queue in order.
 

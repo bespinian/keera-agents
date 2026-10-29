@@ -73,6 +73,9 @@ type Manager struct {
 	// failed.
 	retryMu sync.Mutex
 	retries map[string]retry
+	// pendingSince holds when this replica first saw a busy agent's
+	// container waiting to start, under retryMu.
+	pendingSince map[string]time.Time
 }
 
 type retry struct {
@@ -96,7 +99,7 @@ func New(st *store.Store, gw *gateway.Client, driver runtime.Driver, box *secret
 	}
 	return &Manager{
 		st: st, gw: gw, driver: driver, box: box, opts: opts, log: opts.Log,
-		retries: map[string]retry{},
+		retries: map[string]retry{}, pendingSince: map[string]time.Time{},
 	}
 }
 
@@ -420,6 +423,11 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 	if err != nil {
 		return
 	}
+	// A container can wait to start for good, as when no node has room for
+	// its pod. Its tasks then fail, as after a failed start.
+	if m.stuck(a.ID, a.Enabled && busy && st.State == runtime.Pending, time.Now()) {
+		m.giveUp(ctx, a)
+	}
 	if st.State == runtime.Running || !a.Enabled {
 		m.retryMu.Lock()
 		delete(m.retries, a.ID)
@@ -526,6 +534,23 @@ func (m *Manager) retryDue(agentID string, now time.Time) bool {
 	}
 	m.retries[agentID] = retry{n: r.n + 1, at: now.Add(wait)}
 	return true
+}
+
+// stuck reports whether an agent's container has waited to start for longer
+// than maxStartWait, counting from when this replica first saw it pending.
+func (m *Manager) stuck(agentID string, pending bool, now time.Time) bool {
+	m.retryMu.Lock()
+	defer m.retryMu.Unlock()
+	if !pending {
+		delete(m.pendingSince, agentID)
+		return false
+	}
+	since, ok := m.pendingSince[agentID]
+	if !ok {
+		m.pendingSince[agentID] = now
+		return false
+	}
+	return now.Sub(since) > maxStartWait
 }
 
 // giveUp fails the tasks that waited too long for an agent that cannot
