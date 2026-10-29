@@ -537,6 +537,21 @@ func TestBindingsAndWatches(t *testing.T) {
 	if chats, _ := st.ChatBindings(ctx, c.ID); len(chats) != 0 {
 		t.Fatalf("a stopped agent still listens: %v", chats)
 	}
+	// But it still holds its conversation, and one listening everywhere
+	// holds every conversation.
+	if _, err := st.CreateBinding(ctx, Binding{
+		ID: id.New("bnd"), AgentID: a.ID, ConnectionID: c.ID,
+		Target: AnyConversation, Mode: ModeChat, CreatedBy: "ada",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	holders, err := st.ChatHolders(ctx, c.ID, "C1")
+	if err != nil || len(holders) != 2 || holders[0].AgentOwnerID != "usr_1" {
+		t.Fatalf("ChatHolders(C1) = %+v, %v", holders, err)
+	}
+	if holders, _ := st.ChatHolders(ctx, c.ID, "C2"); len(holders) != 1 || holders[0].Target != AnyConversation {
+		t.Fatalf("ChatHolders(C2) = %+v", holders)
+	}
 }
 
 func TestTryLock(t *testing.T) {

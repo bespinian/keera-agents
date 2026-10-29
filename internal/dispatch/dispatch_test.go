@@ -15,13 +15,15 @@ func TestRoute(t *testing.T) {
 		{ID: "any", AgentName: "Scout", Target: store.AnyConversation},
 		{ID: "sales", AgentName: "Closer", Target: "C-sales"},
 		{ID: "ops", AgentName: "Ops Bot", Target: "C-ops"},
+		{ID: "ops-short", AgentName: "Ops", Target: "C-ops"},
 	}
 	for _, tc := range []struct {
 		conv, text, want string
 	}{
 		{"C-sales", "how are we doing?", "sales"}, // the exact channel beats the catch-all
 		{"C-sales", "scout: summarise", "any"},    // a name picks its agent
-		{"C-ops", "@ops bot restart it", "ops"},
+		{"C-ops", "@ops bot restart it", "ops"},   // the longest name wins
+		{"C-ops", "ops: restart it", "ops-short"},
 		{"C-sales", "scouting report please", "sales"}, // a longer word is not the name
 		{"D-123", "hello", "any"},                      // only the catch-all listens
 	} {

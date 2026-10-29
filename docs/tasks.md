@@ -26,9 +26,14 @@ queued. A sender without an email, as when the app may not read addresses, is
 refused too: an agent never works for someone it cannot name.
 
 **Which agent.** Several agents can share one bot. A message that starts with
-an agent's name, such as `Scout: …` or `@Scout …`, goes to that agent. In a
-channel only one agent listens on, it goes to that one. An agent connected to
-a channel beats one connected to every conversation (`*`).
+an agent's name, such as `Scout: …` or `@Scout …`, goes to that agent; the
+longest name that fits wins. In a channel only one agent listens on, it goes
+to that one. An agent connected to a channel beats one connected to every
+conversation (`*`).
+
+People cannot see which agent answers, since all of them use the same bot. So
+a member may only connect their agent to a conversation where no one else's
+agent listens, there or on `*`. An administrator can add more.
 
 **Quiet by default.** In a channel, an agent only sees messages that mention
 the bot. In a channel nobody listens on, keera-agents says nothing.

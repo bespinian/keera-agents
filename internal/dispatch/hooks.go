@@ -179,10 +179,17 @@ func route(bindings []store.Binding, msg channels.Inbound) (store.Binding, bool)
 	if len(here) == 0 {
 		return store.Binding{}, false
 	}
-	for _, b := range here {
-		if b.AgentName != "" && namePrefix(b.AgentName).MatchString(msg.Text) {
-			return b, true
+	// The longest name wins, so an agent called "Sales" does not take
+	// "Sales Bot, …" from the agent called "Sales Bot".
+	named := -1
+	for i, b := range here {
+		if b.AgentName != "" && namePrefix(b.AgentName).MatchString(msg.Text) &&
+			(named < 0 || len(b.AgentName) > len(here[named].AgentName)) {
+			named = i
 		}
+	}
+	if named >= 0 {
+		return here[named], true
 	}
 	// An exact conversation beats the catch-all.
 	for _, b := range here {

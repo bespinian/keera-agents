@@ -106,13 +106,14 @@ type Binding struct {
 	CreatedBy      string     `json:"created_by"`
 	CreatedByID    string     `json:"-"`
 	CreatedAt      time.Time  `json:"created_at"`
-	// OrgID is the connection's, for checks.
-	OrgID string `json:"-"`
+	// OrgID is the connection's, and AgentOwnerID the agent's, for checks.
+	OrgID        string `json:"-"`
+	AgentOwnerID string `json:"-"`
 }
 
 const bindingSelect = `SELECT b.id, b.agent_id, a.name, b.connection_id, c.name, c.kind, b.target,
 	b.label, b.mode, b.prompt, b.cursor, b.checked_at, b.created_by, b.created_by_id,
-	b.created_at, c.org_id
+	b.created_at, c.org_id, a.owner_id
 	FROM bindings b JOIN connections c ON c.id = b.connection_id
 	JOIN agents a ON a.id = b.agent_id AND a.deleted_at IS NULL`
 
@@ -120,7 +121,7 @@ func scanBinding(row pgx.Row) (Binding, error) {
 	var b Binding
 	err := row.Scan(&b.ID, &b.AgentID, &b.AgentName, &b.ConnectionID, &b.ConnectionName, &b.Kind, &b.Target,
 		&b.Label, &b.Mode, &b.Prompt, &b.Cursor, &b.CheckedAt, &b.CreatedBy, &b.CreatedByID,
-		&b.CreatedAt, &b.OrgID)
+		&b.CreatedAt, &b.OrgID, &b.AgentOwnerID)
 	return b, notFound(err)
 }
 
@@ -150,6 +151,13 @@ func (s *Store) AgentBindings(ctx context.Context, agentID string) ([]Binding, e
 // ChatBindings are the agents listening on a connection.
 func (s *Store) ChatBindings(ctx context.Context, connectionID string) ([]Binding, error) {
 	return s.queryBindings(ctx, `b.connection_id = $1 AND b.mode = 'chat' AND a.enabled`, connectionID)
+}
+
+// ChatHolders are the agents, enabled or not, that take messages in a
+// conversation: those connected to it and those connected to every one.
+func (s *Store) ChatHolders(ctx context.Context, connectionID, conversation string) ([]Binding, error) {
+	return s.queryBindings(ctx, `b.connection_id = $1 AND b.mode = 'chat' AND b.target IN ($2, '*')`,
+		connectionID, conversation)
 }
 
 // Watches are every folder watch of enabled agents.

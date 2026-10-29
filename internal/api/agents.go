@@ -675,6 +675,20 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 		badRequest(w, "name the "+strings.ToLower(cmp.Or(desc.TargetLabel, "target"))+"; * is not allowed here")
 		return
 	}
+	// All agents answer through the same bot, so people cannot tell whose
+	// agent picks up a message. A member may not join a conversation where
+	// another person's agent already listens; an administrator decides that.
+	if in.Mode == store.ModeChat && !p.CanAdmin() {
+		holders, err := s.st.ChatHolders(r.Context(), c.ID, in.Target)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if b, ok := heldByOther(holders, a); ok {
+			forbid(w, b.AgentName+" already listens there; ask an administrator to add "+a.Name+" too")
+			return
+		}
+	}
 	// Checked now, so a typo, or credentials that cannot reach it, fail
 	// here and not in the middle of a task. A connector people sign in to
 	// works for whoever adds the channel, so they must have signed in; the
@@ -712,6 +726,17 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 		"agent": a.Name, "connection": c.Name, "target": b.Target, "mode": b.Mode,
 	})
 	writeJSON(w, http.StatusCreated, b)
+}
+
+// heldByOther returns a chat binding of an agent someone other than a's
+// owner owns.
+func heldByOther(holders []store.Binding, a store.Agent) (store.Binding, bool) {
+	for _, b := range holders {
+		if b.AgentOwnerID != a.OwnerID {
+			return b, true
+		}
+	}
+	return store.Binding{}, false
 }
 
 func (s *Server) deleteBinding(w http.ResponseWriter, r *http.Request, p Principal) {
