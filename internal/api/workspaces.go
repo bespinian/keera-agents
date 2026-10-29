@@ -120,6 +120,11 @@ func (s *Server) applyWorkspace(ctx context.Context, p Principal, a *store.Agent
 	if a.Experience != store.ExperienceTerminal && a.Experience != store.ExperienceVSCode {
 		return errors.New("experience must be terminal or vscode")
 	}
+	// The image runs with the owner's token and volume, so choosing it for
+	// someone else would let an administrator in.
+	if in.Image != nil && strings.TrimSpace(*in.Image) != a.Image && a.OwnerID != p.UserID {
+		return errors.New("only " + a.OwnerEmail + " can change this workspace's image")
+	}
 	return s.apply(ctx, p, a, agentInput{
 		Name: in.Name, Icon: in.Icon, Description: in.Description, Model: in.Model,
 		ProjectID: in.ProjectID, BudgetMicros: in.Budget, Class: in.Class, Image: in.Image,

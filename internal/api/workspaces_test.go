@@ -1,11 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bespinian/keera-agents/internal/protocol"
+	"github.com/bespinian/keera-agents/internal/store"
 )
 
 // edKey is an ed25519 public key line, made the way ssh-keygen makes one.
@@ -49,5 +53,31 @@ func TestConnectLogNotesOncePerHour(t *testing.T) {
 	}
 	if !l.first("wks_1|ssh", now) || !l.first("wks_1|web", now.Add(61*time.Minute)) {
 		t.Fatal("another port, or the next hour, was not noted")
+	}
+}
+
+func TestOnlyTheOwnerChangesAWorkspaceImage(t *testing.T) {
+	s := &Server{}
+	ws := store.Agent{
+		Kind: store.KindWorkspace, Name: "dev", OwnerID: "usr_ada", OwnerEmail: "ada@example.ch",
+		Experience: store.ExperienceTerminal, Access: store.AccessOwner, MaxSteps: protocol.DefaultMaxSteps,
+		Image: "registry/workspace:1",
+	}
+	admin := Principal{UserID: "usr_root", CanAdminOrg: true}
+	owner := Principal{UserID: "usr_ada", CanAdminOrg: true}
+	image := func(s string) workspaceInput { return workspaceInput{Image: &s} }
+
+	a := ws
+	if err := s.applyWorkspace(context.Background(), admin, &a, image("evil/image:1")); err == nil {
+		t.Fatal("an administrator changed someone else's image")
+	}
+	a = ws
+	if err := s.applyWorkspace(context.Background(), admin, &a, image(" registry/workspace:1 ")); err != nil {
+		t.Fatalf("the same image was refused: %v", err)
+	}
+	a = ws
+	if err := s.applyWorkspace(context.Background(), owner, &a, image("registry/workspace:2")); err != nil ||
+		a.Image != "registry/workspace:2" {
+		t.Fatalf("the owner could not change it: %v, %q", err, a.Image)
 	}
 }
