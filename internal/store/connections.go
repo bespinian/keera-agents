@@ -155,9 +155,10 @@ func (s *Store) ChatBindings(ctx context.Context, connectionID string) ([]Bindin
 
 // ChatHolders are the agents, enabled or not, that take messages in a
 // conversation: those connected to it and those connected to every one.
+// Every conversation (*) is held by every agent listening anywhere.
 func (s *Store) ChatHolders(ctx context.Context, connectionID, conversation string) ([]Binding, error) {
-	return s.queryBindings(ctx, `b.connection_id = $1 AND b.mode = 'chat' AND b.target IN ($2, '*')`,
-		connectionID, conversation)
+	return s.queryBindings(ctx, `b.connection_id = $1 AND b.mode = 'chat'
+		AND ($2 = '*' OR b.target IN ($2, '*'))`, connectionID, conversation)
 }
 
 // Watches are every folder watch of enabled agents.

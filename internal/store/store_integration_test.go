@@ -552,6 +552,10 @@ func TestBindingsAndWatches(t *testing.T) {
 	if holders, _ := st.ChatHolders(ctx, c.ID, "C2"); len(holders) != 1 || holders[0].Target != AnyConversation {
 		t.Fatalf("ChatHolders(C2) = %+v", holders)
 	}
+	// Joining every conversation joins C1 too, so its agent holds it.
+	if holders, _ := st.ChatHolders(ctx, c.ID, AnyConversation); len(holders) != 2 {
+		t.Fatalf("ChatHolders(*) = %+v", holders)
+	}
 }
 
 func TestTryLock(t *testing.T) {
