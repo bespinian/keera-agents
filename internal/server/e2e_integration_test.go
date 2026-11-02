@@ -47,11 +47,26 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 	service := r.Header.Get("Authorization") == "Bearer "+strings.Repeat("s", 32)
 	switch {
-	case r.URL.Path == "/control/v1/me" && r.Header.Get("Authorization") == "Bearer tok-ada":
-		reply(gateway.Me{
-			UserID: "usr_ada", Email: "ada@example.ch", Name: "Ada", Role: "admin",
-			OrgID: "org_a", OrgName: "Acme", CanAdminOrg: true, ChatURL: "https://chat.example.ch",
-		})
+	case r.URL.Path == "/control/v1/me" && r.Method == http.MethodGet:
+		me, ok := people[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+		if !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			reply(map[string]any{"error": map[string]string{"code": "unauthenticated", "message": "sign in"}})
+			return
+		}
+		reply(me)
+	case r.URL.Path == "/control/v1/me/org" && r.Method == http.MethodPost:
+		// Only an organisation the person is in.
+		var in struct {
+			OrgID string `json:"org_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		if me := people[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]; me.OrgID != in.OrgID {
+			w.WriteHeader(http.StatusForbidden)
+			reply(map[string]any{"error": map[string]string{"code": "forbidden", "message": "not a member"}})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case r.URL.Path == "/control/v1/service/keys" && service && r.Method == http.MethodPost:
 		w.WriteHeader(http.StatusCreated)
 		reply(map[string]string{"id": "key_1", "project_id": "prj_1", "key": "sk-agent"})
@@ -97,6 +112,20 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusTeapot)
 	}
+}
+
+// people are whom the stand-in gateway knows, by sign-in token: Ada
+// administers org_a, Bob is a plain member of it, and Eve administers org_b.
+var people = map[string]gateway.Me{
+	"tok-ada": {
+		UserID: "usr_ada", Email: "ada@example.ch", Name: "Ada", Role: "admin",
+		OrgID: "org_a", OrgName: "Acme", CanAdminOrg: true, ChatURL: "https://chat.example.ch",
+	},
+	"tok-bob": {UserID: "usr_bob", Email: "bob@example.ch", Name: "Bob", Role: "member", OrgID: "org_a", OrgName: "Acme"},
+	"tok-eve": {
+		UserID: "usr_eve", Email: "eve@example.ch", Name: "Eve", Role: "admin",
+		OrgID: "org_b", OrgName: "Bravo", CanAdminOrg: true,
+	},
 }
 
 // fakeChat is a chat service whose webhooks are plain JSON.
@@ -146,6 +175,8 @@ type inProcess struct {
 	tokens     map[string]string
 	terminated []string
 	workspace  string
+	// idle starts no runtime: the machine only says it runs.
+	idle bool
 }
 
 func (d *inProcess) Name() string { return "test" }
@@ -165,7 +196,9 @@ func (d *inProcess) Create(_ context.Context, spec runtime.Spec) (runtime.Status
 	env := map[string]string{}
 	maps.Copy(env, spec.Env)
 	env[protocol.EnvWorkspace] = d.workspace
-	go func() { _ = agent.Serve(ctx, slog.New(slog.DiscardHandler), func(k string) string { return env[k] }) }()
+	if !d.idle {
+		go func() { _ = agent.Serve(ctx, slog.New(slog.DiscardHandler), func(k string) string { return env[k] }) }()
+	}
 	return runtime.Status{State: runtime.Running}, nil
 }
 
