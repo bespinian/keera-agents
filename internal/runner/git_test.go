@@ -46,8 +46,10 @@ func TestCheckPush(t *testing.T) {
 		"tag":        pkt(zero+" "+oid+" refs/tags/keera/v1\n") + "0000",
 		"lookalike":  pkt(zero+" "+oid+" refs/heads/keera-x\n") + "0000",
 		"cert":       pkt("push-cert\x00x\n") + "0000",
-		"cut short":  pkt(zero + " " + oid + " refs/heads/keera/x\n"),
-		"garbage":    "zzzz",
+		"options": pkt(zero+" "+oid+" refs/heads/keera/x\x00report-status push-options\n") + "0000" +
+			pkt("merge_request.create") + "0000",
+		"cut short": pkt(zero + " " + oid + " refs/heads/keera/x\n"),
+		"garbage":   "zzzz",
 	} {
 		if _, err := checkPush(strings.NewReader(push)); err == nil {
 			t.Errorf("%s: passed", name)

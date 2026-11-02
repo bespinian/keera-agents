@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -203,7 +204,13 @@ func checkPush(body io.Reader) (io.Reader, error) {
 			return nil, errors.New("the push ended before its commands did")
 		}
 		read.Write(line)
-		cmd, _, _ := strings.Cut(strings.TrimSuffix(string(line), "\n"), "\x00")
+		cmd, caps, _ := strings.Cut(strings.TrimSuffix(string(line), "\n"), "\x00")
+		// Push options follow the flush, unchecked, and some hosts act on
+		// them: GitLab can open a merge request and merge it when its
+		// pipeline passes.
+		if slices.Contains(strings.Fields(caps), "push-options") {
+			return nil, errors.New("agents may not send push options; open a change with the repository tools")
+		}
 		// A shallow clone names its boundary first; those lines change
 		// nothing.
 		if strings.HasPrefix(cmd, "shallow ") {

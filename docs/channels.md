@@ -179,7 +179,9 @@ and passes the request on to GitHub or GitLab.
 
 **Agents push only to branches starting with `keera/`.** The control plane
 reads the start of every push and refuses it if it names any other branch, or a
-tag. So an agent cannot change `main` even with a token that could. Its
+tag. It also refuses push options (`git push -o`), since GitLab can act on them,
+for example by merging the branch. So an agent cannot change `main` even with a
+token that could. Its
 commits are authored as the agent, with an address ending in
 `@agents.keera.invalid`.
 
