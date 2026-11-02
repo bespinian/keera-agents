@@ -589,13 +589,15 @@ func TestOwnersAndAdmins(t *testing.T) {
 			t.Errorf("every workspace, for Ada: %+v", list.Data)
 		}
 
-		// An administrator sees and changes it, but cannot get in.
+		// An administrator sees and changes it, and reads its logs, but
+		// cannot get in.
 		must(t, ada, "GET", lab, nil, http.StatusOK, &v)
 		if !v.CanEdit || v.CanConnect {
 			t.Errorf("Bob's workspace, for Ada: %+v", v)
 		}
 		must(t, ada, "GET", "/api/v1/workspaces/lab", nil, http.StatusNotFound, nil)
 		must(t, ada, "PATCH", lab, map[string]string{"description": "Checked"}, http.StatusOK, nil)
+		must(t, ada, "GET", lab+"/logs", nil, http.StatusOK, nil)
 		must(t, ada, "PATCH", lab, map[string]string{"image": "evil/image:1"}, http.StatusBadRequest, nil)
 		must(t, ada, "POST", lab+"/connect?port=web", nil, http.StatusForbidden, nil)
 		if a, err := ta.st.Agent(ta.ctx, f.bobWorkspace); err != nil || a.Image != "" || a.Description != "Checked" {

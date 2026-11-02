@@ -41,9 +41,10 @@ The terminal experience runs pi in a tmux session called `pi`. `ssh api.keera`
 and `tmux attach` join the same session the browser shows.
 
 **Only the owner gets in.** An administrator sees, changes, stops and
-deletes every workspace in the organisation, but cannot connect to it, nor
-change its image, which would run their code with the owner's keys. Other
-members do not see it at all: its id answers 404.
+deletes every workspace in the organisation, and reads its logs to help when
+it does not start. But they cannot connect to it, nor change its image, which
+would run their code with the owner's keys. Other members do not see it at
+all: its id answers 404.
 
 ## How a connection travels
 
