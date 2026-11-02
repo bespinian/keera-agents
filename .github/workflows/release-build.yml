@@ -1,0 +1,131 @@
+# How a release is built and attested. release.yml calls this on a `v*` tag;
+# it has no trigger of its own.
+#
+# Laid out for SLSA Build L3: the build cannot forge its own provenance.
+#
+# - The build job runs our code and gets no id-token permission. Only the
+#   provenance job gets one, and it checks out nothing and runs only GitHub's
+#   actions, signing the digests it is handed.
+# - As a reusable workflow, the signature names this file, not the caller.
+#   `gh attestation verify --signer-workflow` checks for it.
+name: Release build
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  images:
+    name: Images and SBOMs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # ghcr.io
+    outputs:
+      control-plane: ${{ steps.name.outputs.control-plane }}
+      control-plane-digest: ${{ steps.push.outputs.control-plane-digest }}
+      agent: ${{ steps.name.outputs.agent }}
+      agent-digest: ${{ steps.push.outputs.agent-digest }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Written here, so the image build stays offline.
+      - name: Vendor dependencies
+        run: go mod vendor
+
+      # ghcr.io needs a lowercase path, and owner names may not be.
+      - name: Name the images
+        id: name
+        run: |
+          owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          echo "control-plane=ghcr.io/$owner/keera-agents" >> "$GITHUB_OUTPUT"
+          echo "agent=ghcr.io/$owner/keera-agent" >> "$GITHUB_OUTPUT"
+
+      # `sbom` depends on `image` and `agent-image`, so it describes the
+      # images this job pushes. VERSION is stamped in, as the build context
+      # has no .git.
+      - name: Build the images and their SBOMs
+        run: |
+          make sbom VERSION="$GITHUB_REF_NAME" \
+            IMAGE='${{ steps.name.outputs.control-plane }}':"$GITHUB_REF_NAME" \
+            AGENT_IMAGE='${{ steps.name.outputs.agent }}':"$GITHUB_REF_NAME"
+
+      # The attestation's subject must be the digest: a tag can be moved later.
+      - name: Push
+        id: push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONTROL_PLANE: ${{ steps.name.outputs.control-plane }}
+          AGENT: ${{ steps.name.outputs.agent }}
+        run: |
+          echo "$GITHUB_TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          podman push "$CONTROL_PLANE:$GITHUB_REF_NAME" --digestfile=control-plane.txt
+          podman push "$AGENT:$GITHUB_REF_NAME" --digestfile=agent.txt
+          echo "control-plane-digest=$(cat control-plane.txt)" >> "$GITHUB_OUTPUT"
+          echo "agent-digest=$(cat agent.txt)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: build/sbom/
+          if-no-files-found: error
+
+  provenance:
+    name: Provenance
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write # to push the attestations next to the images
+      id-token: write # the OIDC token the attestations are signed against
+      attestations: write # the attestations themselves
+      artifact-metadata: write # the storage records for the pushed images
+    steps:
+      # The attestation step reads docker's credentials to reach the registry.
+      - name: Log in to ghcr.io
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      # Also stored next to each image, so it can be verified from the image
+      # alone.
+      - name: Attest the control plane's image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ needs.images.outputs.control-plane }}
+          subject-digest: ${{ needs.images.outputs.control-plane-digest }}
+          push-to-registry: true
+
+      - name: Attest the agent image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ needs.images.outputs.agent }}
+          subject-digest: ${{ needs.images.outputs.agent-digest }}
+          push-to-registry: true
+
+  # Last, so a release never shows images that have no provenance yet.
+  publish:
+    name: Publish the release
+    needs: provenance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the release and its files
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: sbom
+          path: build/sbom
+
+      # A tag pushed from a workstation has no release yet; one from the web
+      # does.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes build/sbom/* \
+          || gh release upload "$GITHUB_REF_NAME" --clobber build/sbom/*

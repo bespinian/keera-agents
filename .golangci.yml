@@ -1,0 +1,21 @@
+# Named explicitly, since the default set changes between releases.
+# govet is off because `make vet` runs it.
+version: "2"
+
+linters:
+  default: standard
+  disable:
+    - govet
+
+  exclusions:
+    # The default, but naming the set above drops it.
+    generated: lax
+    rules:
+      # Tests ignore errors on purpose to stay readable.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofumpt

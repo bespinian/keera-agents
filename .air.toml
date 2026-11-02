@@ -1,0 +1,34 @@
+# Live reload for `make dev`. Needs a running gateway and Postgres.
+
+root = "."
+tmp_dir = "build/air"
+# Empty: `make dev` sets the environment.
+env_files = []
+
+[build]
+  cmd = "go build -trimpath -o ./build/air/keera-agents ./cmd/keera-agents"
+  entrypoint = ["./build/air/keera-agents"]
+
+  # The web UI is embedded, so its files need a rebuild too.
+  include_ext = ["go", "js", "css", "html", "svg", "woff2"]
+
+  exclude_dir = ["build", ".git"]
+  exclude_regex = ["_test\\.go"]
+
+  # SIGINT frees :8070. A hard kill causes "address already in use".
+  send_interrupt = true
+  kill_delay = "2s"
+
+  # Don't keep serving stale code after a failed build.
+  stop_on_error = true
+
+  delay = 200
+  # Inside tmp_dir.
+  log = "build-errors.log"
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true

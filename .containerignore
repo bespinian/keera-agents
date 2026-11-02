@@ -1,0 +1,13 @@
+# The build context is the repository root, so everything large and irrelevant
+# has to be named here, or it is shipped to the builder before the first
+# instruction runs.
+.git
+.github
+docs
+/build
+# A bare `go build ./cmd/keera-agents` writes here; `make build` uses build/.
+/keera-agents
+# The compose credentials. The build stage copies the whole context, so they
+# would otherwise sit in its layers and the build cache.
+compose/.env
+compose/.env.tmp
