@@ -15,13 +15,11 @@ package github
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/channels"
@@ -53,7 +51,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
 		Kind:  channels.GitHub,
 		Label: "GitHub",
-		Code:  true,
 		Fields: []channels.Field{
 			{
 				Name: "token", Label: "Access token", Secret: true, Required: true,
@@ -79,18 +76,12 @@ type settings struct {
 }
 
 func (a *Adapter) settingsOf(conn channels.Connection) (settings, error) {
-	s := settings{token: web.Value(conn, "token"), api: a.api, git: a.git}
-	if s.token == "" {
-		return s, errors.New("the access token is missing")
-	}
-	base, ok := web.BaseURL(web.Value(conn, "base_url"))
-	if !ok {
-		return s, errors.New("the GitHub Enterprise URL must be https://, such as https://github.example.com")
-	}
+	token, base, err := web.TokenAndBaseURL(conn, "the GitHub Enterprise URL must be https://, such as https://github.example.com")
+	s := settings{token: token, api: a.api, git: a.git}
 	if base != "" {
 		s.api, s.git = base+"/api/v3", base
 	}
-	return s, nil
+	return s, err
 }
 
 // open reads the connection's settings and checks the repository's path.
@@ -99,9 +90,8 @@ func (a *Adapter) open(conn channels.Connection, path string) (settings, string,
 	if err != nil {
 		return s, "", err
 	}
-	path = strings.Trim(strings.TrimSpace(path), "/")
-	path = strings.TrimSuffix(path, ".git")
-	if !validPath.MatchString(path) || strings.Contains(path, "..") {
+	path, ok := web.RepoPath(path, validPath)
+	if !ok {
 		return s, "", fmt.Errorf("%q is not a repository; write owner/name", web.Short(path, 80))
 	}
 	return s, path, nil
@@ -115,7 +105,7 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, in,
 	req.Header.Set("Authorization", "Bearer "+s.token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	b, err := web.Do(a.hc, req, "GitHub", 16<<20, func(status int, b []byte) error {
+	return web.DoJSON(a.hc, req, "GitHub", 16<<20, func(status int, b []byte) error {
 		var e struct {
 			Message string `json:"message"`
 			Errors  []struct {
@@ -130,11 +120,7 @@ func (a *Adapter) call(ctx context.Context, s settings, method, path string, in,
 			msg += " (" + e.Errors[0].Message + ")"
 		}
 		return &web.APIError{Service: "GitHub", Status: status, Message: msg}
-	})
-	if err != nil || out == nil {
-		return err
-	}
-	return json.Unmarshal(b, out)
+	}, out)
 }
 
 func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
@@ -146,7 +132,7 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 		Login string `json:"login"`
 	}
 	err = a.call(ctx, s, http.MethodGet, "/user", nil, &me)
-	if ae, ok := errors.AsType[*web.APIError](err); ok && ae.Status == http.StatusUnauthorized {
+	if web.Status(err) == http.StatusUnauthorized {
 		return fmt.Errorf("GitHub does not accept the token; check it has not expired (%w)", err)
 	}
 	return err
@@ -167,7 +153,7 @@ func (a *Adapter) Repo(ctx context.Context, conn channels.Connection, path strin
 	}
 	var r repo
 	err = a.call(ctx, s, http.MethodGet, "/repos/"+path, nil, &r)
-	if ae, ok := errors.AsType[*web.APIError](err); ok && ae.Status == http.StatusNotFound {
+	if web.Status(err) == http.StatusNotFound {
 		return channels.Repo{}, fmt.Errorf("the token cannot see %s; check the name and the repositories the token may use", path)
 	}
 	if err != nil {
@@ -248,9 +234,7 @@ func (a *Adapter) Issues(ctx context.Context, conn channels.Connection, path, st
 		if !changes && i.PullRequest != nil {
 			continue
 		}
-		v := i.view(changes)
-		v.Body = ""
-		out = append(out, v)
+		out = append(out, i.view(changes).Brief())
 	}
 	return out, nil
 }
@@ -303,7 +287,5 @@ func (a *Adapter) OpenChange(ctx context.Context, conn channels.Connection, path
 	if err != nil {
 		return channels.Issue{}, err
 	}
-	out := i.view(true)
-	out.Body = ""
-	return out, nil
+	return i.view(true).Brief(), nil
 }

@@ -58,7 +58,6 @@ func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
 		Kind:  channels.Slack,
 		Label: "Slack",
-		Chat:  true,
 		Fields: []channels.Field{
 			{
 				Name: "bot_token", Label: "Bot token", Secret: true, Required: true,
@@ -166,18 +165,31 @@ func (a *Adapter) Check(ctx context.Context, conn channels.Connection) error {
 }
 
 type envelope struct {
-	Type           string `json:"type"`
-	Challenge      string `json:"challenge"`
-	EventID        string `json:"event_id"`
-	TeamID         string `json:"team_id"`
-	EnterpriseID   string `json:"enterprise_id"`
-	Event          event  `json:"event"`
-	Authorizations []struct {
-		UserID       string `json:"user_id"`
-		IsBot        bool   `json:"is_bot"`
-		TeamID       string `json:"team_id"`
-		EnterpriseID string `json:"enterprise_id"`
-	} `json:"authorizations"`
+	Type           string          `json:"type"`
+	Challenge      string          `json:"challenge"`
+	EventID        string          `json:"event_id"`
+	TeamID         string          `json:"team_id"`
+	EnterpriseID   string          `json:"enterprise_id"`
+	Event          event           `json:"event"`
+	Authorizations []authorization `json:"authorizations"`
+}
+
+type authorization struct {
+	UserID       string `json:"user_id"`
+	IsBot        bool   `json:"is_bot"`
+	TeamID       string `json:"team_id"`
+	EnterpriseID string `json:"enterprise_id"`
+}
+
+// bot is the app's bot user the event was delivered for, or zero if Slack
+// named none.
+func (env envelope) bot() authorization {
+	for _, au := range env.Authorizations {
+		if au.IsBot {
+			return au
+		}
+	}
+	return authorization{}
 }
 
 // workspace is the Slack workspace the app is installed in, and its
@@ -185,15 +197,8 @@ type envelope struct {
 type workspace struct{ team, enterprise string }
 
 func workspaceOf(env envelope) workspace {
-	w := workspace{team: env.TeamID, enterprise: env.EnterpriseID}
-	for _, au := range env.Authorizations {
-		if au.IsBot {
-			w.team = cmp.Or(au.TeamID, w.team)
-			w.enterprise = cmp.Or(au.EnterpriseID, w.enterprise)
-			break
-		}
-	}
-	return w
+	bot := env.bot()
+	return workspace{team: cmp.Or(bot.TeamID, env.TeamID), enterprise: cmp.Or(bot.EnterpriseID, env.EnterpriseID)}
 }
 
 type event struct {
@@ -265,13 +270,7 @@ var (
 // anything in its direct messages, never its own or another bot's.
 func parse(env envelope) (channels.Inbound, bool) {
 	ev := env.Event
-	var botUser string
-	for _, au := range env.Authorizations {
-		if au.IsBot {
-			botUser = au.UserID
-			break
-		}
-	}
+	botUser := env.bot().UserID
 	direct := ev.ChannelType == "im" || strings.HasPrefix(ev.Channel, "D")
 	switch {
 	case ev.Type == "app_mention":

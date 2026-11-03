@@ -105,16 +105,11 @@ func fill(d channels.Descriptor, config, secrets, in map[string]string, inSecret
 func check(ctx context.Context, c channels.Connection) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	if a, ok := channels.ChatFor(c.Kind); ok {
-		return a.Check(ctx, c)
+	a, ok := channels.AdapterFor(c.Kind)
+	if !ok {
+		return errors.New("unknown kind of connector")
 	}
-	if a, ok := channels.FilesFor(c.Kind); ok {
-		return a.Check(ctx, c)
-	}
-	if a, ok := channels.CodeFor(c.Kind); ok {
-		return a.Check(ctx, c)
-	}
-	return errors.New("unknown kind of connector")
+	return a.Check(ctx, c)
 }
 
 func (s *Server) createConnection(w http.ResponseWriter, r *http.Request, p Principal) {

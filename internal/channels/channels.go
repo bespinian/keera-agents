@@ -59,10 +59,11 @@ type Descriptor struct {
 	Kind  Kind   `json:"kind"`
 	Label string `json:"label"`
 	// Chat kinds take messages and send replies. Files kinds are watched
-	// folders and file tools.
-	Chat  bool `json:"chat"`
-	Files bool `json:"files"`
-	// Code kinds hold repositories agents clone, push to and open changes in.
+	// folders and file tools. Code kinds hold repositories agents clone,
+	// push to and open changes in. Register sets all three from the
+	// interfaces the adapter implements.
+	Chat   bool    `json:"chat"`
+	Files  bool    `json:"files"`
 	Code   bool    `json:"code"`
 	Fields []Field `json:"fields"`
 	// Setup lists, as numbered Markdown steps, what to create on the
@@ -128,12 +129,17 @@ type Receipt struct {
 // is answered 401 and never processed.
 var ErrUnverified = errors.New("channels: the request is not from the service")
 
-// Chat is a chat service.
-type Chat interface {
+// Adapter is what every kind's adapter does.
+type Adapter interface {
 	Descriptor() Descriptor
 	// Check verifies a connection's settings with the service before it is
 	// saved, such as by asking who the bot is.
 	Check(ctx context.Context, conn Connection) error
+}
+
+// Chat is a chat service.
+type Chat interface {
+	Adapter
 	// Receive verifies and parses one webhook. body is the whole request
 	// body, already read, since verification needs the raw bytes.
 	Receive(ctx context.Context, conn Connection, r *http.Request, body []byte) (Receipt, error)
@@ -157,8 +163,7 @@ const MaxFileBytes = 4 << 20
 
 // Files is a file store.
 type Files interface {
-	Descriptor() Descriptor
-	Check(ctx context.Context, conn Connection) error
+	Adapter
 	// List lists a folder by its id. An empty id is the root the connection
 	// can see.
 	List(ctx context.Context, conn Connection, folder string) ([]File, error)
@@ -172,6 +177,7 @@ type Files interface {
 	// Changes returns the files added or changed in folder since cursor, and
 	// the cursor to ask with next. An empty cursor returns no files, only a
 	// cursor to start from, so turning a watch on does not replay the past.
+	// A file changed twice may be listed twice, oldest first.
 	Changes(ctx context.Context, conn Connection, folder, cursor string) ([]File, string, error)
 }
 
@@ -195,6 +201,13 @@ type Issue struct {
 	Branch   string    `json:"branch,omitempty"`
 	Updated  time.Time `json:"updated"`
 	Comments []Comment `json:"comments,omitempty"`
+}
+
+// Brief is the issue without its body, for lists and for a change the
+// agent has just written, so the model's context is not spent on it.
+func (i Issue) Brief() Issue {
+	i.Body = ""
+	return i
 }
 
 type Comment struct {
@@ -222,8 +235,7 @@ type Remote struct {
 
 // Code is a code host.
 type Code interface {
-	Descriptor() Descriptor
-	Check(ctx context.Context, conn Connection) error
+	Adapter
 	// Repo looks a repository up by its path, to check the connection can
 	// reach it and to learn its default branch.
 	Repo(ctx context.Context, conn Connection, path string) (Repo, error)
@@ -253,29 +265,39 @@ type Options struct {
 var order = []Kind{Teams, GoogleChat, Slack, GoogleDrive, OneDrive, GitHub, GitLab}
 
 var (
-	mu    sync.RWMutex
-	descs = map[Kind]Descriptor{}
-	chats = map[Kind]Chat{}
-	files = map[Kind]Files{}
-	codes = map[Kind]Code{}
+	mu       sync.RWMutex
+	descs    = map[Kind]Descriptor{}
+	adapters = map[Kind]Adapter{}
+	chats    = map[Kind]Chat{}
+	files    = map[Kind]Files{}
+	codes    = map[Kind]Code{}
 )
 
 // Register makes an adapter available. Adapters are created by the server at
 // start-up, with its HTTP client.
-func Register(a interface{ Descriptor() Descriptor }) {
+func Register(a Adapter) {
 	d := a.Descriptor()
 	mu.Lock()
 	defer mu.Unlock()
-	descs[d.Kind] = d
+	adapters[d.Kind] = a
 	if c, ok := a.(Chat); ok {
-		chats[d.Kind] = c
+		chats[d.Kind], d.Chat = c, true
 	}
 	if f, ok := a.(Files); ok {
-		files[d.Kind] = f
+		files[d.Kind], d.Files = f, true
 	}
 	if c, ok := a.(Code); ok {
-		codes[d.Kind] = c
+		codes[d.Kind], d.Code = c, true
 	}
+	descs[d.Kind] = d
+}
+
+// AdapterFor returns a kind's adapter, whatever it does.
+func AdapterFor(k Kind) (Adapter, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	a, ok := adapters[k]
+	return a, ok
 }
 
 func ChatFor(k Kind) (Chat, bool) {

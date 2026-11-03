@@ -9,9 +9,17 @@ import (
 
 func TestRegister(t *testing.T) {
 	Register(channels.Options{})
-	want := []channels.Kind{
-		channels.Teams, channels.GoogleChat, channels.Slack, channels.GoogleDrive, channels.OneDrive,
-		channels.GitHub, channels.GitLab,
+	want := []struct {
+		kind channels.Kind
+		role string
+	}{
+		{channels.Teams, "chat"},
+		{channels.GoogleChat, "chat"},
+		{channels.Slack, "chat"},
+		{channels.GoogleDrive, "files"},
+		{channels.OneDrive, "files"},
+		{channels.GitHub, "code"},
+		{channels.GitLab, "code"},
 	}
 	ds := channels.Descriptors()
 	// A kind missing from channels' order would be left out of the list.
@@ -19,15 +27,15 @@ func TestRegister(t *testing.T) {
 		t.Fatalf("descriptors = %+v", ds)
 	}
 	for i, d := range ds {
-		if d.Kind != want[i] {
-			t.Errorf("descriptor %d is %s, want %s", i, d.Kind, want[i])
+		if d.Kind != want[i].kind {
+			t.Errorf("descriptor %d is %s, want %s", i, d.Kind, want[i].kind)
 		}
 		if d.Label == "" || d.Setup == "" || d.TargetLabel == "" || len(d.Fields) == 0 {
 			t.Errorf("%s: incomplete descriptor %+v", d.Kind, d)
 		}
 		// Each kind is one of chat, files and code.
-		if n := btoi(d.Chat) + btoi(d.Files) + btoi(d.Code); n != 1 {
-			t.Errorf("%s: chat %v files %v code %v", d.Kind, d.Chat, d.Files, d.Code)
+		if got := role(d); got != want[i].role {
+			t.Errorf("%s is %q, want %q", d.Kind, got, want[i].role)
 		}
 		if d.Chat != strings.Contains(d.Setup, "{webhook}") {
 			t.Errorf("%s: Setup and {webhook} disagree", d.Kind)
@@ -39,27 +47,23 @@ func TestRegister(t *testing.T) {
 			}
 			names[f.Name] = true
 		}
-	}
-	for _, k := range []channels.Kind{channels.Teams, channels.GoogleChat, channels.Slack} {
-		if _, ok := channels.ChatFor(k); !ok {
-			t.Errorf("no chat for %s", k)
-		}
-	}
-	for _, k := range []channels.Kind{channels.GoogleDrive, channels.OneDrive} {
-		if _, ok := channels.FilesFor(k); !ok {
-			t.Errorf("no files for %s", k)
-		}
-	}
-	for _, k := range []channels.Kind{channels.GitHub, channels.GitLab} {
-		if _, ok := channels.CodeFor(k); !ok {
-			t.Errorf("no code host for %s", k)
+		if _, ok := channels.AdapterFor(d.Kind); !ok {
+			t.Errorf("no adapter for %s", d.Kind)
 		}
 	}
 }
 
-func btoi(b bool) int {
-	if b {
-		return 1
+// role names what Register found a kind's adapter does.
+func role(d channels.Descriptor) string {
+	var roles []string
+	if d.Chat {
+		roles = append(roles, "chat")
 	}
-	return 0
+	if d.Files {
+		roles = append(roles, "files")
+	}
+	if d.Code {
+		roles = append(roles, "code")
+	}
+	return strings.Join(roles, "+")
 }
