@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -52,7 +53,7 @@ type scheduleInput struct {
 }
 
 // applySchedule checks in, writes it onto sc and works out the next run.
-func (s *Server) applySchedule(r *http.Request, sc *store.Schedule, in scheduleInput) error {
+func (s *Server) applySchedule(ctx context.Context, sc *store.Schedule, in scheduleInput) error {
 	if in.Name != nil {
 		sc.Name = trim(*in.Name, 100)
 	}
@@ -81,7 +82,7 @@ func (s *Server) applySchedule(r *http.Request, sc *store.Schedule, in scheduleI
 		if *in.ReplyBindingID == "" {
 			sc.ReplyBindingID = nil
 		} else {
-			b, err := s.st.Binding(r.Context(), *in.ReplyBindingID)
+			b, err := s.st.Binding(ctx, *in.ReplyBindingID)
 			if err != nil || b.AgentID != sc.AgentID || b.Mode != store.ModeChat {
 				return errors.New("the results can only go to one of the agent's chats")
 			}
@@ -123,7 +124,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, p Princi
 		ID: id.New("sch"), AgentID: a.ID, Enabled: true, CreatedBy: p.Email, CreatedByID: p.UserID,
 		RequestedBy: p.Email, RequestedByID: p.UserID,
 	}
-	if err := s.applySchedule(r, &sc, in); err != nil {
+	if err := s.applySchedule(r.Context(), &sc, in); err != nil {
 		badRequest(w, err.Error())
 		return
 	}
@@ -160,7 +161,7 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request, p Princi
 		badRequest(w, "a schedule stays with its agent; create a new one for another agent")
 		return
 	}
-	if err := s.applySchedule(r, &sc, in); err != nil {
+	if err := s.applySchedule(r.Context(), &sc, in); err != nil {
 		badRequest(w, err.Error())
 		return
 	}
@@ -199,9 +200,8 @@ func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request, p Principal
 		s.fail(w, err)
 		return
 	}
-	// Otherwise the task waits, and runs whenever someone starts the agent.
 	if !a.Enabled {
-		writeError(w, http.StatusConflict, "agent_stopped", a.Name+" is stopped; start it first")
+		agentStopped(w, p, a)
 		return
 	}
 	// Run now, it runs for whoever asked.

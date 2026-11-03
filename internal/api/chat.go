@@ -32,7 +32,7 @@ func (s *Server) chatAgents(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	out := []chatAgent{}
 	for _, a := range agents {
-		if canGive(a, p) && a.Enabled {
+		if canGive(p, a) && a.Enabled {
 			out = append(out, chatAgent{
 				ID: a.ID, Name: a.Name, Icon: a.Icon, Description: a.Description, State: a.State,
 			})
@@ -45,16 +45,8 @@ func (s *Server) chatAgents(w http.ResponseWriter, r *http.Request, p Principal)
 var chatID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func (s *Server) chatMessage(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.loadAgent(w, r, p, r.PathValue("id"))
+	a, ok := s.givableAgent(w, r, p, r.PathValue("id"))
 	if !ok {
-		return
-	}
-	if allowed, why := mayGive(a, p); !allowed {
-		forbid(w, why)
-		return
-	}
-	if !a.Enabled {
-		writeError(w, http.StatusConflict, "agent_stopped", a.Name+" is stopped; ask "+a.OwnerEmail+" to start it")
 		return
 	}
 	var in struct {

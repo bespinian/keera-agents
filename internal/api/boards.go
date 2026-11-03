@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -29,18 +30,27 @@ func (s *Server) listBoards(w http.ResponseWriter, r *http.Request, p Principal)
 	writeJSON(w, http.StatusOK, map[string]any{"data": boards})
 }
 
-func (s *Server) createBoard(w http.ResponseWriter, r *http.Request, p Principal) {
+// readBoardName reads the name a board is created or renamed with.
+func readBoardName(w http.ResponseWriter, r *http.Request) (string, bool) {
 	var in struct {
 		Name string `json:"name"`
 	}
 	if !readJSON(w, r, &in) {
-		return
+		return "", false
 	}
 	if in.Name = trim(in.Name, 100); in.Name == "" {
 		badRequest(w, "give the board a name")
+		return "", false
+	}
+	return in.Name, true
+}
+
+func (s *Server) createBoard(w http.ResponseWriter, r *http.Request, p Principal) {
+	name, ok := readBoardName(w, r)
+	if !ok {
 		return
 	}
-	b, err := s.st.CreateBoard(r.Context(), store.Board{ID: id.New("brd"), OrgID: p.OrgID, Name: in.Name, CreatedBy: p.Email})
+	b, err := s.st.CreateBoard(r.Context(), store.Board{ID: id.New("brd"), OrgID: p.OrgID, Name: name, CreatedBy: p.Email})
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -72,21 +82,15 @@ func (s *Server) renameBoard(w http.ResponseWriter, r *http.Request, p Principal
 	if !ok {
 		return
 	}
-	var in struct {
-		Name string `json:"name"`
-	}
-	if !readJSON(w, r, &in) {
+	name, ok := readBoardName(w, r)
+	if !ok {
 		return
 	}
-	if in.Name = trim(in.Name, 100); in.Name == "" {
-		badRequest(w, "give the board a name")
-		return
-	}
-	if err := s.st.RenameBoard(r.Context(), b.ID, in.Name); err != nil {
+	if err := s.st.RenameBoard(r.Context(), b.ID, name); err != nil {
 		s.fail(w, err)
 		return
 	}
-	b.Name = in.Name
+	b.Name = name
 	writeJSON(w, http.StatusOK, b)
 }
 
@@ -115,7 +119,7 @@ type cardInput struct {
 	DueAt    json.RawMessage `json:"due_at"`
 }
 
-func (s *Server) applyCard(r *http.Request, p Principal, c *store.Card, in cardInput) error {
+func (s *Server) applyCard(ctx context.Context, p Principal, c *store.Card, in cardInput) error {
 	before := *c
 	if in.Title != nil {
 		c.Title = trim(*in.Title, 300)
@@ -144,7 +148,7 @@ func (s *Server) applyCard(r *http.Request, p Principal, c *store.Card, in cardI
 			return errors.New("agent_id must be an id or null")
 		}
 		if agentID != nil && *agentID != "" {
-			a, err := s.st.Agent(r.Context(), *agentID)
+			a, err := s.st.Agent(ctx, *agentID)
 			if err != nil || a.OrgID != p.OrgID {
 				return errors.New("there is no such agent")
 			}
@@ -174,11 +178,11 @@ func (s *Server) applyCard(r *http.Request, p Principal, c *store.Card, in cardI
 		c.DueAt = due
 	}
 	if dispatch.GivesWork(before, *c) {
-		a, err := s.st.Agent(r.Context(), *c.AgentID)
+		a, err := s.st.Agent(ctx, *c.AgentID)
 		if err != nil {
 			return errors.New("there is no such agent")
 		}
-		if allowed, why := mayGive(a, p); !allowed {
+		if allowed, why := dispatch.May(a, p.User()); !allowed {
 			return errors.New(why)
 		}
 		// The task runs for whoever gave the work, so editing someone else's
@@ -201,7 +205,7 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request, p Principal)
 		ID: id.New("card"), BoardID: b.ID, Status: store.CardBacklog, CreatedBy: p.Email, CreatedByID: p.UserID,
 		RequestedBy: p.Email, RequestedByID: p.UserID,
 	}
-	if err := s.applyCard(r, p, &c, in); err != nil {
+	if err := s.applyCard(r.Context(), p, &c, in); err != nil {
 		badRequest(w, err.Error())
 		return
 	}
@@ -251,7 +255,7 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request, p Principal)
 	if !readJSON(w, r, &in) {
 		return
 	}
-	if err := s.applyCard(r, p, &c, in); err != nil {
+	if err := s.applyCard(r.Context(), p, &c, in); err != nil {
 		badRequest(w, err.Error())
 		return
 	}
@@ -296,7 +300,7 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal)
 			badRequest(w, "there is no such agent")
 			return
 		}
-		if allowed, why := mayGive(a, p); !allowed {
+		if allowed, why := dispatch.May(a, p.User()); !allowed {
 			forbid(w, why)
 			return
 		}

@@ -20,7 +20,8 @@ import (
 const DefaultAddr = ":8070"
 
 // Config is the control plane's configuration. The agent runtime inside a
-// container reads its own few variables; see internal/agent.
+// container reads its own few variables: see internal/protocol, and
+// KEERA_AGENT_LOG_LEVEL in cmd/keera-agents.
 type Config struct {
 	// Addr serves the panel at /, its API at /api, sign-in at /auth, channel
 	// webhooks at /hooks and the agents' runtime API at /runtime.
@@ -133,6 +134,17 @@ func load(getenv func(string) string) (Config, error) {
 		}
 		return d, nil
 	}
+	boolEnv := func(key string, def bool) (bool, error) {
+		v := env(key, "")
+		if v == "" {
+			return def, nil
+		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return false, fmt.Errorf("%s must be true or false, not %q", key, v)
+		}
+		return b, nil
+	}
 
 	c := Config{
 		Addr:        env("KEERA_AGENTS_ADDR", DefaultAddr),
@@ -210,17 +222,11 @@ func load(getenv func(string) string) (Config, error) {
 			"characters; generate one with: openssl rand -hex 32")
 	}
 
-	c.SecureCookies = strings.HasPrefix(c.PublicURL, "https://")
-	if v := env("KEERA_AGENTS_SECURE_COOKIES", ""); v != "" {
-		if c.SecureCookies, err = strconv.ParseBool(v); err != nil {
-			return c, fmt.Errorf("KEERA_AGENTS_SECURE_COOKIES must be true or false, not %q", v)
-		}
+	if c.SecureCookies, err = boolEnv("KEERA_AGENTS_SECURE_COOKIES", strings.HasPrefix(c.PublicURL, "https://")); err != nil {
+		return c, err
 	}
-
-	if v := env("KEERA_AGENTS_USER_NAMESPACES", ""); v != "" {
-		if c.Runtime.UserNamespaces, err = strconv.ParseBool(v); err != nil {
-			return c, fmt.Errorf("KEERA_AGENTS_USER_NAMESPACES must be true or false, not %q", v)
-		}
+	if c.Runtime.UserNamespaces, err = boolEnv("KEERA_AGENTS_USER_NAMESPACES", false); err != nil {
+		return c, err
 	}
 
 	if c.Runtime.IdleSuspend, err = durationEnv("KEERA_AGENTS_IDLE_SUSPEND", 15*time.Minute, time.Minute); err != nil {
