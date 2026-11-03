@@ -104,9 +104,6 @@ const (
 	// a space.
 	annotationOwner     = "keera.dev/owner"
 	annotationAgentName = "keera.dev/agent-name"
-	// annotationSpecHash tells an unchanged spec from a changed one, so Create
-	// restarts an agent only when something it runs with changed.
-	annotationSpecHash = "keera.dev/spec-hash"
 )
 
 func labelsFor(spec Spec) map[string]string {
@@ -229,13 +226,4 @@ func parseQuantity(s string) (float64, error) {
 		return 0, fmt.Errorf("not a quantity such as 500m, 2 or 4Gi")
 	}
 	return v * mult, nil
-}
-
-func hashOf(parts ...[]byte) string {
-	h := sha256.New()
-	for _, p := range parts {
-		h.Write(p)
-		h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil))[:16]
 }

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -85,10 +86,10 @@ var relativeImport = regexp.MustCompile(`from\s+"(\.[^"]+)"`)
 
 func TestEveryImportIsEmbedded(t *testing.T) {
 	// A module missing from the binary is a blank page at run time and no
-	// error at build time. The list comes from the imports, so new views are
-	// covered too.
-	roots := []string{"assets/app.js"}
-	if err := fs.WalkDir(assets, "assets/views", func(p string, d fs.DirEntry, err error) error {
+	// error at build time. Every module's imports are checked, so new ones
+	// are covered too.
+	var roots []string
+	if err := fs.WalkDir(assets, "assets", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -99,8 +100,8 @@ func TestEveryImportIsEmbedded(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(roots) < 2 {
-		t.Fatal("no views are embedded at all")
+	if !slices.Contains(roots, "assets/app.js") || len(roots) < 2 {
+		t.Fatal("the panel's modules are not embedded")
 	}
 
 	for _, src := range roots {

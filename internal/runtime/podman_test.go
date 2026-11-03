@@ -16,7 +16,7 @@ func TestPodmanKeepsSecretsOffItsCommandLine(t *testing.T) {
 	p := &Podman{}
 	spec := testSpec()
 	spec.Env["PATH"] = "/opt/bin:/usr/bin"
-	args, env, _ := p.runArgs(spec, "")
+	args, env := p.runArgs(spec, "")
 	line := strings.Join(args, " ")
 	if strings.Contains(line, "rt_secret") {
 		t.Errorf("the command line holds the runtime token: %s", line)
@@ -36,7 +36,7 @@ var standardClass = Class{Isolation: Standard}.WithDefaults()
 
 func TestPodmanRunArgs(t *testing.T) {
 	p := &Podman{opts: PodmanOptions{Network: "keera"}}
-	args, _, hash := p.runArgs(testSpec(), "krun")
+	args, _ := p.runArgs(testSpec(), "krun")
 	line := strings.Join(args, " ")
 	for _, want := range []string{
 		"--name keera-agent-agt-06c1k2rt8g3m4n5p6q7r8s9t0v",
@@ -53,7 +53,6 @@ func TestPodmanRunArgs(t *testing.T) {
 		"--label keera.dev/owner=ada@example.ch",
 		"--label keera.dev/org=org_1",
 		"--label keera.dev/project=prj_1",
-		"--label keera.dev/spec-hash=" + hash,
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the command line lacks %q: %s", want, line)
@@ -61,14 +60,6 @@ func TestPodmanRunArgs(t *testing.T) {
 	}
 	if args[len(args)-1] != "registry.example/keera-agent:1" {
 		t.Errorf("the image must come last: %v", args)
-	}
-	// The same spec gives the same hash; a new image another.
-	_, _, again := p.runArgs(testSpec(), "krun")
-	spec := testSpec()
-	spec.Image = "registry.example/keera-agent:2"
-	_, _, changed := p.runArgs(spec, "krun")
-	if again != hash || changed == hash {
-		t.Errorf("hashes %s, %s, %s: want the first two equal and the third different", hash, again, changed)
 	}
 }
 
@@ -128,25 +119,10 @@ func TestPodmanCreateRunsANewContainer(t *testing.T) {
 	}
 }
 
-func TestPodmanCreateAgainWithTheSameSpecOnlyStartsIt(t *testing.T) {
-	spec := Spec{AgentID: "agt_1", Image: "img", Class: standardClass}
-	_, _, hash := (&Podman{}).runArgs(spec, "")
+// Each start brings a new token, so a container that is there is replaced.
+func TestPodmanCreateReplacesTheContainerAndKeepsTheVolume(t *testing.T) {
 	p, log := scriptedPodman(t,
-		inspectReturns(`{"Status":"exited","ExitCode":143}`, `{"keera.dev/spec-hash":"`+hash+`"}`)+
-			"if [ \"$1\" = start ]; then exit 0; fi\n")
-	if _, err := p.Create(context.Background(), spec); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	all := calls(t, log)
-	if len(callsStarting(all, "start ")) != 1 || len(callsStarting(all, "run ")) != 0 ||
-		len(callsStarting(all, "rm ")) != 0 {
-		t.Errorf("calls = %v, want a start and nothing else", all)
-	}
-}
-
-func TestPodmanCreateReplacesAChangedContainerAndKeepsTheVolume(t *testing.T) {
-	p, log := scriptedPodman(t,
-		inspectReturns(`{"Status":"running","Running":true}`, `{"keera.dev/spec-hash":"old"}`)+
+		inspectReturns(`{"Status":"running","Running":true}`, "{}")+
 			"if [ \"$1\" = rm ] || [ \"$1\" = run ]; then exit 0; fi\n")
 	if _, err := p.Create(context.Background(), Spec{AgentID: "agt_1", Image: "img:2", Class: standardClass}); err != nil {
 		t.Fatalf("create: %v", err)

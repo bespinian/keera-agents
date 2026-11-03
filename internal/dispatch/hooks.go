@@ -115,7 +115,7 @@ func (d *Dispatcher) receive(ctx context.Context, adapter channels.Chat, conn ch
 		return
 	}
 	u, err := d.gw.UserByEmail(ctx, a.OrgID, msg.Sender.Email)
-	if gateway.Status(err) == http.StatusNotFound {
+	if gateway.IsNotFound(err) {
 		reply("I only take work from people in this organisation, and " + msg.Sender.Email + " is not one of them.")
 		return
 	}

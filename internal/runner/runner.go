@@ -168,6 +168,9 @@ func (rn *Runner) next(w http.ResponseWriter, r *http.Request, a store.Agent) {
 	// suspended when idle.
 	deadline := time.Now().Add(wait)
 	for {
+		// Waiting before looking at the queue, so a task queued in between
+		// still wakes this request.
+		woken := rn.wakeups.wait(a.ID)
 		// A task left running by a runtime that restarted is handed back.
 		t, err := rn.st.RunningTask(r.Context(), a.ID)
 		if errors.Is(err, store.ErrNotFound) && a.Enabled {
@@ -192,7 +195,7 @@ func (rn *Runner) next(w http.ResponseWriter, r *http.Request, a store.Agent) {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-rn.wakeups.wait(a.ID):
+		case <-woken:
 		case <-time.After(min(left, 3*time.Second)):
 		}
 	}

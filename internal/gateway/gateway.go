@@ -61,14 +61,6 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
-// Status returns the gateway's status for err, or 0.
-func Status(err error) int {
-	if e, ok := errors.AsType[*Error](err); ok {
-		return e.Status
-	}
-	return 0
-}
-
 // IsNotFound reports whether the gateway itself said that what was asked for
 // does not exist. A 404 without its error code came from something in
 // between, such as a proxy during a redeploy, and proves nothing.
@@ -179,7 +171,7 @@ func (c *Client) MintKey(ctx context.Context, in KeyRequest) (Key, error) {
 func (c *Client) RevokeKey(ctx context.Context, orgID, id string) error {
 	err := c.call(ctx, "DELETE", "/v1/service/keys/"+url.PathEscape(id)+"?"+url.Values{"org_id": {orgID}}.Encode(),
 		c.serviceKey, nil, nil)
-	if Status(err) == http.StatusNotFound {
+	if IsNotFound(err) {
 		return nil
 	}
 	return err

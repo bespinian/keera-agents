@@ -67,24 +67,14 @@ func (p *Podman) Create(ctx context.Context, spec Spec) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	args, env, hash := p.runArgs(spec, rt)
-	name := containerName(spec.AgentID)
+	args, env := p.runArgs(spec, rt)
 
-	in, err := p.inspect(ctx, spec.AgentID)
-	switch {
-	case err == nil && in.Config.Labels[annotationSpecHash] == hash:
-		// The same spec, such as a retry after a dropped connection: only make
-		// sure it runs.
-		if !in.State.Running {
-			if _, err := p.run(ctx, "start", name); err != nil {
-				return Status{}, err
-			}
-		}
-		return p.Status(ctx, spec.AgentID)
+	// Every start brings a new runtime token, so a container that is there is
+	// always replaced. The volume is named, so removing the container keeps
+	// it, and the new container mounts it again.
+	switch _, err := p.inspect(ctx, spec.AgentID); {
 	case err == nil:
-		// Something changed. The volume is named, so removing the container
-		// keeps it, and the new container mounts it again.
-		if err := p.removeContainer(ctx, name); err != nil {
+		if err := p.removeContainer(ctx, containerName(spec.AgentID)); err != nil {
 			return Status{}, err
 		}
 	case !errors.Is(err, ErrNotFound):
@@ -97,9 +87,8 @@ func (p *Podman) Create(ctx context.Context, spec Spec) (Status, error) {
 	return p.Status(ctx, spec.AgentID)
 }
 
-// runArgs is the `podman run` command line, podman's environment, and the
-// hash of both, which goes on the container as a label.
-func (p *Podman) runArgs(spec Spec, rt string) (args, env []string, hash string) {
+// runArgs is the `podman run` command line and podman's environment.
+func (p *Podman) runArgs(spec Spec, rt string) (args, env []string) {
 	args = []string{"run", "--detach", "--name", containerName(spec.AgentID)}
 	if rt != "" {
 		args = append(args, "--runtime", rt)
@@ -149,11 +138,7 @@ func (p *Podman) runArgs(spec Spec, rt string) (args, env []string, hash string)
 		env = append(env, kv)
 	}
 	args = append(args, spec.Image)
-
-	hash = hashOf([]byte(strings.Join(args, "\n")), []byte(strings.Join(env, "\n")))
-	// The label goes before the image, which ends the options.
-	args = slices.Insert(args, len(args)-1, "--label", annotationSpecHash+"="+hash)
-	return args, env, hash
+	return args, env
 }
 
 type podmanInspect struct {
