@@ -28,16 +28,11 @@ servers and audit log apply to agents as they do to people.
 
 ## What is in this repository
 
-One Go binary, `keera-agents`:
-
-- With no arguments it is the **control plane**: the panel, its API, the chat
-  services' webhooks, the scheduler, the board and the runtime API.
-- `keera-agents agent` is the **runtime** inside each agent's container. It
-  runs the agent loop against the gateway and calls the control plane for its
-  tasks and for the tools that need credentials.
-
-Agents run on **podman** for local development, or on any **Kubernetes**
-cluster, as one StatefulSet each.
+One Go binary, `keera-agents`: the **control plane** by default, and
+`keera-agents agent`, the **runtime** inside each agent's container
+([docs/agents.md](docs/agents.md#one-binary-two-roles)). Agents run on
+**podman** for local development, or on any **Kubernetes** cluster, as one
+StatefulSet each.
 
 ## What it does
 
@@ -59,23 +54,15 @@ cluster, as one StatefulSet each.
 - **Code.** An agent connected to a repository clones it with git, runs its
   tests in its own machine, pushes branches starting with `keera/` and opens
   pull or merge requests. It cannot push to any other branch.
-- **Credentials stay out of agents.** A container holds its runtime token and
-  its gateway key, nothing else. Posting to a chat, reading a Drive or
-  pushing to GitHub happens in the control plane, which checks the agent may.
+- **Credentials stay out of agents.** The control plane makes the calls that
+  need them ([docs/agents.md](docs/agents.md#what-an-agent-holds)).
 
 ## Run it
 
-You need Go, podman and a Keera Gateway from its repository. Tell the gateway
-about keera-agents as [docs/run-locally.md](docs/run-locally.md#once) says,
-then run:
-
-```sh
-make dev
-```
-
-It starts Postgres in a container, builds the agent image the first time, and
-runs keera-agents under [air](https://github.com/air-verse/air) on
-<http://localhost:8070>. [docs/install.md](docs/install.md) has every setting.
+You need Go, podman and a Keera Gateway. Set the gateway up once as
+[docs/run-locally.md](docs/run-locally.md#once) says, then run `make dev` and
+open <http://localhost:8070>. [docs/install.md](docs/install.md) has every
+setting.
 
 ## Docs
 

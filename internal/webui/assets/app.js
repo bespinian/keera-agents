@@ -20,6 +20,7 @@ import {
   menu,
   go,
   isAdmin,
+  loading,
 } from "./ui.js";
 import { signIn } from "./views/signin.js";
 import { dashboardView } from "./views/dashboard.js";
@@ -387,7 +388,7 @@ async function renderRoute() {
   listActions = null;
   renderTopbar();
   setTitle(route.label, "");
-  replace(outlet, h("div", { class: "boot", style: { minHeight: "240px" } }, h("div", { class: "boot-mark" })));
+  replace(outlet, loading("240px"));
 
   let title = route.label;
   let titleMark = null;

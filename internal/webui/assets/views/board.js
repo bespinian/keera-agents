@@ -8,8 +8,8 @@ import {
   icons,
   iconButton,
   menu,
-  modal,
   formModal,
+  fail,
   confirm,
   field,
   toast,
@@ -19,11 +19,10 @@ import {
   remember,
   banner,
   empty,
-  showError,
   busyButton,
   date,
   ago,
-  dateTime,
+  stamp,
   pill,
   avatarOf,
   splitList,
@@ -369,10 +368,7 @@ export async function boardView(ctx) {
       h("div", { class: "field-row" }, field("Labels", f.labels, "Comma separated."), field("Due", f.due)),
     ];
     f.values = () => {
-      if (!f.title.value.trim()) {
-        f.title.focus();
-        throw { message: "Give the card a title." };
-      }
+      if (!f.title.value.trim()) fail(f.title, "Give the card a title.");
       return {
         title: f.title.value.trim(),
         body: f.body.value.trim(),
@@ -413,8 +409,8 @@ export async function boardView(ctx) {
         await api.deleteCard(c.id);
         cards = cards.filter((x) => x.id !== c.id);
         draw();
-        toast("Card deleted", "good");
       },
+      done: "Card deleted",
     });
   }
 
@@ -427,7 +423,6 @@ export async function boardView(ctx) {
       return;
     }
     const f = cardFields(c);
-    const err = h("div");
     const thread = h("div", { class: "comments" });
     const paintComments = () =>
       replace(
@@ -458,7 +453,6 @@ export async function boardView(ctx) {
     const body = h(
       "div",
       {},
-      err,
       h("form", {}, f.el),
       c.task
         ? h(
@@ -499,14 +493,13 @@ export async function boardView(ctx) {
       ),
     );
 
-    let saveButton;
-    const close = modal({
+    const { close } = formModal({
       title: c.title,
       subtitle: `${statusLabel(c.status)} · added ${ago(c.created_at)}`,
       wide: true,
       body,
-      actions: (close) => [
-        // Not btn-danger: the dialog wires Enter to the first of those.
+      // Not btn-danger: the dialog wires Enter to the first of those.
+      lead: (close) =>
         h(
           "button",
           {
@@ -518,34 +511,16 @@ export async function boardView(ctx) {
           },
           "Delete",
         ),
-        h("div", { class: "spacer" }),
-        h("button", { class: "btn", onClick: close }, "Cancel"),
-        (saveButton = h(
-          "button",
-          {
-            class: "btn btn-primary",
-            onClick: async () => {
-              saveButton.disabled = true;
-              showError(err, "");
-              try {
-                const values = f.values();
-                // A new column puts it at the bottom there.
-                if (values.status !== c.status) Object.assign(values, placeCard(cards, c.id, values.status, Infinity));
-                const updated = await api.updateCard(c.id, values);
-                const i = cards.findIndex((x) => x.id === c.id);
-                if (i >= 0) cards[i] = { ...cards[i], ...updated };
-                draw();
-                close();
-                toast("Card saved", "good");
-              } catch (ex) {
-                showError(err, ex.message || "That did not work.");
-                saveButton.disabled = false;
-              }
-            },
-          },
-          "Save",
-        )),
-      ],
+      done: "Card saved",
+      submit: async () => {
+        const values = f.values();
+        // A new column puts it at the bottom there.
+        if (values.status !== c.status) Object.assign(values, placeCard(cards, c.id, values.status, Infinity));
+        const updated = await api.updateCard(c.id, values);
+        const i = cards.findIndex((x) => x.id === c.id);
+        if (i >= 0) cards[i] = { ...cards[i], ...updated };
+        draw();
+      },
     });
   }
 
@@ -559,12 +534,7 @@ export async function boardView(ctx) {
       h(
         "div",
         {},
-        h(
-          "div",
-          { class: "comment-head" },
-          h("strong", {}, who),
-          h("span", { class: "faint", title: dateTime(m.created_at) }, ago(m.created_at)),
-        ),
+        h("div", { class: "comment-head" }, h("strong", {}, who), stamp(m.created_at, { cls: "faint" })),
         h("div", { class: "comment-body" }, code(m.body)),
       ),
     );
@@ -635,10 +605,7 @@ function newBoard(ctx) {
     submitLabel: "Create board",
     done: "Board created",
     submit: async () => {
-      if (!name.value.trim()) {
-        name.focus();
-        throw { message: "Give the board a name." };
-      }
+      if (!name.value.trim()) fail(name, "Give the board a name.");
       const b = await api.createBoard(name.value.trim());
       remember("keera.board", b.id, { lasting: true });
       ctx.reload();
@@ -655,10 +622,7 @@ function renameBoard(ctx, board) {
     done: "Board renamed",
     ctx,
     submit: () => {
-      if (!name.value.trim()) {
-        name.focus();
-        throw { message: "Give the board a name." };
-      }
+      if (!name.value.trim()) fail(name, "Give the board a name.");
       return api.renameBoard(board.id, name.value.trim());
     },
   });
@@ -673,8 +637,8 @@ function deleteBoard(ctx, board, count) {
     onConfirm: async () => {
       await api.deleteBoard(board.id);
       remember("keera.board", null, { lasting: true });
-      toast(`${board.name} deleted`, "good");
-      ctx.reload();
     },
+    done: `${board.name} deleted`,
+    ctx,
   });
 }

@@ -7,8 +7,8 @@ import {
   table,
   field,
   formModal,
+  fail,
   confirm,
-  toast,
   iconButton,
   icon,
   icons,
@@ -16,8 +16,7 @@ import {
   replace,
   sectionHead,
   pill,
-  ago,
-  dateTime,
+  stamp,
   link,
   plural,
   banner,
@@ -100,7 +99,7 @@ export async function channelsTab(ctx, agent) {
           label: "Added",
           shrink: true,
           num: true,
-          cell: (b) => h("span", { title: dateTime(b.created_at) }, ago(b.created_at)),
+          cell: (b) => stamp(b.created_at),
         },
         {
           label: "",
@@ -121,11 +120,9 @@ export async function channelsTab(ctx, agent) {
                             : `${agent.name} stops using this folder. Its files stay where they are.`,
                       confirmLabel: "Remove",
                       danger: true,
-                      onConfirm: async () => {
-                        await api.deleteBinding(b.id);
-                        toast("Channel removed", "good");
-                        ctx.reload();
-                      },
+                      onConfirm: () => api.deleteBinding(b.id),
+                      done: "Channel removed",
+                      ctx,
                     }),
                   { danger: true, label: `Remove ${b.label || targetText(b)}` },
                 )
@@ -327,13 +324,9 @@ function addChannel(ctx, agent, connections, kinds) {
     done: "Channel added",
     ctx,
     submit: () => {
-      if (!target.value.trim()) {
-        target.focus();
-        throw { message: `Fill in ${targetLabel.textContent.toLowerCase()}.` };
-      }
+      if (!target.value.trim()) fail(target, `Fill in ${targetLabel.textContent.toLowerCase()}.`);
       if (mode.value === "watch" && !prompt.value.trim()) {
-        prompt.focus();
-        throw { message: "Say what the agent should do with each new file." };
+        fail(prompt, "Say what the agent should do with each new file.");
       }
       return api.addBinding(agent.id, {
         connection_id: connection.value,

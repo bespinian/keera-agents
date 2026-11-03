@@ -1288,6 +1288,71 @@ a.pill-button:hover {
   user-select: all;
 }
 
+/* Charts, drawn as SVG by chart.js. A part of Keera Gateway's: this panel
+   draws no series or legend. */
+.chart {
+  width: 100%;
+  display: block;
+}
+.chart .grid-line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.chart .axis-text {
+  fill: var(--faint);
+  font-size: 10px;
+}
+.chart .area {
+  fill: var(--accent);
+  opacity: 0.11;
+}
+.chart .line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.chart .err-bar {
+  fill: var(--bad);
+  opacity: 0.75;
+}
+.chart .hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+.chart .hit:hover {
+  fill: var(--text);
+  opacity: 0.04;
+}
+.chart .cursor-line {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-tip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 5;
+}
+.chart-tip .t {
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.chart-holder {
+  position: relative;
+}
+
 @keyframes blink {
   50% {
     opacity: 0;
@@ -1945,7 +2010,10 @@ label.check-row {
   height: 18px;
 }
 
-.who {
+/* .source is where a task came from: a chat, a schedule, a card, a folder or
+   a person. */
+.who,
+.source {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1956,83 +2024,11 @@ label.check-row {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* Where a task came from: a chat, a schedule, a card, a folder or a person. */
-.source {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
 .source > svg {
   width: 14px;
   height: 14px;
   flex: none;
   color: var(--muted);
-}
-
-/* Charts, drawn as SVG by chart.js. The same as Keera Gateway's. */
-.chart {
-  width: 100%;
-  display: block;
-}
-.chart .grid-line {
-  stroke: var(--border);
-  stroke-width: 1;
-}
-.chart .axis-text {
-  fill: var(--faint);
-  font-size: 10px;
-}
-.chart .area {
-  fill: var(--accent);
-  opacity: 0.11;
-}
-.chart .line {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.75;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-.chart .err-bar {
-  fill: var(--bad);
-  opacity: 0.75;
-}
-.chart .hit {
-  fill: transparent;
-  cursor: crosshair;
-}
-.chart .hit:hover {
-  fill: var(--text);
-  opacity: 0.04;
-}
-.chart .cursor-line {
-  stroke: var(--border-strong);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
-}
-
-.chart-tip {
-  position: absolute;
-  pointer-events: none;
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
-  padding: 8px 10px;
-  font-size: 12px;
-  white-space: nowrap;
-  z-index: 5;
-}
-.chart-tip .t {
-  font-weight: 600;
-  margin-bottom: 3px;
-}
-.chart-holder {
-  position: relative;
 }
 
 /* A short list inside a card, such as the dashboard's recent tasks. */
@@ -2364,13 +2360,8 @@ a.mini-row:hover {
   color: var(--bad);
 }
 
-/* A connector's webhook URL, to paste into the service. */
-.webhook {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.webhook .input {
+/* secretField's compact form, such as a connector's webhook URL on its tile. */
+.secret-compact .input {
   padding: 5px 8px;
   font: 11.5px var(--mono);
 }

@@ -10,8 +10,9 @@ import {
   field,
   formModal,
   listHead,
-  ago,
-  dateTime,
+  stamp,
+  empty,
+  fail,
   dash,
   num,
   banner,
@@ -40,106 +41,117 @@ export async function agentsView(ctx) {
     {},
     listHead(null, [], { label: "New agent", onClick: () => openNewAgent(ctx) }),
     noRuntime(me),
-    table(
-      [
-        {
-          label: "Name",
-          cell: (a) =>
-            h(
-              "div",
-              { class: "stack" },
-              h(
-                "span",
-                { class: "who" },
-                avatarOf(a.name, { agent: true, icon: a.icon }),
-                rowLink(ctx, agentPath(a.id), a.name),
-              ),
-              a.description ? h("div", { class: "faint small clamp-2" }, a.description) : null,
-            ),
-          sortKey: (a) => a.name,
-        },
-        {
-          label: "State",
-          shrink: true,
-          cell: (a) =>
-            h(
-              "div",
-              { class: "stack" },
-              h(
-                "div",
-                { class: "row-tight" },
-                agentStatePill(a.state),
-                a.enabled === false ? h("span", { class: "pill", title: "It takes no new tasks" }, "Off") : null,
-              ),
-              a.state === "failed" && a.state_detail ? h("div", { class: "faint small" }, a.state_detail) : null,
-            ),
-          sortKey: (a) => a.state,
-        },
-        {
-          label: "Model",
-          shrink: true,
-          cell: (a) => h("span", { class: "mono muted" }, a.model),
-          sortKey: (a) => a.model,
-        },
-        {
-          label: "Owner",
-          shrink: true,
-          cell: (a) => h("span", { class: "muted" }, a.owner_email || "-"),
-          sortKey: (a) => a.owner_email,
-        },
-        {
-          label: "Channels",
-          shrink: true,
-          num: true,
-          cell: (a) => (a.channels ? num(a.channels) : dash()),
-          sortKey: (a) => a.channels || 0,
-          sortDir: "desc",
-        },
-        {
-          label: "Last active",
-          shrink: true,
-          num: true,
-          cell: (a) =>
-            a.last_active_at ? h("span", { title: dateTime(a.last_active_at) }, ago(a.last_active_at)) : dash(),
-          sortKey: (a) => a.last_active_at || "",
-          sortDir: "desc",
-        },
-      ],
-      agents,
+    agents.length ? agentTable(ctx, agents) : noAgents(ctx),
+  );
+}
+
+function agentTable(ctx, agents) {
+  return table(
+    [
       {
-        ctx,
-        open: (a) => agentPath(a.id),
-        search: agents.length > 6 ? (a) => `${a.name} ${a.description} ${a.model} ${a.owner_email}` : null,
-        searchLabel: "agents",
-        choices:
-          agents.length > 6
-            ? [
-                {
-                  label: "States",
-                  options: Object.entries(AGENT_STATES).map(([value, [label]]) => ({ value, label })),
-                  test: (a, v) => a.state === v,
-                },
-              ]
-            : [],
-        sortBy: "Name",
-        rowClass: (a) => (a.enabled === false ? "row-faint" : ""),
-        emptyTitle: "No agents yet",
-        emptyBody: [
+        label: "Name",
+        cell: (a) =>
           h(
             "div",
-            {},
-            "An agent is an assistant that takes work from chats, folders, schedules and the board, " +
-              "and does it with the tools you allow.",
+            { class: "stack" },
+            h(
+              "span",
+              { class: "who" },
+              avatarOf(a.name, { agent: true, icon: a.icon }),
+              rowLink(ctx, agentPath(a.id), a.name),
+            ),
+            a.description ? h("div", { class: "faint small clamp-2" }, a.description) : null,
           ),
-          h(
-            "button",
-            { class: "btn btn-primary", style: { marginTop: "14px" }, onClick: () => openNewAgent(ctx) },
-            icon(icons.plus),
-            "New agent",
-          ),
-        ],
+        sortKey: (a) => a.name,
       },
-    ),
+      {
+        label: "State",
+        shrink: true,
+        cell: (a) =>
+          h(
+            "div",
+            { class: "stack" },
+            h(
+              "div",
+              { class: "row-tight" },
+              agentStatePill(a.state),
+              a.enabled === false ? h("span", { class: "pill", title: "It takes no new tasks" }, "Off") : null,
+            ),
+            a.state === "failed" && a.state_detail ? h("div", { class: "faint small" }, a.state_detail) : null,
+          ),
+        sortKey: (a) => a.state,
+      },
+      {
+        label: "Model",
+        shrink: true,
+        cell: (a) => h("span", { class: "mono muted" }, a.model),
+        sortKey: (a) => a.model,
+      },
+      {
+        label: "Owner",
+        shrink: true,
+        cell: (a) => h("span", { class: "muted" }, a.owner_email || "-"),
+        sortKey: (a) => a.owner_email,
+      },
+      {
+        label: "Channels",
+        shrink: true,
+        num: true,
+        cell: (a) => (a.channels ? num(a.channels) : dash()),
+        sortKey: (a) => a.channels || 0,
+        sortDir: "desc",
+      },
+      {
+        label: "Last active",
+        shrink: true,
+        num: true,
+        cell: (a) => (a.last_active_at ? stamp(a.last_active_at) : dash()),
+        sortKey: (a) => a.last_active_at || "",
+        sortDir: "desc",
+      },
+    ],
+    agents,
+    {
+      ctx,
+      open: (a) => agentPath(a.id),
+      search: agents.length > 6 ? (a) => `${a.name} ${a.description} ${a.model} ${a.owner_email}` : null,
+      searchLabel: "agents",
+      choices:
+        agents.length > 6
+          ? [
+              {
+                label: "States",
+                options: Object.entries(AGENT_STATES).map(([value, [label]]) => ({ value, label })),
+                test: (a, v) => a.state === v,
+              },
+            ]
+          : [],
+      sortBy: "Name",
+      rowClass: (a) => (a.enabled === false ? "row-faint" : ""),
+    },
+  );
+}
+
+/** noAgents is what the agents list and the dashboard show before the first
+ *  agent: what one is, and a button to create it. */
+export function noAgents(ctx) {
+  return h(
+    "div",
+    { class: "card" },
+    empty("No agents yet", [
+      h(
+        "div",
+        {},
+        "An agent is an assistant for your organisation. It takes tasks from chats, folders, " +
+          "schedules and the board, and does them with the tools you allow.",
+      ),
+      h(
+        "button",
+        { class: "btn btn-primary", style: { marginTop: "14px" }, onClick: () => openNewAgent(ctx) },
+        icon(icons.plus),
+        "New agent",
+      ),
+    ]),
   );
 }
 
@@ -383,13 +395,6 @@ export async function agentForm(ctx, agent) {
   );
 
   function values() {
-    const fail = (input, message) => {
-      // A field inside a closed fold cannot take focus.
-      const details = input.closest("details");
-      if (details) details.open = true;
-      input.focus();
-      throw { message };
-    };
     const n = name.value.trim();
     if (!n) fail(name, "Give the agent a name.");
     if (n.length > 60) fail(name, "A name is at most 60 characters.");
