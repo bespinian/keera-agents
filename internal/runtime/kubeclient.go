@@ -179,12 +179,9 @@ func (c *kubeClient) do(ctx context.Context, method, path, contentType string, i
 		}
 		body = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
+	req, err := c.newRequest(ctx, method, path, body)
 	if err != nil {
 		return err
-	}
-	if tok := c.bearer(); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	req.Header.Set("Accept", "application/json")
 	if in != nil {
@@ -216,12 +213,9 @@ func (c *kubeClient) do(ctx context.Context, method, path, contentType string, i
 // stream opens a GET whose body is read as it comes, such as a followed pod
 // log. The client's timeout would cut it, so it uses the transport alone.
 func (c *kubeClient) stream(ctx context.Context, path string) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
-	}
-	if tok := c.bearer(); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := (&http.Client{Transport: c.http.Transport}).Do(req)
 	if err != nil {
@@ -232,6 +226,17 @@ func (c *kubeClient) stream(ctx context.Context, path string) (io.ReadCloser, er
 		return nil, refusal(resp, path)
 	}
 	return resp.Body, nil
+}
+
+func (c *kubeClient) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if tok := c.bearer(); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	return req, nil
 }
 
 // refusal reads the API server's answer to a failed request. Its Status
@@ -249,8 +254,8 @@ func (c *kubeClient) get(ctx context.Context, path string, out any) error {
 	return c.do(ctx, http.MethodGet, path, "", nil, out)
 }
 
-func (c *kubeClient) post(ctx context.Context, path string, in, out any) error {
-	return c.do(ctx, http.MethodPost, path, "", in, out)
+func (c *kubeClient) post(ctx context.Context, path string, in any) error {
+	return c.do(ctx, http.MethodPost, path, "", in, nil)
 }
 
 // patch sends a JSON merge patch, which needs no schema. It replaces lists, so

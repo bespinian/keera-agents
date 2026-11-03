@@ -122,7 +122,7 @@ const completionTimeout = 10 * time.Minute
 // complete makes one model call. It retries a rate limit, an overloaded
 // backend and a dropped connection a few times, and returns any other
 // refusal as an *httpError carrying the gateway's own message.
-func (g *gateway) complete(ctx context.Context, baseURL, apiKey, session string, req chatRequest) (message, error) {
+func (g *gateway) complete(ctx context.Context, baseURL, apiKey, taskID string, req chatRequest) (message, error) {
 	raw, err := json.Marshal(req)
 	if err != nil {
 		return message{}, err
@@ -130,7 +130,7 @@ func (g *gateway) complete(ctx context.Context, baseURL, apiKey, session string,
 	url := strings.TrimRight(baseURL, "/") + "/chat/completions"
 	wait := g.retryWait
 	for attempt := 0; ; attempt++ {
-		msg, err := g.post(ctx, url, apiKey, session, raw)
+		msg, err := g.post(ctx, url, apiKey, taskID, raw)
 		if err == nil || attempt >= 3 || ctx.Err() != nil || !retryable(err) {
 			return msg, err
 		}
@@ -159,7 +159,7 @@ func retryable(err error) bool {
 	return false
 }
 
-func (g *gateway) post(ctx context.Context, url, apiKey, session string, body []byte) (message, error) {
+func (g *gateway) post(ctx context.Context, url, apiKey, taskID string, body []byte) (message, error) {
 	ctx, cancel := context.WithTimeout(ctx, completionTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -169,8 +169,8 @@ func (g *gateway) post(ctx context.Context, url, apiKey, session string, body []
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
-	if session != "" {
-		req.Header.Set(sessionHeader, session)
+	if taskID != "" {
+		req.Header.Set(sessionHeader, taskID)
 	}
 	resp, err := g.http.Do(req)
 	if err != nil {

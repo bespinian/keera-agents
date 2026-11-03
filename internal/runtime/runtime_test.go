@@ -73,4 +73,7 @@ func TestLimits(t *testing.T) {
 			t.Errorf("%+v was accepted", bad)
 		}
 	}
+	if l, err := LimitsFrom(config.RuntimeConfig{}); err != nil || l != (Limits{}) {
+		t.Errorf("no limits = %+v, %v", l, err)
+	}
 }

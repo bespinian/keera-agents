@@ -142,11 +142,12 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	cut := n
+	const more = "…"
+	cut := max(n-len(more), 0)
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
-	return s[:cut] + "…"
+	return s[:cut] + more
 }
 
 // tail keeps the last n bytes of s on a rune boundary.

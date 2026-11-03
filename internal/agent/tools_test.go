@@ -44,6 +44,19 @@ func TestWrittenCall(t *testing.T) {
 	}
 }
 
+func TestTruncateStaysWithinN(t *testing.T) {
+	for s, want := range map[string]string{
+		"short":   "short",
+		"abcdefg": "abc…",
+		"äöüx":    "ä…", // ö would end past the cut, so it goes whole
+	} {
+		got := truncate(s, 6)
+		if got != want || len(got) > 6 {
+			t.Errorf("truncate(%q, 6) = %q, want %q", s, got, want)
+		}
+	}
+}
+
 func TestMCPToolName(t *testing.T) {
 	if got := mcpToolName("git hub", "search.code"); got != "git_hub__search_code" {
 		t.Errorf("mcpToolName = %q", got)

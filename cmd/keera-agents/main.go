@@ -43,9 +43,7 @@ func main() {
 	case "", "serve":
 		err = server.Run()
 	case "agent":
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		err = agent.Run(ctx, server.NewLogger(os.Getenv("KEERA_AGENT_LOG_LEVEL"), "text"))
+		err = runAgent()
 	case "health":
 		err = health()
 	case "version", "--version":
@@ -60,6 +58,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "keera-agents:", err)
 		os.Exit(1)
 	}
+}
+
+func runAgent() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return agent.Run(ctx, server.NewLogger(os.Getenv("KEERA_AGENT_LOG_LEVEL"), "text"))
 }
 
 // health asks this machine's /readyz, for a container healthcheck in an

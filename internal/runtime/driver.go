@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -45,18 +46,22 @@ func New(ctx context.Context, cfg config.RuntimeConfig, log *slog.Logger) (Drive
 	}
 }
 
-// LimitsFrom reads and checks the operator's limits.
+// LimitsFrom reads and checks the operator's limits. An empty one is no
+// limit, as in Limits.Check.
 func LimitsFrom(cfg config.RuntimeConfig) (Limits, error) {
 	l := Limits{
 		MinIsolation: Isolation(cfg.MinIsolation),
 		MaxCPU:       cfg.MaxCPU, MaxMemory: cfg.MaxMemory, MaxDisk: cfg.MaxDisk,
 	}
-	if !l.MinIsolation.Valid() {
+	if l.MinIsolation != "" && !l.MinIsolation.Valid() {
 		return l, fmt.Errorf("KEERA_AGENTS_MIN_ISOLATION must be standard, isolated or vm, not %q", l.MinIsolation)
 	}
 	for _, q := range []struct{ name, v string }{
 		{"KEERA_AGENTS_MAX_CPU", l.MaxCPU}, {"KEERA_AGENTS_MAX_MEMORY", l.MaxMemory}, {"KEERA_AGENTS_MAX_DISK", l.MaxDisk},
 	} {
+		if q.v == "" {
+			continue
+		}
 		if n, err := parseQuantity(q.v); err != nil || n <= 0 {
 			return l, fmt.Errorf("%s must be a size such as 8 or 32Gi, not %q", q.name, q.v)
 		}
@@ -179,7 +184,7 @@ func objectName(agentID string) string {
 
 func checkSpec(spec Spec) error {
 	if spec.AgentID == "" {
-		return fmt.Errorf("runtime: an agent needs an id")
+		return errors.New("runtime: an agent needs an id")
 	}
 	if spec.Image == "" {
 		return fmt.Errorf("runtime: agent %s has no image", spec.AgentID)
@@ -223,7 +228,7 @@ func parseQuantity(s string) (float64, error) {
 	}
 	v, err := strconv.ParseFloat(s, 64)
 	if err != nil || v < 0 || math.IsInf(v, 0) || math.IsNaN(v) || s == "" {
-		return 0, fmt.Errorf("not a quantity such as 500m, 2 or 4Gi")
+		return 0, errors.New("not a quantity such as 500m, 2 or 4Gi")
 	}
 	return v * mult, nil
 }
