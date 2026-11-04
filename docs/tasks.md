@@ -125,7 +125,10 @@ for up to 30 seconds: both mean it did not take the message. Other failures
 are not retried but written to the task's log, so a broken chat connector
 does not post the same answer ten times once it works again. What fails
 before anything is sent is tried again at the next round: a card's result,
-which is our own write, and results a round had no time left for.
+which is our own write, results a round had no time left for, and sends that
+never reached the service (its name did not resolve, or it took no
+connection) or never started (the database did not answer). Retries stop an
+hour after the task finished, and the task's log says why.
 
 A task runs at most `KEERA_AGENTS_TASK_TIMEOUT`, and fails after that. A task
 can be cancelled in the panel by whoever asked for it and whoever may change

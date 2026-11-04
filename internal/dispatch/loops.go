@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -251,7 +252,7 @@ func (d *Dispatcher) deliverClaimed(ctx context.Context, t store.Task) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTimeout)
 	defer cancel()
 	err := d.deliver(ctx, t)
-	if errors.Is(err, errNotSent) {
+	if errors.Is(err, errNotSent) && (t.FinishedAt == nil || time.Since(*t.FinishedAt) < retryFor) {
 		d.log.Warn("could not deliver a result", "task", t.ID, "error", err)
 		d.opts.Metrics.Delivery(t.Source, "retry")
 		// Nothing went out, so trying again cannot post twice.
@@ -305,8 +306,11 @@ func (d *Dispatcher) deliver(ctx context.Context, t store.Task) error {
 			return nil
 		}
 		b, err := d.st.Binding(ctx, t.Origin.ReplyBindingID)
-		if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
 			return errors.New("the schedule's channel is gone")
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %w", errNotSent, err)
 		}
 		if b.Target == store.AnyConversation {
 			return errors.New("the schedule's channel takes every conversation, so it names none to post in")
@@ -320,11 +324,28 @@ func (d *Dispatcher) deliver(ctx context.Context, t store.Task) error {
 
 func (d *Dispatcher) send(ctx context.Context, connectionID string, to channels.Target, text string) error {
 	adapter, conn, err := connect(ctx, d, connectionID, "channels", channels.ChatFor)
-	if err != nil {
+	if errors.Is(err, errConnectorGone) {
 		return err
 	}
+	if err != nil {
+		return fmt.Errorf("%w: %w", errNotSent, err)
+	}
 	_, err = adapter.Send(ctx, conn, to, text)
+	if unreached(err) {
+		return fmt.Errorf("%w: %w", errNotSent, err)
+	}
 	return err
+}
+
+// unreached reports an error from before a request left: the service's name
+// did not resolve or its address took no connection. Anything later may have
+// posted, so it is not tried again.
+func unreached(err error) bool {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
+		return true
+	}
+	op, ok := errors.AsType[*net.OpError](err)
+	return ok && op.Op == "dial"
 }
 
 // replyTarget is where the answer to a chat task goes: the message's own
@@ -334,8 +355,12 @@ func replyTarget(o store.Origin) channels.Target {
 }
 
 // errNotSent marks a delivery that failed before anything went out, so it
-// can be tried again.
+// can be tried again, for up to retryFor after the task finished.
 var errNotSent = errors.New("not sent")
+
+// retryFor bounds the retries, so a result that cannot be sent is reported
+// and stops being tried every round.
+const retryFor = time.Hour
 
 // deliverCard moves the card on and comments the result on it. Done work
 // goes to Review and the rest to Backlog, so it is not picked up again in a

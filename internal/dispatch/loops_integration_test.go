@@ -2,6 +2,8 @@ package dispatch
 
 import (
 	"errors"
+	"fmt"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -329,6 +331,37 @@ func TestAChatSendThatFailsIsNotSentTwice(t *testing.T) {
 	events, _ := e.st.Events(e.ctx, task.ID, 0)
 	if len(events) != 1 || events[0].Kind != protocol.EventLog || !strings.Contains(events[0].Text, "rate limited") {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestAChatSendThatNeverLeftIsTriedAgain(t *testing.T) {
+	e := setup(t)
+	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	c := e.conn(t, "org_a", chatKind, map[string]string{"token": "x"})
+	task := e.chatTask(t, a, c, "m1", store.TaskSucceeded, "Here it is.")
+	// No connection was made, so nothing was posted.
+	e.chat.failWith(fmt.Errorf("could not reach Test Chat: %w",
+		&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}))
+	e.d.Deliver(e.ctx)
+	if got, _ := e.st.Task(e.ctx, task.ID); got.Delivered {
+		t.Fatal("a result that never left counts as delivered")
+	}
+	e.chat.failWith(nil)
+	e.d.Deliver(e.ctx)
+	e.d.Deliver(e.ctx)
+	if got := e.chat.messages(); len(got) != 1 {
+		t.Fatalf("sent %q", got)
+	}
+
+	// After an hour it is given up on, and the task says why.
+	late := e.chatTask(t, a, c, "m2", store.TaskSucceeded, "Too late.")
+	e.exec(t, `UPDATE tasks SET finished_at = now() - interval '2 hours' WHERE id = '`+late.ID+`'`)
+	e.chat.failWith(&net.DNSError{Err: "no such host", Name: "chat.example", IsNotFound: true})
+	e.d.Deliver(e.ctx)
+	got, _ := e.st.Task(e.ctx, late.ID)
+	events, _ := e.st.Events(e.ctx, late.ID, 0)
+	if !got.Delivered || len(events) != 1 || !strings.Contains(events[0].Text, "no such host") {
+		t.Fatalf("delivered %v, events %+v", got.Delivered, events)
 	}
 }
 

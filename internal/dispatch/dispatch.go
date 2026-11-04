@@ -136,7 +136,7 @@ func connect[T any](ctx context.Context, d *Dispatcher, connectionID, noun strin
 	var none T
 	c, err := d.st.Connection(ctx, connectionID)
 	if errors.Is(err, store.ErrNotFound) {
-		return none, channels.Connection{}, errors.New("the connector is gone")
+		return none, channels.Connection{}, errConnectorGone
 	}
 	if err != nil {
 		return none, channels.Connection{}, err
@@ -153,6 +153,9 @@ func connect[T any](ctx context.Context, d *Dispatcher, connectionID, noun strin
 }
 
 // ------------------------------------------------------------ tasks
+
+// errConnectorGone is a connector deleted since the work began.
+var errConnectorGone = errors.New("the connector is gone")
 
 var (
 	// errDuplicate is a task already queued for the same event.
