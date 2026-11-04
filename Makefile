@@ -89,8 +89,9 @@ lint:
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo devel)
 IMAGE ?= localhost/keera-agents:latest
 AGENT_IMAGE ?= localhost/keera-agent:latest
+WORKSPACE_IMAGE ?= localhost/keera-workspace:latest
 
-# Both images come from the one Containerfile, which says how they differ.
+# The images come from the one Containerfile, which says how they differ.
 .PHONY: image
 image:
 	@$(PODMAN) build --target control-plane -t $(IMAGE) --build-arg VERSION='$(VERSION)' .
@@ -99,8 +100,13 @@ image:
 agent-image:
 	@$(PODMAN) build --target agent -t $(AGENT_IMAGE) --build-arg VERSION='$(VERSION)' .
 
+.PHONY: workspace-image
+workspace-image:
+	@$(PODMAN) build --target workspace -t $(WORKSPACE_IMAGE) --build-arg VERSION='$(VERSION)' .
+
 # What is inside each image, for auditors and vulnerability scanners: the Go
-# binary and its modules, and in the agent image Alpine's packages. The images
+# binary and its modules, Alpine's packages in the agent image, and Debian's
+# and npm's in the workspace image. The images
 # are rebuilt first (cached), so the SBOMs match the source.
 SYFT ?= syft
 # Pinned, so two builds of one commit describe it the same way. Dependabot does
@@ -116,7 +122,7 @@ SBOM_FORMAT ?= cyclonedx-json
 # container it reads /scan and writes /out. --source-name and --source-version
 # keep it from naming the subject after a path under /tmp.
 .PHONY: sbom
-sbom: image agent-image
+sbom: image agent-image workspace-image
 	@mkdir -p $(SBOM_DIR)
 	@out=$$(cd $(SBOM_DIR) && pwd); \
 	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT INT TERM; \
@@ -126,7 +132,7 @@ sbom: image agent-image
 		run_syft() { $(PODMAN) run --rm -v "$$tmp:/scan:z" -v "$$out:/out:z" $(SYFT_IMAGE) "$$@"; }; \
 		scan=/scan; dest=/out; \
 	fi; \
-	for pair in '$(IMAGE)|keera-agents' '$(AGENT_IMAGE)|keera-agent'; do \
+	for pair in '$(IMAGE)|keera-agents' '$(AGENT_IMAGE)|keera-agent' '$(WORKSPACE_IMAGE)|keera-workspace'; do \
 		image=$${pair%|*}; name=$${pair#*|}; \
 		id=$$($(PODMAN) image inspect --format '{{.Id}}' "$$image") || exit 1; \
 		$(PODMAN) save --format oci-archive -o "$$tmp/$$name.tar" "$$image" >/dev/null 2>&1 || exit 1; \
@@ -168,6 +174,7 @@ dev: dev-env dev-db
 		KEERA_AGENTS_DATABASE_URL="$${KEERA_AGENTS_DATABASE_URL:-postgres://keera:$${KEERA_AGENTS_DB_PASSWORD:-keera}@127.0.0.1:5433/keera_agents?sslmode=disable}" \
 		KEERA_AGENTS_DRIVER="$${KEERA_AGENTS_DRIVER:-podman}" \
 		KEERA_AGENTS_IMAGE="$${KEERA_AGENTS_IMAGE:-$(AGENT_IMAGE)}" \
+		KEERA_AGENTS_WORKSPACE_IMAGE="$${KEERA_AGENTS_WORKSPACE_IMAGE:-$(WORKSPACE_IMAGE)}" \
 		KEERA_AGENTS_RUNTIME_URL="$${KEERA_AGENTS_RUNTIME_URL:-http://host.containers.internal:8070}" \
 		KEERA_AGENTS_RUNTIME_GATEWAY_URL="$${KEERA_AGENTS_RUNTIME_GATEWAY_URL:-http://host.containers.internal:8080}" \
 		KEERA_AGENTS_LOG_FORMAT=text KEERA_AGENTS_LOG_LEVEL=debug \

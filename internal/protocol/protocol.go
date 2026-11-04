@@ -11,6 +11,12 @@
 //	POST /runtime/v1/tasks/{id}/finish        how the task ended
 //	POST /runtime/v1/tasks/{id}/tools/{name}  a platform tool, run by the control plane
 //	*    /runtime/v1/git/{binding}/...        git over HTTP to a repository it is bound to
+//	POST /runtime/v1/workspace/tools/{name}   a platform tool, for a workspace
+//
+// A workspace runs `keera-agents workspace` instead. It takes no tasks, so it
+// calls only the bootstrap, the git proxy and the workspace's tools route.
+// It is the one container that is called: keera-agents dials its front on
+// FrontPort to pass its owner's connections through (see Stream).
 //
 // Platform tools run in the control plane because they need credentials the
 // container must never hold: a chat service's bot token, a Drive service
@@ -34,6 +40,9 @@ const (
 	// GitPath is followed by /{binding}/ and git's own path, such as
 	// /{binding}/web.git/info/refs.
 	GitPath = Prefix + "/git"
+	// WorkspaceToolPath is followed by /{name}. The body is the tool's
+	// arguments.
+	WorkspaceToolPath = Prefix + "/workspace/tools"
 
 	// MaxWait bounds a long poll for the next task.
 	MaxWait = 50 * time.Second
@@ -59,6 +68,23 @@ const BranchPrefix = "keera/"
 // Workspace is where the volume is mounted when EnvWorkspace is unset.
 const Workspace = "/workspace"
 
+// FrontPort is where a workspace's runtime takes connections from
+// keera-agents. Nothing else in the container listens beyond the loopback.
+const FrontPort = 7420
+
+// StreamProtocol is the Upgrade token of a connection passed through to a
+// port in a workspace: an HTTP/1.1 request answered 101, then raw bytes
+// both ways. The `keera` CLI opens one to keera-agents, which opens one to
+// the workspace's front.
+const StreamProtocol = "keera-stream"
+
+// The ports a stream may name besides a number: what the workspace's
+// experience serves, and its SSH server.
+const (
+	PortWeb = "web"
+	PortSSH = "ssh"
+)
+
 // Bootstrap is everything the runtime needs to start. It is fetched again
 // when the gateway answers 401, since the key may have been replaced.
 type Bootstrap struct {
@@ -70,6 +96,19 @@ type Bootstrap struct {
 	Gateway GatewayInfo `json:"gateway"`
 	// Tools are the platform tools this agent may call during a task.
 	Tools []ToolSpec `json:"tools"`
+	// Workspace is set for a workspace only.
+	Workspace *WorkspaceInfo `json:"workspace,omitempty"`
+}
+
+// WorkspaceInfo is what a workspace's runtime needs beyond an agent's.
+type WorkspaceInfo struct {
+	// Experience is "terminal" (pi) or "vscode" (code-server).
+	Experience string `json:"experience"`
+	// SSHKeys are the owner's public keys, as authorized_keys lines.
+	SSHKeys []string `json:"ssh_keys"`
+	// IngressSecret is what keera-agents presents to the front. It changes
+	// at each start.
+	IngressSecret string `json:"ingress_secret"`
 }
 
 type Agent struct {

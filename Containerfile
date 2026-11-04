@@ -1,10 +1,12 @@
-# Both images, from one build of the binary:
+# The images, from one build of the binary:
 #
-#   make image         the control plane:  podman build --target control-plane .
-#   make agent-image   what agents run in: podman build --target agent .
+#   make image            the control plane:      podman build --target control-plane .
+#   make agent-image      what agents run in:     podman build --target agent .
+#   make workspace-image  what workspaces run in: podman build --target workspace .
 #
-# The agent image runs the same binary as `keera-agents agent`, so the runtime
-# always speaks the protocol of the control plane built from the same source.
+# The agent image runs the same binary as `keera-agents agent`, and the
+# workspace image as `keera-agents workspace`, so the runtime always speaks
+# the protocol of the control plane built from the same source.
 #
 # The agent image is a base. A deployment that wants other tools, languages or
 # certificates builds its own FROM it and sets KEERA_AGENTS_IMAGE to it. Keep
@@ -79,6 +81,76 @@ WORKDIR /workspace
 # which a Go process as PID 1 would not, and passes SIGTERM on, so a suspend
 # lets the runtime report its task first.
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/keera-agents", "agent"]
+
+# A workspace: a machine an engineer works in, with pi in a browser terminal
+# or code-server with Cline. Debian, not Alpine: code-server is built for
+# glibc. A deployment that wants other tools builds its own FROM it and sets
+# KEERA_AGENTS_WORKSPACE_IMAGE; keep the entrypoint, the user and /workspace.
+FROM docker.io/library/node:24.19.0-trixie-slim AS workspace
+
+ARG TARGETARCH
+ARG PI_VERSION=1.5.0
+ARG CODE_SERVER_VERSION=4.144.0
+ARG CLINE_VERSION=4.1.26
+ARG TTYD_VERSION=1.7.7
+
+LABEL org.opencontainers.image.title="Keera Workspace" \
+      org.opencontainers.image.vendor="bespinian GmbH" \
+      org.opencontainers.image.licenses="LicenseRef-Keera-Community-1.0" \
+      org.opencontainers.image.source="https://github.com/bespinian/keera-agents"
+
+# HOME is the workspace volume, and so is where the owner installs things:
+# the root filesystem is read-only at run time.
+ENV LANG=C.UTF-8 \
+    HOME=/workspace \
+    NPM_CONFIG_PREFIX=/workspace/.local \
+    PATH=/workspace/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN apt-get update \
+ && apt-get upgrade -y \
+ && apt-get install -y --no-install-recommends \
+      bash build-essential ca-certificates curl git jq less openssh-client openssh-server \
+      procps python3 python3-venv ripgrep tini tmux tzdata unzip vim-tiny \
+ && case "$TARGETARCH" in amd64) ttyd=x86_64 ;; arm64) ttyd=aarch64 ;; *) exit 1 ;; esac \
+ && curl -fsSL -o /usr/local/bin/ttyd \
+      "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd}" \
+ && chmod 0755 /usr/local/bin/ttyd \
+ && curl -fsSL -o /tmp/code-server.deb \
+      "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${TARGETARCH}.deb" \
+ && apt-get install -y --no-install-recommends /tmp/code-server.deb \
+ && rm -rf /tmp/code-server.deb /var/lib/apt/lists/*
+
+# Into the image, not the home directory, which the volume hides. The
+# runtime installs Cline into the workspace at the first start.
+RUN NPM_CONFIG_PREFIX=/usr/local npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
+ && npm cache clean --force \
+ && mkdir -p /opt/keera/vscode-extensions \
+ && curl -fsSL -o "/opt/keera/vscode-extensions/cline-${CLINE_VERSION}.vsix" \
+      "https://open-vsx.org/api/saoudrizwan/claude-dev/${CLINE_VERSION}/file/saoudrizwan.claude-dev-${CLINE_VERSION}.vsix"
+
+# The node image's user has uid 1000, which is the agent's. The password is
+# '*', not locked: sshd refuses a locked account even for a key. sshd wants
+# its privilege separation directory, though it runs as the user.
+RUN userdel --remove node \
+ && useradd --uid 1000 --user-group --home-dir /workspace --no-create-home --shell /bin/bash agent \
+ && usermod --password '*' agent \
+ && mkdir -p /workspace /run/sshd \
+ && chown 1000:1000 /workspace
+
+# Execute-only, as in the agent image: the runtime's /proc files are then
+# root's, so nothing the engineer runs reads its token.
+COPY --from=build --chmod=0711 /out/keera-agents /usr/local/bin/keera-agents
+RUN chmod 0711 /usr/bin/tini
+# THIRD_PARTY_NOTICES covers the binary. Debian's packages carry their
+# licences in /usr/share/doc, and pi, code-server and Cline in their own
+# directories.
+COPY LICENSE /LICENSE
+COPY --from=build /out/THIRD_PARTY_NOTICES /THIRD_PARTY_NOTICES
+
+USER 1000:1000
+WORKDIR /workspace
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/keera-agents", "workspace"]
 
 # Last, so a build without --target gets the control plane.
 FROM scratch AS control-plane
