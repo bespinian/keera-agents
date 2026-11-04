@@ -86,6 +86,12 @@ type RuntimeConfig struct {
 	// IdleSuspend suspends an agent with no task for this long. Zero never
 	// suspends.
 	IdleSuspend time.Duration
+	// WorkspaceImage is the workspace image. Its entrypoint must run
+	// `keera-agents workspace`; see the Containerfile's workspace stage.
+	WorkspaceImage string
+	// WorkspaceIdleSuspend suspends a workspace nobody is connected to for
+	// this long. Zero never suspends.
+	WorkspaceIdleSuspend time.Duration
 
 	// Runtimes per isolation tier: a RuntimeClass on Kubernetes, an OCI
 	// runtime on podman. An unmapped tier other than standard is refused.
@@ -156,6 +162,7 @@ func load(getenv func(string) string) (Config, error) {
 		Runtime: RuntimeConfig{
 			Driver:          env("KEERA_AGENTS_DRIVER", ""),
 			Image:           env("KEERA_AGENTS_IMAGE", "localhost/keera-agent:latest"),
+			WorkspaceImage:  env("KEERA_AGENTS_WORKSPACE_IMAGE", "localhost/keera-workspace:latest"),
 			RuntimeStandard: env("KEERA_AGENTS_RUNTIME_STANDARD", ""),
 			RuntimeIsolated: env("KEERA_AGENTS_RUNTIME_ISOLATED", ""),
 			RuntimeVM:       env("KEERA_AGENTS_RUNTIME_VM", ""),
@@ -230,6 +237,9 @@ func load(getenv func(string) string) (Config, error) {
 	}
 
 	if c.Runtime.IdleSuspend, err = durationEnv("KEERA_AGENTS_IDLE_SUSPEND", 15*time.Minute, time.Minute); err != nil {
+		return c, err
+	}
+	if c.Runtime.WorkspaceIdleSuspend, err = durationEnv("KEERA_AGENTS_WORKSPACE_IDLE_SUSPEND", 2*time.Hour, time.Minute); err != nil {
 		return c, err
 	}
 	if c.TaskTimeout, err = durationEnv("KEERA_AGENTS_TASK_TIMEOUT", 30*time.Minute, time.Minute); err != nil {

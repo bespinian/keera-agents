@@ -194,6 +194,8 @@ func (d *inProcess) Logs(context.Context, string, bool) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
+func (d *inProcess) Address(context.Context, string) (string, error) { return "", runtime.ErrNotFound }
+
 func TestEndToEnd(t *testing.T) {
 	dsn := os.Getenv("KEERA_AGENTS_TEST_DATABASE_URL")
 	if dsn == "" {

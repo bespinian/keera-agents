@@ -135,6 +135,9 @@ type Spec struct {
 	// AgentID names the container and volume, so a restarted control plane
 	// finds the containers it left running.
 	AgentID string
+	// Workspace is a machine an engineer works in. Unlike an agent's, its
+	// container takes connections from keera-agents on protocol.FrontPort.
+	Workspace bool
 	// Name is what people called the agent. It shows in kubectl and podman ps.
 	Name  string
 	Image string
@@ -194,4 +197,7 @@ type Driver interface {
 	// Logs streams what the runtime printed, and with follow what it prints
 	// next, until ctx ends. ErrNotFound means there is no container.
 	Logs(ctx context.Context, agentID string, follow bool) (io.ReadCloser, error)
+	// Address is host:port of a running workspace's front, as keera-agents
+	// reaches it. ErrNotFound means it has no running container.
+	Address(ctx context.Context, agentID string) (string, error)
 }

@@ -550,3 +550,94 @@ func TestAgentIcon(t *testing.T) {
 		t.Fatalf("the task shows icon %q", got.AgentIcon)
 	}
 }
+
+func newWorkspace(t *testing.T, st *Store, org, owner, name string) Agent {
+	t.Helper()
+	a, err := st.CreateAgent(context.Background(), Agent{
+		ID: id.New("wks"), Kind: KindWorkspace, Experience: ExperienceTerminal, OrgID: org,
+		OwnerID: owner, OwnerEmail: owner + "@example.ch", Name: name, Model: "keera-speed",
+		MaxSteps: 10, Access: AccessOwner, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+func TestWorkspacesAreNotAgents(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	agent := newAgent(t, st, "org_a", "dev")
+	// A workspace's name is its owner's: it can share an agent's, and
+	// another person's workspace's.
+	mine := newWorkspace(t, st, "org_a", "usr_1", "dev")
+	newWorkspace(t, st, "org_a", "usr_2", "dev")
+	if _, err := st.CreateAgent(ctx, Agent{
+		ID: id.New("wks"), Kind: KindWorkspace, Experience: ExperienceVSCode, OrgID: "org_a",
+		OwnerID: "usr_1", OwnerEmail: "x", Name: "DEV", Model: "m", Access: AccessOwner,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a second workspace of the same name for one person: %v", err)
+	}
+	// The schema keeps the experience to workspaces.
+	if _, err := st.CreateAgent(ctx, Agent{
+		ID: id.New("wks"), Kind: KindWorkspace, OrgID: "org_a", OwnerID: "usr_3", OwnerEmail: "x",
+		Name: "none", Model: "m", Access: AccessOwner,
+	}); err == nil {
+		t.Fatal("a workspace without an experience was stored")
+	}
+
+	agents, err := st.Agents(ctx, "org_a")
+	if err != nil || len(agents) != 1 || agents[0].ID != agent.ID {
+		t.Fatalf("Agents = %v, %v", agents, err)
+	}
+	if got, err := st.AgentByName(ctx, "org_a", "dev"); err != nil || got.ID != agent.ID {
+		t.Fatalf("AgentByName found %v, %v", got.ID, err)
+	}
+	ws, err := st.Workspaces(ctx, "org_a", "usr_1")
+	if err != nil || len(ws) != 1 || ws[0].ID != mine.ID || ws[0].Experience != ExperienceTerminal {
+		t.Fatalf("Workspaces(usr_1) = %v, %v", ws, err)
+	}
+	if all, _ := st.Workspaces(ctx, "org_a", ""); len(all) != 2 {
+		t.Fatalf("every workspace of the organisation: %d", len(all))
+	}
+	if got, err := st.WorkspaceByName(ctx, "org_a", "usr_1", "DEV"); err != nil || got.ID != mine.ID {
+		t.Fatalf("WorkspaceByName = %v, %v", got.ID, err)
+	}
+	if all, _ := st.Machines(ctx); len(all) != 3 {
+		t.Fatalf("Machines lists %d, want every agent and workspace", len(all))
+	}
+
+	mine.Experience = ExperienceVSCode
+	if out, err := st.UpdateAgent(ctx, mine); err != nil || out.Experience != ExperienceVSCode {
+		t.Fatalf("changing the experience: %v, %v", out.Experience, err)
+	}
+}
+
+func TestSSHKeys(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	k, err := st.AddSSHKey(ctx, SSHKey{
+		ID: id.New("ssh"), OrgID: "org_a", UserID: "usr_1", Name: "laptop",
+		PublicKey: "ssh-ed25519 AAAA laptop", Fingerprint: "SHA256:abc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddSSHKey(ctx, SSHKey{
+		ID: id.New("ssh"), OrgID: "org_a", UserID: "usr_1", PublicKey: "x", Fingerprint: "SHA256:abc",
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("the same key twice: %v", err)
+	}
+	if keys, _ := st.SSHKeys(ctx, "org_a", "usr_2"); len(keys) != 0 {
+		t.Fatalf("another person sees %v", keys)
+	}
+	if err := st.DeleteSSHKey(ctx, "org_a", "usr_2", k.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another person deleted a key: %v", err)
+	}
+	if err := st.DeleteSSHKey(ctx, "org_a", "usr_1", k.ID); err != nil {
+		t.Fatal(err)
+	}
+	if keys, _ := st.SSHKeys(ctx, "org_a", "usr_1"); len(keys) != 0 {
+		t.Fatalf("after deleting: %v", keys)
+	}
+}

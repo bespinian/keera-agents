@@ -505,3 +505,47 @@ func TestParseQuantity(t *testing.T) {
 		}
 	}
 }
+
+func TestAWorkspaceDeclaresItsFrontAndIsLabelled(t *testing.T) {
+	f := newFakeAPI(t)
+	k := f.driver(t, KubernetesOptions{Runtimes: map[Isolation]string{VM: "kata"}})
+	agent := testSpec()
+	if _, err := k.Create(context.Background(), agent); err != nil {
+		t.Fatal(err)
+	}
+	ws := testSpec()
+	ws.AgentID, ws.Workspace = "wks_1", true
+	if _, err := k.Create(context.Background(), ws); err != nil {
+		t.Fatal(err)
+	}
+	posts := f.requests(http.MethodPost)
+	if a := posts[0].Raw; strings.Contains(a, `"containerPort"`) || strings.Contains(a, `"app.kubernetes.io/component"`) {
+		t.Errorf("an agent takes no connections, so it has no port nor the workspace label:\n%s", a)
+	}
+	for _, want := range []string{
+		`"ports":[{"name":"front","containerPort":7420,"protocol":"TCP"}]`,
+		`"app.kubernetes.io/component":"workspace"`,
+	} {
+		if !strings.Contains(posts[1].Raw, want) {
+			t.Errorf("the workspace lacks %s\n%s", want, posts[1].Raw)
+		}
+	}
+}
+
+func TestAddressIsThePodsIP(t *testing.T) {
+	f := newFakeAPI(t)
+	k := f.driver(t, KubernetesOptions{})
+	ctx := context.Background()
+	if _, err := k.Address(ctx, "wks_1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Address without a pod = %v, want ErrNotFound", err)
+	}
+	f.put(podOf("wks_1"), `{"status":{"phase":"Pending"}}`)
+	if _, err := k.Address(ctx, "wks_1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Address of a pending pod = %v, want ErrNotFound", err)
+	}
+	f.put(podOf("wks_1"), `{"status":{"phase":"Running","podIP":"10.1.2.3"}}`)
+	addr, err := k.Address(ctx, "wks_1")
+	if err != nil || addr != "10.1.2.3:7420" {
+		t.Fatalf("Address = %q, %v", addr, err)
+	}
+}

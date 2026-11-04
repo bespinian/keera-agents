@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"os"
 	"os/exec"
 	"slices"
@@ -95,6 +96,13 @@ func (p *Podman) runArgs(spec Spec, rt string) (args, env []string) {
 	}
 	if p.opts.Network != "" {
 		args = append(args, "--network", p.opts.Network)
+	}
+	// A workspace's front must be reachable from keera-agents. On a network
+	// of its own, keera-agents is in a container on it too and uses the
+	// name. Otherwise keera-agents runs on the host: a port on the loopback
+	// only, chosen by podman.
+	if spec.Workspace && p.opts.Network == "" {
+		args = append(args, "--publish", "127.0.0.1::"+strconv.Itoa(protocol.FrontPort))
 	}
 	// Labels are the only record of an agent outside the database.
 	labels := labelsFor(spec)
@@ -277,6 +285,31 @@ func (p *Podman) Logs(ctx context.Context, agentID string, follow bool) (io.Read
 		_ = pw.CloseWithError(err)
 	}()
 	return &podmanLogs{PipeReader: pr, cancel: cancel}, nil
+}
+
+// Address finds a workspace's front: by name on the podman network, or the
+// loopback port podman published.
+func (p *Podman) Address(ctx context.Context, agentID string) (string, error) {
+	in, err := p.inspect(ctx, agentID)
+	if err != nil {
+		return "", err
+	}
+	if !in.State.Running {
+		return "", ErrNotFound
+	}
+	if p.opts.Network != "" {
+		return net.JoinHostPort(containerName(agentID), strconv.Itoa(protocol.FrontPort)), nil
+	}
+	out, err := p.run(ctx, "port", containerName(agentID), strconv.Itoa(protocol.FrontPort)+"/tcp")
+	if err != nil {
+		return "", podmanNotFound(err)
+	}
+	// One line per address, such as 127.0.0.1:41235.
+	addr, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	if addr == "" {
+		return "", fmt.Errorf("agent %s publishes no port; it was made before it was a workspace", agentID)
+	}
+	return addr, nil
 }
 
 type podmanLogs struct {

@@ -68,6 +68,7 @@ func (rn *Runner) Handler() http.Handler {
 	mux.HandleFunc("POST "+protocol.TaskPath+"/{id}/finish", rn.auth(rn.finish))
 	mux.HandleFunc("POST "+protocol.TaskPath+"/{id}/tools/{name}", rn.auth(rn.tool))
 	mux.HandleFunc(protocol.GitPath+"/{binding}/{path...}", rn.auth(rn.git))
+	mux.HandleFunc("POST "+protocol.WorkspaceToolPath+"/{name}", rn.auth(rn.workspaceTool))
 	return mux
 }
 
@@ -113,7 +114,11 @@ func (rn *Runner) bootstrap(w http.ResponseWriter, r *http.Request, a store.Agen
 		return
 	}
 	b.Gateway.APIKey = key
-	_ = rn.st.TouchAgent(r.Context(), a.ID)
+	// A workspace fetches its bootstrap now and then whether or not anybody
+	// is connected, so that is no sign of use.
+	if a.Kind != store.KindWorkspace {
+		_ = rn.st.TouchAgent(r.Context(), a.ID)
+	}
 	if a.State != store.AgentRunning {
 		_ = rn.st.SetAgentState(r.Context(), a.ID, store.AgentRunning, "")
 	}
@@ -144,8 +149,29 @@ func (rn *Runner) build(ctx context.Context, a store.Agent) (protocol.Bootstrap,
 	} else {
 		rn.log.Warn("could not read the agent's MCP servers from the gateway", "agent", a.ID, "error", err)
 	}
+	if a.Kind == store.KindWorkspace {
+		if b.Workspace, err = rn.workspaceInfo(ctx, a); err != nil {
+			return protocol.Bootstrap{}, err
+		}
+	}
 	b.Version = version(b, a.GatewayKeyID)
 	return b, nil
+}
+
+func (rn *Runner) workspaceInfo(ctx context.Context, a store.Agent) (*protocol.WorkspaceInfo, error) {
+	keys, err := rn.st.SSHKeys(ctx, a.OrgID, a.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	w := &protocol.WorkspaceInfo{
+		Experience:    a.Experience,
+		SSHKeys:       make([]string, 0, len(keys)),
+		IngressSecret: rn.fleet.IngressSecret(a),
+	}
+	for _, k := range keys {
+		w.SSHKeys = append(w.SSHKeys, k.PublicKey)
+	}
+	return w, nil
 }
 
 // version hashes all the bootstrap holds, so any change reaches a runtime
@@ -337,6 +363,23 @@ func (rn *Runner) tool(w http.ResponseWriter, r *http.Request, a store.Agent) {
 		return
 	}
 	res := rn.disp.CallTool(r.Context(), a, t, r.PathValue("name"), args)
+	_ = rn.st.TouchAgent(r.Context(), a.ID)
+	writeJSON(w, http.StatusOK, res)
+}
+
+// workspaceTool runs a platform tool for a workspace, which has no task: it
+// acts for its owner.
+func (rn *Runner) workspaceTool(w http.ResponseWriter, r *http.Request, a store.Agent) {
+	if a.Kind != store.KindWorkspace {
+		writeError(w, http.StatusNotFound, "not_found", "only a workspace calls tools without a task")
+		return
+	}
+	args, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
+	if err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "invalid_request", "the arguments are too large")
+		return
+	}
+	res := rn.disp.CallTool(r.Context(), a, dispatch.WorkspaceTask(a), r.PathValue("name"), args)
 	_ = rn.st.TouchAgent(r.Context(), a.ID)
 	writeJSON(w, http.StatusOK, res)
 }

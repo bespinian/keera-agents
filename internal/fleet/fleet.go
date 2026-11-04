@@ -5,6 +5,11 @@
 // resumed by its next task. A disabled agent is suspended. A deleted one is
 // removed with its volume and its key.
 //
+// A workspace is handled the same way, with three differences: no task wakes
+// it, only its owner connecting; it is idle after
+// KEERA_AGENTS_WORKSPACE_IDLE_SUSPEND without an open connection; and its
+// container takes connections, on its front.
+//
 // The manager also owns the agent's credentials: its gateway key, minted
 // with the service key and attributed to the agent's owner, and the runtime
 // token its container authenticates with.
@@ -15,6 +20,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -35,11 +41,16 @@ var ErrNoRuntime = errors.New("this deployment runs no agents yet; an operator s
 type Options struct {
 	// Image is the default agent image.
 	Image string
+	// WorkspaceImage is the default workspace image.
+	WorkspaceImage string
 	// RuntimeURL is keera-agents as a container reaches it.
 	RuntimeURL string
 	// IdleSuspend is how long an agent may sit with nothing to do before it
 	// is suspended. Zero never suspends.
 	IdleSuspend time.Duration
+	// WorkspaceIdleSuspend is the same for a workspace nobody is connected
+	// to.
+	WorkspaceIdleSuspend time.Duration
 	// Limits bound the classes agents may run with.
 	Limits runtime.Limits
 	Log    *slog.Logger
@@ -123,7 +134,12 @@ func (m *Manager) lock(id string) func() {
 
 // keyName is how an agent's key is named in the gateway, so people reading
 // its usage reports know what spent it.
-func keyName(a store.Agent) string { return "Agent " + a.Name }
+func keyName(a store.Agent) string {
+	if a.Kind == store.KindWorkspace {
+		return "Workspace " + a.Name
+	}
+	return "Agent " + a.Name
+}
 
 // keySealName binds a sealed key to its agent, so one agent's key cannot be
 // moved onto another's row.
@@ -233,9 +249,12 @@ func (m *Manager) start(ctx context.Context, a store.Agent) error {
 	image := a.Image
 	if image == "" {
 		image = m.opts.Image
+		if a.Kind == store.KindWorkspace {
+			image = m.opts.WorkspaceImage
+		}
 	}
 	spec := runtime.Spec{
-		AgentID: a.ID, Name: a.Name, Image: image, Class: class,
+		AgentID: a.ID, Workspace: a.Kind == store.KindWorkspace, Name: a.Name, Image: image, Class: class,
 		Owner: a.OwnerEmail, Org: a.OrgID, Project: a.ProjectID,
 		Env: map[string]string{
 			protocol.EnvRuntimeURL:   m.opts.RuntimeURL,
@@ -374,7 +393,7 @@ func (m *Manager) Reconcile(ctx context.Context) {
 	if m.driver == nil {
 		return
 	}
-	agents, err := m.st.Agents(ctx, "")
+	agents, err := m.st.Machines(ctx)
 	if err != nil {
 		m.log.Warn("could not list agents", "error", err)
 		return
@@ -429,8 +448,8 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 			m.log.Warn("could not start an agent again", "agent", a.ID, "error", err)
 		}
 		return
-	case a.Enabled && !busy && st.State == runtime.Running && m.opts.IdleSuspend > 0 &&
-		a.LastActiveAt != nil && time.Since(*a.LastActiveAt) > m.opts.IdleSuspend:
+	case a.Enabled && !busy && st.State == runtime.Running && m.idleLimit(a) > 0 &&
+		a.LastActiveAt != nil && time.Since(*a.LastActiveAt) > m.idleLimit(a):
 		if !m.suspendIdle(ctx, a) {
 			return
 		}
@@ -456,7 +475,7 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 // whether the agent stayed suspended.
 func (m *Manager) suspendIdle(ctx context.Context, a store.Agent) bool {
 	unlock := m.lock(a.ID)
-	suspended, err := m.st.SuspendIdle(ctx, a.ID, time.Now().Add(-m.opts.IdleSuspend), func() error {
+	suspended, err := m.st.SuspendIdle(ctx, a.ID, time.Now().Add(-m.idleLimit(a)), func() error {
 		return m.driver.Suspend(ctx, a.ID)
 	})
 	unlock()
@@ -477,6 +496,15 @@ func (m *Manager) suspendIdle(ctx context.Context, a store.Agent) bool {
 		return false
 	}
 	return true
+}
+
+// idleLimit is how long a machine may sit idle before it is suspended. Zero
+// never suspends.
+func (m *Manager) idleLimit(a store.Agent) time.Duration {
+	if a.Kind == store.KindWorkspace {
+		return m.opts.WorkspaceIdleSuspend
+	}
+	return m.opts.IdleSuspend
 }
 
 // retryDue reports whether a failed start may be tried again now, and if so
@@ -515,7 +543,7 @@ func (m *Manager) giveUp(ctx context.Context, a store.Agent) bool {
 // disabled, and revokes their keys: an agent acts for its owner and spends
 // their budget, so it must not outlive their access.
 func (m *Manager) CheckOwners(ctx context.Context) {
-	agents, err := m.st.Agents(ctx, "")
+	agents, err := m.st.Machines(ctx)
 	if err != nil {
 		return
 	}
@@ -555,3 +583,63 @@ func (m *Manager) Logs(ctx context.Context, agentID string, follow bool) (io.Rea
 }
 
 func randomToken() string { return "kat_" + rand.Text() }
+
+// IngressSecret is what keera-agents presents to a workspace's front. It is
+// derived from the stored runtime token's hash, so it changes at each start,
+// is never stored, and any replica can make it. It is empty before the
+// workspace's first start.
+func (m *Manager) IngressSecret(a store.Agent) string {
+	if len(a.RuntimeTokenHash) == 0 {
+		return ""
+	}
+	return hex.EncodeToString(m.box.Derive("workspace-ingress:"+a.ID, a.RuntimeTokenHash))
+}
+
+// readyWait bounds how long a connection waits for its workspace to start.
+const readyWait = 3 * time.Minute
+
+// Reach wakes a workspace if it is not running, waits until its runtime is
+// up, and returns its front's address and the workspace as it is then, with
+// the token its container has. A stopped workspace is refused: its owner
+// starts it first.
+func (m *Manager) Reach(ctx context.Context, agentID string) (string, store.Agent, error) {
+	if m.driver == nil {
+		return "", store.Agent{}, ErrNoRuntime
+	}
+	ctx, cancel := context.WithTimeout(ctx, readyWait)
+	defer cancel()
+	if err := m.Wake(ctx, agentID); err != nil {
+		return "", store.Agent{}, err
+	}
+	for {
+		a, err := m.st.Agent(ctx, agentID)
+		if err != nil {
+			return "", a, err
+		}
+		if !a.Enabled {
+			return "", a, ErrStopped
+		}
+		switch a.State {
+		case store.AgentFailed:
+			return "", a, errors.New(a.StateDetail)
+		case store.AgentRunning:
+			// Running means the runtime fetched its bootstrap; its front
+			// listens by then.
+			addr, err := m.driver.Address(ctx, agentID)
+			if err == nil {
+				return addr, a, nil
+			}
+			if !errors.Is(err, runtime.ErrNotFound) {
+				return "", a, err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return "", a, errors.New("the workspace did not start in time; see its logs in the panel")
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// ErrStopped is reaching a workspace someone stopped.
+var ErrStopped = errors.New("the workspace is stopped; start it first")

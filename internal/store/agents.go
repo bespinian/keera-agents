@@ -20,6 +20,19 @@ const (
 	AgentFailed    = "failed"
 )
 
+// Kinds of row in agents. A workspace is a machine an engineer works in; it
+// shares an agent's key, connectors and lifecycle, but never takes tasks.
+const (
+	KindAgent     = "agent"
+	KindWorkspace = "workspace"
+)
+
+// What a workspace's owner opens in it.
+const (
+	ExperienceTerminal = "terminal"
+	ExperienceVSCode   = "vscode"
+)
+
 // Who may give an agent work from a chat.
 const (
 	AccessOwner  = "owner"
@@ -28,7 +41,12 @@ const (
 )
 
 type Agent struct {
-	ID         string `json:"id"`
+	ID string `json:"id"`
+	// Kind is KindAgent or KindWorkspace. It never changes.
+	Kind string `json:"kind"`
+	// Experience is a workspace's ExperienceTerminal or ExperienceVSCode,
+	// and empty for an agent.
+	Experience string `json:"experience,omitempty"`
 	OrgID      string `json:"org_id"`
 	ProjectID  string `json:"project_id"`
 	OwnerID    string `json:"owner_id"`
@@ -58,7 +76,7 @@ type Agent struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
-const agentColumns = `id, org_id, project_id, owner_id, owner_email, name, icon, description,
+const agentColumns = `id, kind, experience, org_id, project_id, owner_id, owner_email, name, icon, description,
 	instructions, model, builtins, max_steps, access, allowed_emails, budget_micros, image,
 	class, state, state_detail, enabled, gateway_key_id, gateway_key, runtime_token_hash,
 	last_active_at, created_at, updated_at`
@@ -66,7 +84,7 @@ const agentColumns = `id, org_id, project_id, owner_id, owner_email, name, icon,
 func scanAgent(row pgx.Row) (Agent, error) {
 	var a Agent
 	var class []byte
-	err := row.Scan(&a.ID, &a.OrgID, &a.ProjectID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Icon,
+	err := row.Scan(&a.ID, &a.Kind, &a.Experience, &a.OrgID, &a.ProjectID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Icon,
 		&a.Description, &a.Instructions, &a.Model, &a.Builtins, &a.MaxSteps, &a.Access,
 		&a.AllowedEmails, &a.BudgetMicros, &a.Image, &class, &a.State, &a.StateDetail,
 		&a.Enabled, &a.GatewayKeyID, &a.GatewayKey, &a.RuntimeTokenHash, &a.LastActiveAt,
@@ -80,16 +98,21 @@ func scanAgent(row pgx.Row) (Agent, error) {
 	return a, nil
 }
 
+// CreateAgent makes an agent, or a workspace when a.Kind says so.
 func (s *Store) CreateAgent(ctx context.Context, a Agent) (Agent, error) {
 	class, _ := json.Marshal(a.Class)
+	if a.Kind == "" {
+		a.Kind = KindAgent
+	}
 	row := s.pool.QueryRow(ctx, `INSERT INTO agents (id, org_id, project_id, owner_id,
 		owner_email, name, description, instructions, model, builtins, max_steps, access,
-		allowed_emails, budget_micros, image, class, state, enabled, icon)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		allowed_emails, budget_micros, image, class, state, enabled, icon, kind, experience)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 		RETURNING `+agentColumns,
 		a.ID, a.OrgID, a.ProjectID, a.OwnerID, a.OwnerEmail, a.Name, a.Description,
 		a.Instructions, a.Model, emptyIfNil(a.Builtins), a.MaxSteps, a.Access,
-		emptyIfNil(a.AllowedEmails), a.BudgetMicros, a.Image, class, AgentStopped, a.Enabled, a.Icon)
+		emptyIfNil(a.AllowedEmails), a.BudgetMicros, a.Image, class, AgentStopped, a.Enabled, a.Icon,
+		a.Kind, a.Experience)
 	out, err := scanAgent(row)
 	return out, conflict(err)
 }
@@ -100,24 +123,35 @@ func (s *Store) UpdateAgent(ctx context.Context, a Agent) (Agent, error) {
 	row := s.pool.QueryRow(ctx, `UPDATE agents SET name = $2, description = $3,
 		instructions = $4, model = $5, builtins = $6, max_steps = $7, access = $8,
 		allowed_emails = $9, budget_micros = $10, image = $11, class = $12, enabled = $13,
-		project_id = $14, icon = $15, updated_at = now()
+		project_id = $14, icon = $15, experience = $16, updated_at = now()
 		WHERE id = $1 AND deleted_at IS NULL RETURNING `+agentColumns,
 		a.ID, a.Name, a.Description, a.Instructions, a.Model, emptyIfNil(a.Builtins),
 		a.MaxSteps, a.Access, emptyIfNil(a.AllowedEmails), a.BudgetMicros, a.Image, class,
-		a.Enabled, a.ProjectID, a.Icon)
+		a.Enabled, a.ProjectID, a.Icon, a.Experience)
 	out, err := scanAgent(row)
 	return out, conflict(err)
 }
 
+// Agent loads an agent or a workspace by id; callers that serve only one
+// kind check a.Kind.
 func (s *Store) Agent(ctx context.Context, id string) (Agent, error) {
 	return scanAgent(s.pool.QueryRow(ctx,
 		`SELECT `+agentColumns+` FROM agents WHERE id = $1 AND deleted_at IS NULL`, id))
 }
 
-// AgentByName finds an agent in an organisation, ignoring case.
+// AgentByName finds an agent in an organisation, ignoring case. Workspaces
+// are not agents to give work to, so it never finds one.
 func (s *Store) AgentByName(ctx context.Context, orgID, name string) (Agent, error) {
 	return scanAgent(s.pool.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents
-		WHERE org_id = $1 AND lower(name) = lower($2) AND deleted_at IS NULL`, orgID, name))
+		WHERE org_id = $1 AND lower(name) = lower($2) AND kind = 'agent' AND deleted_at IS NULL`,
+		orgID, name))
+}
+
+// WorkspaceByName finds one of a person's workspaces, ignoring case.
+func (s *Store) WorkspaceByName(ctx context.Context, orgID, ownerID, name string) (Agent, error) {
+	return scanAgent(s.pool.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents
+		WHERE org_id = $1 AND owner_id = $2 AND lower(name) = lower($3) AND kind = 'workspace'
+		AND deleted_at IS NULL`, orgID, ownerID, name))
 }
 
 // AgentByRuntimeToken authenticates a container.
@@ -126,11 +160,25 @@ func (s *Store) AgentByRuntimeToken(ctx context.Context, hash []byte) (Agent, er
 		WHERE runtime_token_hash = $1 AND deleted_at IS NULL`, hash))
 }
 
-// Agents lists an organisation's agents. An empty orgID lists every agent,
-// for the control plane's own loops.
+// Agents lists an organisation's agents, without its workspaces.
 func (s *Store) Agents(ctx context.Context, orgID string) ([]Agent, error) {
 	return queryAll(ctx, s, scanAgent, `SELECT `+agentColumns+` FROM agents
-		WHERE ($1 = '' OR org_id = $1) AND deleted_at IS NULL ORDER BY lower(name)`, orgID)
+		WHERE org_id = $1 AND kind = 'agent' AND deleted_at IS NULL ORDER BY lower(name)`, orgID)
+}
+
+// Workspaces lists an organisation's workspaces, or only one person's when
+// ownerID is set.
+func (s *Store) Workspaces(ctx context.Context, orgID, ownerID string) ([]Agent, error) {
+	return queryAll(ctx, s, scanAgent, `SELECT `+agentColumns+` FROM agents
+		WHERE org_id = $1 AND ($2 = '' OR owner_id = $2) AND kind = 'workspace'
+		AND deleted_at IS NULL ORDER BY lower(name)`, orgID, ownerID)
+}
+
+// Machines lists every agent and workspace of every organisation, for the
+// control plane's own loops.
+func (s *Store) Machines(ctx context.Context) ([]Agent, error) {
+	return queryAll(ctx, s, scanAgent, `SELECT `+agentColumns+` FROM agents
+		WHERE deleted_at IS NULL ORDER BY id`)
 }
 
 func (s *Store) SetAgentState(ctx context.Context, id, state, detail string) error {
