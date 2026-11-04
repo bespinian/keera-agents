@@ -92,16 +92,9 @@ export async function boardView(ctx) {
   if (!boards.length) {
     return h(
       "div",
-      { class: "card" },
-      empty("No board yet", [
-        h("div", {}, "A board holds cards for people and agents."),
-        h(
-          "button",
-          { class: "btn btn-primary", style: { marginTop: "14px" }, onClick: () => newBoard(ctx) },
-          icon(icons.plus),
-          "New board",
-        ),
-      ]),
+      {},
+      listHead(null, null, { label: "New board", onClick: () => newBoard(ctx) }),
+      h("div", { class: "card" }, empty("No board yet", "A board holds cards for people and agents.")),
     );
   }
   const saved = remembered("keera.board", { lasting: true });
@@ -581,7 +574,7 @@ export async function boardView(ctx) {
     "div",
     {},
     listHead(
-      "A card in To do with an agent is picked up by it. It comments with its result and moves the card to Review, or to Backlog if it could not finish.",
+      null,
       [picker, boardMenu],
       { label: "New card", onClick: () => newCard("backlog") },
     ),
@@ -594,6 +587,11 @@ export async function boardView(ctx) {
           " to hand them work.",
         ),
     kanban,
+    h(
+      "div",
+      { class: "hint", style: { marginTop: "14px" } },
+      "A card in To do with an agent is picked up by it. It comments with its result and moves the card to Review, or to Backlog if it could not finish.",
+    ),
   );
 }
 

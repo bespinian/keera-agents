@@ -16,8 +16,6 @@ import {
   dash,
   num,
   banner,
-  icon,
-  icons,
   replace,
   fold,
   checkRow,
@@ -41,7 +39,7 @@ export async function agentsView(ctx) {
     {},
     listHead(null, [], { label: "New agent", onClick: () => openNewAgent(ctx) }),
     noRuntime(me),
-    agents.length ? agentTable(ctx, agents) : noAgents(ctx),
+    agents.length ? agentTable(ctx, agents) : noAgents(),
   );
 }
 
@@ -133,25 +131,16 @@ function agentTable(ctx, agents) {
 }
 
 /** noAgents is what the agents list and the dashboard show before the first
- *  agent: what one is, and a button to create it. */
-export function noAgents(ctx) {
+ *  agent: what one is. */
+export function noAgents() {
   return h(
     "div",
     { class: "card" },
-    empty("No agents yet", [
-      h(
-        "div",
-        {},
-        "An agent is an assistant for your organisation. It takes tasks from chats, folders, " +
-          "schedules and the board, and does them with the tools you allow.",
-      ),
-      h(
-        "button",
-        { class: "btn btn-primary", style: { marginTop: "14px" }, onClick: () => openNewAgent(ctx) },
-        icon(icons.plus),
-        "New agent",
-      ),
-    ]),
+    empty(
+      "No agents yet",
+      "An agent is an assistant for your organisation. It takes tasks from chats, folders, " +
+        "schedules and the board, and does them with the tools you allow.",
+    ),
   );
 }
 
