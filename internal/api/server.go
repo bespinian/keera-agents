@@ -44,6 +44,8 @@ type Server struct {
 	// while, so each page load is not a round trip to the gateway.
 	whoMu    sync.Mutex
 	whoCache map[string]cachedWho
+
+	connects connectLog
 }
 
 type cachedWho struct {
@@ -105,6 +107,22 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/agents/{id}/tasks", s.giveTask)
 	route("POST /api/v1/agents/{id}/bindings", s.createBinding)
 	route("DELETE /api/v1/bindings/{id}", s.deleteBinding)
+
+	// {id} is a workspace's id, or the name of one of the caller's own.
+	route("GET /api/v1/workspaces", s.listWorkspaces)
+	route("POST /api/v1/workspaces", s.createWorkspace)
+	route("GET /api/v1/workspaces/{id}", s.getWorkspace)
+	route("PATCH /api/v1/workspaces/{id}", s.updateWorkspace)
+	route("DELETE /api/v1/workspaces/{id}", s.deleteWorkspace)
+	route("POST /api/v1/workspaces/{id}/start", s.startWorkspace)
+	route("POST /api/v1/workspaces/{id}/stop", s.stopWorkspace)
+	route("GET /api/v1/workspaces/{id}/logs", s.workspaceLogs)
+	route("POST /api/v1/workspaces/{id}/bindings", s.createWorkspaceBinding)
+	route("POST /api/v1/workspaces/{id}/connect", s.connectWorkspace)
+
+	route("GET /api/v1/me/ssh-keys", s.listSSHKeys)
+	route("POST /api/v1/me/ssh-keys", s.addSSHKey)
+	route("DELETE /api/v1/me/ssh-keys/{id}", s.deleteSSHKey)
 
 	route("GET /api/v1/schedules", s.listSchedules)
 	route("POST /api/v1/schedules", s.createSchedule)
