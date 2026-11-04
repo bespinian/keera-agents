@@ -107,6 +107,7 @@ test("a channel offers the modes its kind supports", () => {
   assert.deepEqual(modesFor({ chat: true, files: false }), ["chat"]);
   assert.deepEqual(modesFor({ chat: false, files: true }), ["watch", "files"]);
   assert.deepEqual(modesFor({ code: true }), ["repo"]);
+  assert.deepEqual(modesFor({ api: true }), ["read", "write"]);
   assert.deepEqual(modesFor(null), []);
   assert.equal(kindLabel("slack", []), "Slack");
   assert.equal(

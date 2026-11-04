@@ -1,5 +1,6 @@
-// An agent's channels: the chats it answers in and the folders it watches or
-// works in, each on one of the organisation's connectors.
+// An agent's channels: the chats it answers in, the folders it watches or
+// works in, its repositories and the services it calls, each on one of the
+// organisation's connectors.
 
 import { api } from "../api.js";
 import {
@@ -12,7 +13,7 @@ import {
   iconButton,
   icon,
   icons,
-  serviceMark,
+  kindMark,
   replace,
   sectionHead,
   pill,
@@ -51,7 +52,7 @@ export async function channelsTab(ctx, agent) {
     !connections.length
       ? banner(
           "info",
-          "A channel needs a connector to a chat service, file store or code host. ",
+          "A channel needs a connector, such as to a chat, a file store or a CRM. ",
           admin ? [link(ctx, "/connectors", "Add a connector"), " first."] : "An administrator adds connectors.",
         )
       : null,
@@ -63,22 +64,18 @@ export async function channelsTab(ctx, agent) {
             h(
               "div",
               { class: "row" },
-              h(
-                "span",
-                { class: "tile-mark", style: { width: "28px", height: "28px", margin: "0" } },
-                serviceMark(b.kind) || icon(icons.connections),
-              ),
+              h("span", { class: "tile-mark tile-mark-sm" }, kindMark(b.kind, kinds)),
               h(
                 "div",
                 { class: "stack" },
-                h("strong", {}, b.label || targetText(b)),
+                h("strong", {}, b.label || targetText(b, kinds)),
                 h(
                   "span",
                   { class: "faint small" },
                   b.connection_name,
                   " · ",
                   kindLabel(b.kind, kinds),
-                  b.label && b.target !== b.label ? [" · ", h("span", { class: "mono" }, targetText(b))] : null,
+                  b.label && b.target !== b.label ? [" · ", h("span", { class: "mono" }, targetText(b, kinds))] : null,
                 ),
               ),
             ),
@@ -86,7 +83,8 @@ export async function channelsTab(ctx, agent) {
         {
           label: "Mode",
           shrink: true,
-          cell: (b) => pill((MODES[b.mode] || [b.mode])[0], b.mode === "chat" ? "accent" : ""),
+          cell: (b) =>
+            pill((MODES[b.mode] || [b.mode])[0], b.mode === "chat" ? "accent" : b.mode === "write" ? "warn" : ""),
         },
         {
           label: "Task",
@@ -117,14 +115,16 @@ export async function channelsTab(ctx, agent) {
                           ? `${agent.name} stops answering there. Schedules that reply there keep their results in Tasks.`
                           : b.mode === "repo"
                             ? `${agent.name} can no longer clone or push to it. Its branches and pull requests stay.`
-                            : `${agent.name} stops using this folder. Its files stay where they are.`,
+                            : b.mode === "read" || b.mode === "write"
+                              ? `${agent.name} loses the tools of this connector. What it changed there stays.`
+                              : `${agent.name} stops using this folder. Its files stay where they are.`,
                       confirmLabel: "Remove",
                       danger: true,
                       onConfirm: () => api.deleteBinding(b.id),
                       done: "Channel removed",
                       ctx,
                     }),
-                  { danger: true, label: `Remove ${b.label || targetText(b)}` },
+                  { danger: true, label: `Remove ${b.label || targetText(b, kinds)}` },
                 )
               : null,
         },
@@ -133,20 +133,27 @@ export async function channelsTab(ctx, agent) {
       {
         emptyTitle: "No channels yet",
         emptyBody:
-          "A channel is where the agent takes work: a chat it answers in, a folder it watches, or a repository it codes in.",
+          "A channel is where the agent works: a chat it answers in, a folder it watches, a repository it codes in, " +
+          "or a service it calls, such as Jira or AWS.",
       },
     ),
   );
 }
 
-function targetText(b) {
-  return b.target === "*" ? "Every chat the bot is in" : b.target;
+function targetText(b, kinds) {
+  if (b.target !== "*") return b.target;
+  return b.mode === "chat" ? "Every chat the bot is in" : `All of ${kindLabel(b.kind, kinds)}`;
 }
 
 /** modesFor lists what an agent can do with a kind's connector. */
 export function modesFor(kind) {
   if (!kind) return [];
-  return [...(kind.chat ? ["chat"] : []), ...(kind.files ? ["watch", "files"] : []), ...(kind.code ? ["repo"] : [])];
+  return [
+    ...(kind.chat ? ["chat"] : []),
+    ...(kind.files ? ["watch", "files"] : []),
+    ...(kind.code ? ["repo"] : []),
+    ...(kind.api ? ["read", "write"] : []),
+  ];
 }
 
 function addChannel(ctx, agent, connections, kinds) {
@@ -196,6 +203,8 @@ function addChannel(ctx, agent, connections, kinds) {
       modes.map((m) => h("option", { value: m, selected: m === keep }, `${MODES[m][0]}: ${MODES[m][1]}`)),
     );
     targetLabel.textContent = kind.target_label || (kind.code ? "Repository" : kind.files ? "Folder" : "Conversation");
+    // An API kind with nothing to narrow to reaches all it can.
+    targetField.hidden = !!kind.api && !kind.target_label;
     browse.hidden = !kind.files;
     browser.hidden = true;
     syncMode();
@@ -204,21 +213,24 @@ function addChannel(ctx, agent, connections, kinds) {
   function syncMode() {
     const kind = kindOf(chosen());
     const chat = mode.value === "chat";
+    const any = chat || (kind.api && kind.any_target);
     promptField.hidden = mode.value !== "watch";
-    target.placeholder = chat ? "*" : "";
+    target.placeholder = any ? "*" : "";
     replace(
       targetHint,
       kind.target_help || "",
-      chat
+      any
         ? [
             kind.target_help ? " " : "",
             h("code", {}, "*"),
-            " is every conversation the bot is in, direct messages included.",
+            chat
+              ? " is every conversation the bot is in, direct messages included."
+              : " is everything the connector reaches.",
           ]
         : null,
     );
     if (chat && !target.value) target.value = "*";
-    if (!chat && target.value === "*") target.value = "";
+    if (!any && target.value === "*") target.value = "";
   }
 
   connection.addEventListener("change", () => {
@@ -324,6 +336,7 @@ function addChannel(ctx, agent, connections, kinds) {
     done: "Channel added",
     ctx,
     submit: () => {
+      if (targetField.hidden) target.value = "*";
       if (!target.value.trim()) fail(target, `Fill in ${targetLabel.textContent.toLowerCase()}.`);
       if (mode.value === "watch" && !prompt.value.trim()) {
         fail(prompt, "Say what the agent should do with each new file.");

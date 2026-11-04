@@ -105,6 +105,7 @@ lacks tool calling, or its backend does not parse tool calls.
 | `web`      | `web_fetch`, if egress allows it                                                        |
 | MCP        | every MCP server the agent's key may call, as `<server>__<tool>`                        |
 | Platform   | `send_message`, `board_*`, `files_*` for connected folders, `repo_*` for repositories   |
+| Services   | `<kind>_<tool>` for each API connector, such as `jira_search_issues` or `aws_costs`     |
 
 A chat thread keeps its history in the workspace, so a follow-up in the same
 thread has the context of the earlier messages.

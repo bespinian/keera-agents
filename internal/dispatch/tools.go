@@ -105,6 +105,7 @@ func (d *Dispatcher) Tools(ctx context.Context, a store.Agent) ([]protocol.ToolS
 		)
 	}
 	tools = append(tools, codeTools(bindings)...)
+	tools = append(tools, apiTools(bindings)...)
 	return tools, nil
 }
 
@@ -193,6 +194,15 @@ func value(s *string) string {
 
 // CallTool runs one platform tool for a task.
 func (d *Dispatcher) CallTool(ctx context.Context, a store.Agent, t store.Task, name string, args json.RawMessage) protocol.ToolResult {
+	// An API connector's tools have arguments of their own, which may not
+	// fit toolArgs.
+	if _, ok := apiKindOf(name); ok {
+		out, err := d.toolAPI(ctx, a, name, args)
+		if err != nil {
+			return failed("%v", err)
+		}
+		return protocol.ToolResult{Content: cutResult(asText(out))}
+	}
 	in, err := decodeArgs(args)
 	if err != nil {
 		return failed("the arguments do not fit the tool's schema: %v", err)
@@ -230,11 +240,17 @@ func (d *Dispatcher) CallTool(ctx context.Context, a store.Agent, t store.Task, 
 	if err != nil {
 		return failed("%v", err)
 	}
+	return protocol.ToolResult{Content: asText(out)}
+}
+
+// asText is a tool's result as the model reads it: a string as it is,
+// anything else as JSON.
+func asText(out any) string {
 	if s, ok := out.(string); ok {
-		return protocol.ToolResult{Content: s}
+		return s
 	}
 	b, _ := json.Marshal(out)
-	return protocol.ToolResult{Content: string(b)}
+	return string(b)
 }
 
 func failed(format string, args ...any) protocol.ToolResult {

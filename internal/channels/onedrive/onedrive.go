@@ -57,8 +57,11 @@ func New(opts channels.Options) *Adapter {
 
 func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
-		Kind:  channels.OneDrive,
-		Label: "OneDrive and SharePoint",
+		Kind:     channels.OneDrive,
+		Label:    "OneDrive and SharePoint",
+		Vendor:   "Microsoft",
+		Category: "Files",
+		Summary:  "Agents watch folders in OneDrive or a SharePoint library, and read and write files in them.",
 		Fields: []channels.Field{
 			{Name: "tenant_id", Label: "Tenant ID", Required: true, Help: "Your Microsoft Entra tenant ID."},
 			{Name: "client_id", Label: "Client ID", Required: true, Help: "The application (client) ID of the app registration."},

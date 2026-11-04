@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -622,12 +623,24 @@ func (s *Server) createBinding(w http.ResponseWriter, r *http.Request, p Princip
 	}
 	desc, _ := channels.Describe(channels.Kind(c.Kind))
 	in.Target = strings.TrimSpace(in.Target)
+	apiMode := in.Mode == store.ModeRead || in.Mode == store.ModeWrite
+	// "*" is every chat a bot is in, or all an API connector reaches.
+	anyAllowed := in.Mode == store.ModeChat || apiMode && (desc.AnyTarget || desc.TargetLabel == "")
+	// An API kind with nothing to narrow to reaches everything.
+	if desc.API && desc.TargetLabel == "" {
+		in.Target = channels.AnyTarget
+	}
 	switch {
+	case !slices.Contains([]string{
+		store.ModeChat, store.ModeWatch, store.ModeFiles, store.ModeRepo, store.ModeRead, store.ModeWrite,
+	}, in.Mode):
+		badRequest(w, "mode must be chat, watch, files, repo, read or write")
+		return
 	case in.Target == "":
 		badRequest(w, "name the "+strings.ToLower(desc.TargetLabel))
 		return
 	case in.Mode == store.ModeChat && !desc.Chat:
-		badRequest(w, desc.Label+" is not a chat; choose watch or files")
+		badRequest(w, desc.Label+" is not a chat")
 		return
 	case (in.Mode == store.ModeWatch || in.Mode == store.ModeFiles) && !desc.Files:
 		badRequest(w, desc.Label+" holds no files")
@@ -635,22 +648,30 @@ func (s *Server) createBinding(w http.ResponseWriter, r *http.Request, p Princip
 	case (in.Mode == store.ModeRepo) != desc.Code:
 		badRequest(w, desc.Label+" takes the mode repo, and only it does")
 		return
-	case !slices.Contains([]string{store.ModeChat, store.ModeWatch, store.ModeFiles, store.ModeRepo}, in.Mode):
-		badRequest(w, "mode must be chat, watch, files or repo")
+	case apiMode != desc.API:
+		badRequest(w, desc.Label+" takes the mode read or write, and only it does")
 		return
-	case in.Target == store.AnyConversation && in.Mode != store.ModeChat:
-		badRequest(w, "a folder or repository must be named; * is only for chats")
+	case in.Target == store.AnyConversation && !anyAllowed:
+		badRequest(w, "name the "+strings.ToLower(cmp.Or(desc.TargetLabel, "target"))+"; * is not allowed here")
 		return
 	}
-	if in.Mode == store.ModeRepo {
-		// Checked now, so a typo or a token that may not push fails here
-		// and not in the middle of a task.
+	// Checked now, so a typo, or credentials that cannot reach it, fail
+	// here and not in the middle of a task.
+	switch {
+	case in.Mode == store.ModeRepo:
 		repo, err := s.disp.LookupRepo(r.Context(), c, in.Target)
 		if err != nil {
 			badRequest(w, err.Error())
 			return
 		}
 		in.Target = repo.Path
+	case apiMode:
+		target, err := s.disp.LookupTarget(r.Context(), c, in.Target)
+		if err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+		in.Target = target
 	}
 	b, err := s.st.CreateBinding(r.Context(), store.Binding{
 		ID: id.New("bnd"), AgentID: a.ID, ConnectionID: c.ID, Target: in.Target,

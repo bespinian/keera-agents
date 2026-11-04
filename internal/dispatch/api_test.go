@@ -1,0 +1,108 @@
+package dispatch
+
+import (
+	"context"
+	"encoding/json"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/store"
+)
+
+// fakeAPI is an API kind with a tool that reads and one that writes.
+type fakeAPI struct{}
+
+func (fakeAPI) Descriptor() channels.Descriptor {
+	return channels.Descriptor{Kind: "fakeapi", Label: "Fake API", TargetLabel: "Project"}
+}
+
+func (fakeAPI) Check(context.Context, channels.Connection) error { return nil }
+
+func (fakeAPI) Tools() []channels.Tool {
+	return []channels.Tool{
+		{Name: "search", Description: "Search.", Parameters: json.RawMessage(
+			`{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}`)},
+		{Name: "create", Description: "Create.", Write: true},
+	}
+}
+
+func (fakeAPI) Target(_ context.Context, _ channels.Connection, t string) (string, error) {
+	return t, nil
+}
+
+func (fakeAPI) Call(context.Context, channels.Connection, string, string, json.RawMessage) (any, error) {
+	return nil, nil
+}
+
+func TestAPITools(t *testing.T) {
+	channels.Register(fakeAPI{})
+	read := store.Binding{ID: "bnd_r", Kind: "fakeapi", Target: "ACME", Mode: store.ModeRead}
+	write := store.Binding{ID: "bnd_w", Kind: "fakeapi", Target: channels.AnyTarget, Mode: store.ModeWrite}
+	chat := store.Binding{ID: "bnd_c", Kind: "slack", Target: "C1", Mode: store.ModeChat}
+
+	names := func(bs ...store.Binding) []string {
+		var out []string
+		for _, s := range apiTools(bs) {
+			out = append(out, s.Name)
+		}
+		return out
+	}
+	if got := names(chat); got != nil {
+		t.Errorf("a chat gave tools %v", got)
+	}
+	// A read-only binding hides the tools that write.
+	if got := names(read); !slices.Equal(got, []string{"fakeapi_search"}) {
+		t.Errorf("read only: %v", got)
+	}
+	specs := apiTools([]store.Binding{read, write})
+	if len(specs) != 2 || specs[1].Name != "fakeapi_create" {
+		t.Fatalf("read and write: %+v", specs)
+	}
+
+	var search, create struct {
+		Properties map[string]struct {
+			Enum        []string `json:"enum"`
+			Description string   `json:"description"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	_ = json.Unmarshal(specs[0].Parameters, &search)
+	_ = json.Unmarshal(specs[1].Parameters, &create)
+	if !slices.Equal(search.Required, []string{"connector", "q"}) || search.Properties["q"].Description != "" {
+		t.Errorf("search's parameters: %s", specs[0].Parameters)
+	}
+	c := search.Properties["connector"]
+	if !slices.Equal(c.Enum, []string{"bnd_r", "bnd_w"}) || !strings.Contains(c.Description, "ACME, read only") {
+		t.Errorf("search's connector: %+v", c)
+	}
+	// Only a binding that may write is offered to a tool that writes.
+	if !slices.Equal(create.Properties["connector"].Enum, []string{"bnd_w"}) {
+		t.Errorf("create's connector: %+v", create.Properties["connector"])
+	}
+
+	if k, ok := apiKindOf("fakeapi_search"); !ok || k != "fakeapi" {
+		t.Errorf("apiKindOf = %q, %v", k, ok)
+	}
+	for _, name := range []string{"send_message", "files_read", "board_comment", "repo_comment"} {
+		if _, ok := apiKindOf(name); ok {
+			t.Errorf("%s taken for an API tool", name)
+		}
+	}
+}
+
+func TestCutResult(t *testing.T) {
+	if got := cutResult("short"); got != "short" {
+		t.Errorf("cut a short result: %q", got)
+	}
+	long := strings.Repeat("é", maxAPIResult)
+	got := cutResult(long)
+	head, note, ok := strings.Cut(got, "\n[Cut")
+	if !ok || !strings.Contains(note, "Ask for less") || len(head) > maxAPIResult {
+		t.Fatalf("cut to %d bytes: %q", len(head), note)
+	}
+	if !strings.HasSuffix(head, "é") {
+		t.Error("cut in the middle of a character")
+	}
+}

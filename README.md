@@ -6,7 +6,10 @@ assistant with its own machine, workspace and memory. People give it work in
 **kanban board**, or on a **schedule**. It reads and writes files in **Google Drive** and
 **OneDrive and SharePoint**, and can start work when a file lands in a folder.
 It codes in **GitHub** and **GitLab** repositories: it clones, pushes a branch
-and opens a pull or merge request for a person to review.
+and opens a pull or merge request for a person to review. And it works in the
+business's other services through typed tools: **Jira**, **Confluence**,
+**Google Docs, Sheets, Slides and Calendar**, **Outlook**, **HubSpot**,
+**Salesforce**, **Kubernetes**, **AWS**, **Azure** and **Google Cloud**.
 
 It is built on **Keera Gateway**. People sign in with the gateway's sign-in.
 Every model call an agent makes goes through the gateway, with a key of the
@@ -54,6 +57,10 @@ StatefulSet each.
 - **Code.** An agent connected to a repository clones it with git, runs its
   tests in its own machine, pushes branches starting with `keera/` and opens
   pull or merge requests. It cannot push to any other branch.
+- **Services.** An agent connected to a service, such as a Jira project or an
+  AWS region, gets tools for it, such as searching issues or reading costs.
+  A connection may only read, or also write, and the tools stay within what it
+  names ([docs/channels.md](docs/channels.md#services)).
 - **Credentials stay out of agents.** The control plane makes the calls that
   need them ([docs/agents.md](docs/agents.md#what-an-agent-holds)).
 

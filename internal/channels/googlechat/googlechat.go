@@ -70,8 +70,11 @@ func New(opts channels.Options) *Adapter {
 
 func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
-		Kind:  channels.GoogleChat,
-		Label: "Google Chat",
+		Kind:     channels.GoogleChat,
+		Label:    "Google Chat",
+		Vendor:   "Google",
+		Category: "Chat",
+		Summary:  "Agents answer when mentioned in spaces and in direct messages.",
 		Fields: []channels.Field{
 			{
 				Name: "service_account_json", Label: "Service account key", Secret: true, Required: true, Multiline: true,

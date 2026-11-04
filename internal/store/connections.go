@@ -75,6 +75,10 @@ const (
 	// ModeRepo lets an agent clone a repository, push branches and open
 	// pull or merge requests.
 	ModeRepo = "repo"
+	// ModeRead and ModeWrite let an agent call an API connector's tools:
+	// those that only read, or all of them.
+	ModeRead  = "read"
+	ModeWrite = "write"
 )
 
 // AnyConversation binds every conversation a chat connection's bot is in.

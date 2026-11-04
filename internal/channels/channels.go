@@ -1,15 +1,18 @@
 // Package channels connects agents to the places a business works in: chat
 // services (Microsoft Teams, Google Chat, Slack), file stores (Google Drive,
-// OneDrive and SharePoint) and code hosts (GitHub, GitLab).
+// OneDrive and SharePoint), code hosts (GitHub, GitLab), and the business's
+// other services, which agents call through typed tools (Jira, Salesforce,
+// AWS and more).
 //
 // A Connection is one organisation's credentials for one service, such as
 // its Slack app. Each kind has an adapter in a package of its own, which
-// registers itself here. The control plane only ever talks to Chat, Files
-// and Code.
+// registers itself here. The control plane only ever talks to Chat, Files,
+// Code and API.
 package channels
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,7 +30,25 @@ const (
 	OneDrive    Kind = "onedrive"
 	GitHub      Kind = "github"
 	GitLab      Kind = "gitlab"
+
+	Jira           Kind = "jira"
+	Confluence     Kind = "confluence"
+	GoogleDocs     Kind = "gdocs"
+	GoogleSheets   Kind = "gsheets"
+	GoogleSlides   Kind = "gslides"
+	GoogleCalendar Kind = "gcalendar"
+	Outlook        Kind = "outlook"
+	HubSpot        Kind = "hubspot"
+	Salesforce     Kind = "salesforce"
+	Kubernetes     Kind = "kubernetes"
+	AWS            Kind = "aws"
+	Azure          Kind = "azure"
+	GCP            Kind = "gcp"
 )
+
+// AnyTarget is a binding to everything a connection reaches: every
+// conversation a chat bot is in, or every project an API connector sees.
+const AnyTarget = "*"
 
 // Connection is one organisation's credentials for one service. Secrets are
 // decrypted only to make a call, and never sent to the panel or an agent.
@@ -58,22 +79,34 @@ type Field struct {
 type Descriptor struct {
 	Kind  Kind   `json:"kind"`
 	Label string `json:"label"`
+	// Vendor makes the service, such as Google. Category groups kinds in the
+	// panel's catalogue, such as Chat or Cloud. Summary says in one sentence
+	// what agents do with it.
+	Vendor   string `json:"vendor"`
+	Category string `json:"category"`
+	Summary  string `json:"summary"`
 	// Chat kinds take messages and send replies. Files kinds are watched
 	// folders and file tools. Code kinds hold repositories agents clone,
-	// push to and open changes in. Register sets all three from the
-	// interfaces the adapter implements.
+	// push to and open changes in. API kinds give agents Tools. Register
+	// sets all four, and Tools, from the interfaces the adapter implements.
 	Chat   bool    `json:"chat"`
 	Files  bool    `json:"files"`
 	Code   bool    `json:"code"`
+	API    bool    `json:"api"`
+	Tools  []Tool  `json:"tools,omitempty"`
 	Fields []Field `json:"fields"`
 	// Setup lists, as numbered Markdown steps, what to create on the
 	// service's side. It may name {webhook}, which the panel replaces with
 	// the address to register.
 	Setup string `json:"setup"`
 	// TargetLabel and TargetHelp describe what a binding names: a channel,
-	// a space, a folder.
-	TargetLabel string `json:"target_label"`
+	// a space, a folder, a Jira project. An API kind without a TargetLabel
+	// has nothing to narrow to, and its bindings are AnyTarget.
+	TargetLabel string `json:"target_label,omitempty"`
 	TargetHelp  string `json:"target_help,omitempty"`
+	// AnyTarget is an API kind whose binding may be AnyTarget: everything
+	// the connection reaches.
+	AnyTarget bool `json:"any_target,omitempty"`
 }
 
 // Person is who sent a message. Email is what maps them to a Keera user, so
@@ -252,6 +285,33 @@ type Code interface {
 	OpenChange(ctx context.Context, conn Connection, path string, c Change) (Issue, error)
 }
 
+// Tool is one thing an API kind lets agents do. Agents see it as
+// <kind>_<name>, with a "connector" argument added for the binding's id.
+type Tool struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Parameters is the JSON Schema of the arguments, an object.
+	Parameters json.RawMessage `json:"-"`
+	// Write changes something in the service. A read-only binding has no
+	// such tools.
+	Write bool `json:"write,omitempty"`
+}
+
+// API is a service agents call through typed tools, such as Jira or AWS.
+type API interface {
+	Adapter
+	Tools() []Tool
+	// Target checks a binding's target before it is saved, with the
+	// connection, and returns it as it should be stored, such as a Jira
+	// project's key in capitals. AnyTarget comes only for a kind that
+	// allows it.
+	Target(ctx context.Context, conn Connection, target string) (string, error)
+	// Call runs one tool. The adapter keeps it within target, unless that
+	// is AnyTarget. args are the tool's own arguments; the result is
+	// returned to the model as JSON, or as it is if it is a string.
+	Call(ctx context.Context, conn Connection, target, tool string, args json.RawMessage) (any, error)
+}
+
 // Options are what every adapter is built with, so tests can point it at a
 // fake service.
 type Options struct {
@@ -261,8 +321,13 @@ type Options struct {
 	Endpoints map[string]string
 }
 
-// order is how the panel lists the kinds: chats first, code hosts last.
-var order = []Kind{Teams, GoogleChat, Slack, GoogleDrive, OneDrive, GitHub, GitLab}
+// order is how the panel lists the kinds: chats first, then files, code
+// hosts and the rest.
+var order = []Kind{
+	Teams, GoogleChat, Slack, GoogleDrive, OneDrive, GitHub, GitLab,
+	Jira, Confluence, GoogleDocs, GoogleSheets, GoogleSlides, GoogleCalendar, Outlook,
+	HubSpot, Salesforce, Kubernetes, AWS, Azure, GCP,
+}
 
 var (
 	mu       sync.RWMutex
@@ -271,6 +336,7 @@ var (
 	chats    = map[Kind]Chat{}
 	files    = map[Kind]Files{}
 	codes    = map[Kind]Code{}
+	apis     = map[Kind]API{}
 )
 
 // Register makes an adapter available. Adapters are created by the server at
@@ -288,6 +354,9 @@ func Register(a Adapter) {
 	}
 	if c, ok := a.(Code); ok {
 		codes[d.Kind], d.Code = c, true
+	}
+	if x, ok := a.(API); ok {
+		apis[d.Kind], d.API, d.Tools = x, true, x.Tools()
 	}
 	descs[d.Kind] = d
 }
@@ -319,6 +388,13 @@ func CodeFor(k Kind) (Code, bool) {
 	defer mu.RUnlock()
 	c, ok := codes[k]
 	return c, ok
+}
+
+func APIFor(k Kind) (API, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	x, ok := apis[k]
+	return x, ok
 }
 
 // Descriptors lists the registered kinds in order.

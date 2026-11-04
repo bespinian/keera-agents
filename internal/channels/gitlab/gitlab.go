@@ -46,8 +46,11 @@ func New(opts channels.Options) *Adapter {
 
 func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
-		Kind:  channels.GitLab,
-		Label: "GitLab",
+		Kind:     channels.GitLab,
+		Label:    "GitLab",
+		Vendor:   "GitLab",
+		Category: "Code",
+		Summary:  "Agents clone projects, push branches, open merge requests and work on issues.",
 		Fields: []channels.Field{
 			{
 				Name: "token", Label: "Access token", Secret: true, Required: true,

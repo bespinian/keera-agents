@@ -66,8 +66,11 @@ func New(opts channels.Options) *Adapter {
 
 func (a *Adapter) Descriptor() channels.Descriptor {
 	return channels.Descriptor{
-		Kind:  channels.Teams,
-		Label: "Microsoft Teams",
+		Kind:     channels.Teams,
+		Label:    "Microsoft Teams",
+		Vendor:   "Microsoft",
+		Category: "Chat",
+		Summary:  "Agents answer when mentioned in channels and in chats.",
 		Fields: []channels.Field{
 			{
 				Name: "app_id", Label: "App ID", Required: true,
