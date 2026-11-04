@@ -1,9 +1,11 @@
 package dispatch
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/gateway"
@@ -238,5 +240,20 @@ func TestBindingList(t *testing.T) {
 	}
 	if got := bindingList(bindings[:2], "Your folders", isFolder); got != "" {
 		t.Errorf("no folders = %q", got)
+	}
+}
+
+func TestWaitWaitsForWorkStartedWithGo(t *testing.T) {
+	var d Dispatcher
+	release := make(chan struct{})
+	d.Go(func() { <-release })
+	short, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := d.Wait(short); err == nil {
+		t.Fatal("Wait returned while work was running")
+	}
+	close(release)
+	if err := d.Wait(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }

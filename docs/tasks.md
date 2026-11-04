@@ -130,6 +130,9 @@ never reached the service (its name did not resolve, or it took no
 connection) or never started (the database did not answer). Retries stop an
 hour after the task finished, and the task's log says why.
 
+On shutdown, keera-agents waits up to 30 seconds for results being sent and
+for messages it has already accepted.
+
 A task runs at most `KEERA_AGENTS_TASK_TIMEOUT`, and fails after that. A task
 can be cancelled in the panel by whoever asked for it and whoever may change
 the agent; the runtime stops at its next report.

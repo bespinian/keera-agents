@@ -94,7 +94,11 @@ func Run() error {
 		IdleTimeout:  2 * time.Minute,
 	}
 
-	go app.Background(ctx)
+	background := make(chan struct{})
+	go func() {
+		app.Background(ctx)
+		close(background)
+	}()
 
 	errc := make(chan error, 1)
 	go func() {
@@ -115,8 +119,21 @@ func Run() error {
 	log.Info("shutting down")
 	shutdown, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelShutdown()
-	if err := srv.Shutdown(shutdown); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+	if err := srv.Shutdown(shutdown); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Warn("stopped before every request was answered")
+			return nil
+		}
 		return err
+	}
+	// A result being sent and messages already answered with 200 would
+	// otherwise be lost: nothing sends them again.
+	select {
+	case <-background:
+	case <-shutdown.Done():
+	}
+	if err := app.disp.Wait(shutdown); err != nil {
+		log.Warn("stopped before all accepted work was done", "error", err)
 	}
 	return nil
 }

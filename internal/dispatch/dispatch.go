@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/channels"
@@ -51,6 +52,9 @@ type Dispatcher struct {
 	files *grants
 	// tokens are people's access tokens, for connectors they sign in to.
 	tokens tokens
+	// work is what runs after its request has been answered, such as a
+	// webhook's messages. Shutdown waits for it.
+	work sync.WaitGroup
 }
 
 func New(st *store.Store, fl *fleet.Manager, gw *gateway.Client, box *secret.Box, opts Options) *Dispatcher {
@@ -58,6 +62,25 @@ func New(st *store.Store, fl *fleet.Manager, gw *gateway.Client, box *secret.Box
 		opts.Log = slog.Default()
 	}
 	return &Dispatcher{st: st, fleet: fl, gw: gw, box: box, opts: opts, log: opts.Log, files: newGrants()}
+}
+
+// Go runs f after its request has been answered, so shutdown waits for it.
+func (d *Dispatcher) Go(f func()) { d.work.Go(f) }
+
+// Wait waits for the work started with Go, or until ctx ends. Call it once
+// no requests are left to start more.
+func (d *Dispatcher) Wait(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		d.work.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // HookPath is where a chat connection's webhooks arrive.

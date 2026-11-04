@@ -330,11 +330,11 @@ func (rn *Runner) finish(w http.ResponseWriter, r *http.Request, a store.Agent) 
 	}
 	// Deliver at once rather than at the next sweep, so a chat reply comes
 	// as soon as the agent is done.
-	go func() {
+	rn.disp.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		rn.disp.Deliver(ctx)
-	}()
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 

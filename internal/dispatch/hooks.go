@@ -79,12 +79,14 @@ func (d *Dispatcher) ServeHook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.Status)
 	_, _ = w.Write(resp.Body)
 
+	// The service has its answer and will not send these again, so shutdown
+	// waits for them.
 	for _, msg := range receipt.Messages {
-		go func() {
+		d.Go(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			d.receive(ctx, adapter, conn, msg)
-		}()
+		})
 	}
 }
 
