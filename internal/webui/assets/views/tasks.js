@@ -28,6 +28,10 @@ import {
   avatarOf,
   agentIconPath,
   plural,
+  formModal,
+  fail,
+  field,
+  listHead,
 } from "../ui.js";
 import { render } from "../markdown.js";
 import {
@@ -40,59 +44,74 @@ import {
   taskPath,
   SOURCES,
   TASK_STATES,
+  isUp,
 } from "../common.js";
 
 const PAGE = 50;
 
 export async function tasksView(ctx) {
-  const agents = (await api.agents()).data || [];
+  const agents = ((await api.agents()).data || []).filter((a) => a.enabled !== false && a.can_give);
   return taskList(ctx, { agents });
 }
 
 /** taskList is the filtered, paged list. With agentID it shows one agent's
- *  tasks and no agent filter. */
-export function taskList(ctx, { agents = [], agentID = "" }) {
+ *  tasks and no agent filter. It offers only the options some task has, and
+ *  a filter only when it has more than one. With agents, those that take
+ *  work from the reader, it has a New task button. */
+export function taskList(ctx, { agentID = "", agents = [] }) {
   const filter = { agent_id: agentID, state: "", source: "" };
   const host = h("div");
+  const toolbar = h("div", { class: "toolbar", hidden: true });
+  // The same place as the other screens' New buttons.
+  const head = agents.length
+    ? listHead(null, [], { label: "New task", onClick: () => giveTask(ctx, { agents, pick: filter.agent_id }) })
+    : null;
   // Stops the poll that follows running tasks; null while none is.
   let stopPoll = null;
 
   const select = (label, key, options) =>
-    h(
-      "select",
-      {
-        class: "select toolbar-select",
-        "aria-label": label,
-        onChange: (e) => {
-          filter[key] = e.target.value;
-          load();
-        },
-      },
-      h("option", { value: "" }, `All ${label.toLowerCase()}`),
-      options.map(([value, text]) => h("option", { value }, text)),
-    );
+    options.length > 1
+      ? h(
+          "select",
+          {
+            class: "select toolbar-select",
+            "aria-label": label,
+            onChange: (e) => {
+              filter[key] = e.target.value;
+              load();
+            },
+          },
+          h("option", { value: "" }, `All ${label.toLowerCase()}`),
+          options.map(([value, text]) => h("option", { value }, text)),
+        )
+      : null;
 
-  const toolbar = h(
-    "div",
-    { class: "toolbar" },
-    agentID
-      ? null
-      : select(
-          "Agents",
-          "agent_id",
-          agents.map((a) => [a.id, a.name]),
-        ),
-    select(
-      "States",
-      "state",
-      Object.entries(TASK_STATES).map(([k, [label]]) => [k, label]),
-    ),
-    select(
-      "Sources",
-      "source",
-      Object.entries(SOURCES).map(([k, s]) => [k, s.label]),
-    ),
-  );
+  async function filters() {
+    const f = await api.taskFacets({ agent_id: agentID }).catch(() => null);
+    if (!f || !ctx.current()) return;
+    const known = (all, used) => Object.entries(all).filter(([k]) => used.includes(k));
+    replace(
+      toolbar,
+      agentID
+        ? null
+        : select(
+            "Agents",
+            "agent_id",
+            f.agents.map((a) => [a.id, a.name || a.id]).sort((a, b) => a[1].localeCompare(b[1])),
+          ),
+      select(
+        "States",
+        "state",
+        known(TASK_STATES, f.states).map(([k, [label]]) => [k, label]),
+      ),
+      select(
+        "Sources",
+        "source",
+        known(SOURCES, f.sources).map(([k, s]) => [k, s.label]),
+      ),
+    );
+    toolbar.hidden = !toolbar.childElementCount;
+  }
 
   async function load() {
     let rows;
@@ -108,7 +127,7 @@ export function taskList(ctx, { agents = [], agentID = "" }) {
       emptyTitle: filter.state || filter.source || filter.agent_id ? "No tasks match" : "No tasks yet",
       emptyBody: agentID
         ? "Give it a task, add a channel, or put a card in To do with this agent."
-        : "Tasks come from chats, schedules, the board and folders, or from Give a task on an agent.",
+        : "Tasks come from chats, schedules, the board and folders, or from New task.",
     });
     replace(
       host,
@@ -135,8 +154,67 @@ export function taskList(ctx, { agents = [], agentID = "" }) {
       stopPoll = null;
     }
   }
+  filters();
   load();
-  return h("div", {}, toolbar, host);
+  return h("div", {}, head, toolbar, host);
+}
+
+/** giveTask asks an agent to do something now, then opens the task. It is
+ *  given the agent, or the agents to choose from, with pick chosen first. */
+export function giveTask(ctx, { agent, agents = [], pick = "" }) {
+  const choose = agent
+    ? null
+    : h(
+        "select",
+        { class: "select" },
+        [...agents]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((a) => h("option", { value: a.id, selected: a.id === pick }, a.name)),
+      );
+  const chosen = () => agent || agents.find((a) => a.id === choose.value);
+  const starts = "Its machine starts if it is stopped.";
+  const hint = h("div", { class: "hint" });
+  const showHint = () => {
+    hint.textContent = isUp(chosen()?.state) ? "" : starts;
+    hint.hidden = !hint.textContent;
+  };
+  const prompt = h("textarea", {
+    class: "input",
+    rows: 6,
+    placeholder: "Draft a reply to the latest message from Müller AG and put it in /Drafts.",
+  });
+  if (choose) {
+    choose.addEventListener("change", showHint);
+    showHint();
+  }
+  formModal({
+    title: agent ? `Give ${agent.name} a task` : "New task",
+    subtitle: agent && !isUp(agent.state) ? starts : null,
+    wide: true,
+    body: h(
+      "form",
+      {},
+      choose ? field("Agent", choose, hint) : null,
+      field("Task", prompt, "Ctrl+Enter gives it. You can follow it on the task's page."),
+    ),
+    submitLabel: "Give task",
+    submit: () => {
+      if (choose && !chosen()) fail(choose, "Pick an agent.");
+      if (!prompt.value.trim()) fail(prompt, "Say what it should do.");
+      return api.giveTask(chosen().id, prompt.value.trim());
+    },
+    done: (task) => {
+      ctx.navigate(taskPath(task.id));
+      return "Task given";
+    },
+  });
+  // A textarea takes Enter for new lines, so Ctrl+Enter sends.
+  prompt.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      document.querySelector(".modal-foot .btn-primary")?.click();
+    }
+  });
 }
 
 /** taskTable lists tasks, each opening its own screen. */

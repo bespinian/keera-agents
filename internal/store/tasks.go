@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -142,6 +143,53 @@ func (s *Store) Tasks(ctx context.Context, q TaskQuery) ([]Task, error) {
 			OR (a.owner_id = $7 AND a.deleted_at IS NULL))
 		ORDER BY t.created_at DESC LIMIT $6`,
 		q.OrgID, q.AgentID, q.State, q.Source, q.Before, q.Limit, q.ViewerID, q.ViewerEmail)
+}
+
+// TaskFacets are the agents, states and sources a task list has tasks of,
+// so the panel offers only filters that find something.
+type TaskFacets struct {
+	Agents  []TaskAgent `json:"agents"`
+	States  []string    `json:"states"`
+	Sources []string    `json:"sources"`
+}
+
+// TaskAgent names an agent that has tasks, deleted or not.
+type TaskAgent struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// TaskFacets reads the facets of the tasks q would list, all pages of them.
+// Only OrgID, AgentID and the viewer narrow them.
+func (s *Store) TaskFacets(ctx context.Context, q TaskQuery) (TaskFacets, error) {
+	f := TaskFacets{Agents: []TaskAgent{}, States: []string{}, Sources: []string{}}
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT t.agent_id, coalesce(a.name, ''), t.state, t.source
+		FROM tasks t LEFT JOIN agents a ON a.id = t.agent_id
+		WHERE t.org_id = $1 AND ($2 = '' OR t.agent_id = $2)
+		AND ($3 = '' OR t.requested_by_id = $3 OR t.requested_by = $4
+			OR (a.owner_id = $3 AND a.deleted_at IS NULL))`,
+		q.OrgID, q.AgentID, q.ViewerID, q.ViewerEmail)
+	if err != nil {
+		return f, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var agent TaskAgent
+		var state, source string
+		if err := rows.Scan(&agent.ID, &agent.Name, &state, &source); err != nil {
+			return f, err
+		}
+		if !slices.ContainsFunc(f.Agents, func(a TaskAgent) bool { return a.ID == agent.ID }) {
+			f.Agents = append(f.Agents, agent)
+		}
+		if !slices.Contains(f.States, state) {
+			f.States = append(f.States, state)
+		}
+		if !slices.Contains(f.Sources, source) {
+			f.Sources = append(f.Sources, source)
+		}
+	}
+	return f, rows.Err()
 }
 
 // ClaimTask starts an agent's oldest queued task, if it has none running.

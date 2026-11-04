@@ -54,6 +54,21 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request, p Principal) 
 	writeJSON(w, http.StatusOK, map[string]any{"data": tasks})
 }
 
+// taskFacets says which filters of the task list find something: the
+// agents, states and sources of the tasks the caller may see.
+func (s *Server) taskFacets(w http.ResponseWriter, r *http.Request, p Principal) {
+	q := store.TaskQuery{OrgID: p.OrgID, AgentID: r.URL.Query().Get("agent_id")}
+	if !p.CanAdmin() {
+		q.ViewerID, q.ViewerEmail = p.UserID, p.Email
+	}
+	f, err := s.st.TaskFacets(r.Context(), q)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
+}
+
 func (s *Server) loadTask(w http.ResponseWriter, r *http.Request, p Principal) (store.Task, bool) {
 	t, err := s.st.Task(r.Context(), r.PathValue("id"))
 	return t, s.found(w, err, err == nil && canSeeTask(p, t), "task")
