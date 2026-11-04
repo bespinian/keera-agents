@@ -30,8 +30,16 @@ export async function channelsTab(ctx, agent) {
     api.connections().catch(() => ({ data: [] })),
     api.connectionKinds().catch(() => ({ data: [] })),
   ]);
-  const connections = conns.data || [];
   const kinds = kindsRes.data || [];
+  // Only connectors it can use: a workspace has no use for a chat.
+  const connections = (conns.data || []).filter(
+    (c) =>
+      agent.kind !== "workspace" ||
+      modesFor(
+        kinds.find((k) => k.kind === c.kind),
+        true,
+      ).length,
+  );
   const bindings = agent.bindings || [];
   const admin = isAdmin(ctx);
 
@@ -145,12 +153,14 @@ function targetText(b, kinds) {
   return b.mode === "chat" ? "Every chat the bot is in" : `All of ${kindLabel(b.kind, kinds)}`;
 }
 
-/** modesFor lists what an agent can do with a kind's connector. */
-export function modesFor(kind) {
+/** modesFor lists what an agent can do with a kind's connector. A
+ *  workspace takes no tasks, so it neither answers chats nor watches
+ *  folders. */
+export function modesFor(kind, workspace = false) {
   if (!kind) return [];
   return [
-    ...(kind.chat ? ["chat"] : []),
-    ...(kind.files ? ["watch", "files"] : []),
+    ...(kind.chat && !workspace ? ["chat"] : []),
+    ...(kind.files ? (workspace ? ["files"] : ["watch", "files"]) : []),
     ...(kind.code ? ["repo"] : []),
     ...(kind.api ? ["read", "write"] : []),
   ];
@@ -197,7 +207,7 @@ function addChannel(ctx, agent, connections, kinds) {
   function syncConnection() {
     const kind = kindOf(chosen());
     const keep = mode.value;
-    const modes = modesFor(kind);
+    const modes = modesFor(kind, agent.kind === "workspace");
     replace(
       mode,
       modes.map((m) => h("option", { value: m, selected: m === keep }, `${MODES[m][0]}: ${MODES[m][1]}`)),
@@ -341,7 +351,8 @@ function addChannel(ctx, agent, connections, kinds) {
       if (mode.value === "watch" && !prompt.value.trim()) {
         fail(prompt, "Say what the agent should do with each new file.");
       }
-      return api.addBinding(agent.id, {
+      const add = agent.kind === "workspace" ? api.addWorkspaceBinding : api.addBinding;
+      return add(agent.id, {
         connection_id: connection.value,
         target: target.value.trim(),
         label: label.value.trim(),

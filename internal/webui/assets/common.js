@@ -9,6 +9,17 @@ export function agentPath(id, tab) {
   return `/agents/${encodeURIComponent(id)}` + (tab ? `/${tab}` : "");
 }
 
+/** workspacePath is a workspace's screen, or one of its tabs. */
+export function workspacePath(id, tab) {
+  return `/workspaces/${encodeURIComponent(id)}` + (tab ? `/${tab}` : "");
+}
+
+/** EXPERIENCES are what a workspace opens in the browser. */
+export const EXPERIENCES = {
+  terminal: { name: "Terminal", icon: icons.workspace, what: "Pi, the coding agent, in a terminal in your browser." },
+  vscode: { name: "VS Code", icon: icons.code, what: "VS Code in your browser, with the Cline coding agent." },
+};
+
 /** taskPath is a task's screen. */
 export function taskPath(id) {
   return `/tasks/${encodeURIComponent(id)}`;

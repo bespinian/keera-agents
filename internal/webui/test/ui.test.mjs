@@ -109,6 +109,11 @@ test("a channel offers the modes its kind supports", () => {
   assert.deepEqual(modesFor({ code: true }), ["repo"]);
   assert.deepEqual(modesFor({ api: true }), ["read", "write"]);
   assert.deepEqual(modesFor(null), []);
+  // A workspace takes no tasks, so it neither answers chats nor watches.
+  assert.deepEqual(modesFor({ chat: true, files: true, code: true }, true), [
+    "files",
+    "repo",
+  ]);
   assert.equal(kindLabel("slack", []), "Slack");
   assert.equal(
     kindLabel("teams", [{ kind: "teams", label: "Teams" }]),

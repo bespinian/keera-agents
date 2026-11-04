@@ -260,7 +260,8 @@ function table(rows) {
   );
 }
 
-function codeBlock(code, lang) {
+/** codeBlock shows code with a Copy button, as in an answer. */
+export function codeBlock(code, lang) {
   const copyBtn = h(
     "button",
     {

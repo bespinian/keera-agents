@@ -29,6 +29,8 @@ import { agentView } from "./views/agent.js";
 import { boardView } from "./views/board.js";
 import { tasksView, taskView } from "./views/tasks.js";
 import { schedulesView } from "./views/schedules.js";
+import { workspacesView } from "./views/workspaces.js";
+import { workspaceView } from "./views/workspace.js";
 import { connectorsView, catalogueView } from "./views/connectors.js";
 import { auditView } from "./views/audit.js";
 
@@ -55,6 +57,14 @@ const routes = [
     icon: "agents",
     view: agentsView,
     detail: { label: "Agent", view: agentView, sub: true },
+  },
+  {
+    path: "/workspaces",
+    group: "Work",
+    label: "Workspaces",
+    icon: "workspace",
+    view: workspacesView,
+    detail: { label: "Workspace", view: workspaceView, sub: true },
   },
   { path: "/board", group: "Work", label: "Board", icon: "board", view: boardView },
   {
