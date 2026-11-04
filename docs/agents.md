@@ -14,7 +14,9 @@ speaks the protocol of the control plane built from the same source.
 The runtime calls the control plane, never the other way round
 ([internal/protocol](../internal/protocol/protocol.go)). So a container needs
 no open port, and the control plane needs no route into the agents'
-namespace, only out of it.
+namespace, only out of it. Workspaces are the one exception: keera-agents
+passes their owner's connections into them on one port
+([workspaces.md](workspaces.md#how-a-connection-travels)).
 
 ## What an agent holds
 
@@ -236,6 +238,25 @@ spec:
       ports:
         - { protocol: TCP, port: 8070 }
         - { protocol: TCP, port: 8080 }
+---
+# Workspaces only: keera-agents reaches their front. See workspaces.md.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: workspace-front
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: workspace
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: keera
+      ports:
+        - { protocol: TCP, port: 7420 }
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

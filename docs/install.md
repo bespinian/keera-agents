@@ -37,27 +37,29 @@ entered again, and agents get new keys at their next start.
 
 ### Where agents run
 
-| Variable                           | Default                             | What it does                                                       |
-| ---------------------------------- | ----------------------------------- | ------------------------------------------------------------------ |
-| `KEERA_AGENTS_DRIVER`              | -                                   | `kubernetes`, `podman`, or unset: agents can be set up but not run |
-| `KEERA_AGENTS_IMAGE`               | `localhost/keera-agent:latest`      | The agent image, built with `make agent-image`                     |
-| `KEERA_AGENTS_RUNTIME_URL`         | `KEERA_AGENTS_PUBLIC_URL`           | keera-agents **as an agent reaches it**: the in-cluster Service    |
-| `KEERA_AGENTS_RUNTIME_GATEWAY_URL` | `KEERA_AGENTS_GATEWAY_INTERNAL_URL` | The gateway as an agent reaches it                                 |
-| `KEERA_AGENTS_IDLE_SUSPEND`        | `15m`                               | Suspend an agent with nothing to do for this long; `0` never       |
-| `KEERA_AGENTS_RUNTIME_STANDARD`    | -                                   | The runtime for the standard tier, if not the default              |
-| `KEERA_AGENTS_RUNTIME_ISOLATED`    | -                                   | gVisor: a RuntimeClass, or `runsc` on podman                       |
-| `KEERA_AGENTS_RUNTIME_VM`          | -                                   | Kata: a RuntimeClass, or `krun` on podman                          |
-| `KEERA_AGENTS_MIN_ISOLATION`       | `standard`                          | The weakest tier agents may choose; it needs a runtime             |
-| `KEERA_AGENTS_MAX_CPU`             | `8`                                 | The most CPU one agent may ask for                                 |
-| `KEERA_AGENTS_MAX_MEMORY`          | `32Gi`                              | The most memory one agent may ask for                              |
-| `KEERA_AGENTS_MAX_DISK`            | `100Gi`                             | The largest workspace one agent may ask for                        |
-| `KEERA_AGENTS_NAMESPACE`           | keera-agents' own                   | Kubernetes: where agents run. Give them their own                  |
-| `KEERA_AGENTS_STORAGE_CLASS`       | the cluster's                       | Kubernetes: what workspaces are provisioned from                   |
-| `KEERA_AGENTS_SERVICE_ACCOUNT`     | the namespace's                     | Kubernetes: what agents run as; its token is never mounted         |
-| `KEERA_AGENTS_IMAGE_PULL_SECRETS`  | -                                   | Kubernetes: comma-separated                                        |
-| `KEERA_AGENTS_USER_NAMESPACES`     | `false`                             | Kubernetes: standard-tier pods in a user namespace of their own    |
-| `KEERA_AGENTS_PODMAN_BINARY`       | `podman`                            | podman: the command                                                |
-| `KEERA_AGENTS_PODMAN_NETWORK`      | podman's default                    | podman: the network agents join                                    |
+| Variable                              | Default                             | What it does                                                        |
+| ------------------------------------- | ----------------------------------- | ------------------------------------------------------------------- |
+| `KEERA_AGENTS_DRIVER`                 | -                                   | `kubernetes`, `podman`, or unset: agents can be set up but not run  |
+| `KEERA_AGENTS_IMAGE`                  | `localhost/keera-agent:latest`      | The agent image, built with `make agent-image`                      |
+| `KEERA_AGENTS_RUNTIME_URL`            | `KEERA_AGENTS_PUBLIC_URL`           | keera-agents **as an agent reaches it**: the in-cluster Service     |
+| `KEERA_AGENTS_RUNTIME_GATEWAY_URL`    | `KEERA_AGENTS_GATEWAY_INTERNAL_URL` | The gateway as an agent reaches it                                  |
+| `KEERA_AGENTS_IDLE_SUSPEND`           | `15m`                               | Suspend an agent with nothing to do for this long; `0` never        |
+| `KEERA_AGENTS_WORKSPACE_IMAGE`        | `localhost/keera-workspace:latest`  | The workspace image, built with `make workspace-image`              |
+| `KEERA_AGENTS_WORKSPACE_IDLE_SUSPEND` | `2h`                                | Suspend a workspace nobody is connected to for this long; `0` never |
+| `KEERA_AGENTS_RUNTIME_STANDARD`       | -                                   | The runtime for the standard tier, if not the default               |
+| `KEERA_AGENTS_RUNTIME_ISOLATED`       | -                                   | gVisor: a RuntimeClass, or `runsc` on podman                        |
+| `KEERA_AGENTS_RUNTIME_VM`             | -                                   | Kata: a RuntimeClass, or `krun` on podman                           |
+| `KEERA_AGENTS_MIN_ISOLATION`          | `standard`                          | The weakest tier agents may choose; it needs a runtime              |
+| `KEERA_AGENTS_MAX_CPU`                | `8`                                 | The most CPU one agent may ask for                                  |
+| `KEERA_AGENTS_MAX_MEMORY`             | `32Gi`                              | The most memory one agent may ask for                               |
+| `KEERA_AGENTS_MAX_DISK`               | `100Gi`                             | The largest workspace one agent may ask for                         |
+| `KEERA_AGENTS_NAMESPACE`              | keera-agents' own                   | Kubernetes: where agents run. Give them their own                   |
+| `KEERA_AGENTS_STORAGE_CLASS`          | the cluster's                       | Kubernetes: what workspaces are provisioned from                    |
+| `KEERA_AGENTS_SERVICE_ACCOUNT`        | the namespace's                     | Kubernetes: what agents run as; its token is never mounted          |
+| `KEERA_AGENTS_IMAGE_PULL_SECRETS`     | -                                   | Kubernetes: comma-separated                                         |
+| `KEERA_AGENTS_USER_NAMESPACES`        | `false`                             | Kubernetes: standard-tier pods in a user namespace of their own     |
+| `KEERA_AGENTS_PODMAN_BINARY`          | `podman`                            | podman: the command                                                 |
+| `KEERA_AGENTS_PODMAN_NETWORK`         | podman's default                    | podman: the network agents join                                     |
 
 ### Everything else
 
@@ -119,6 +121,12 @@ Calls to the gateway are not checked: the operator sets its address.
 **Publish `/runtime` only inside the cluster.** It authenticates every call
 with a runtime token, but nothing outside needs it. The chat services need
 `/hooks/` from the internet; people need the rest.
+
+**Pass Upgrade requests on.** The `keera` command line reaches workspaces
+through `/api/v1/workspaces/{id}/connect`, which takes the connection over as
+a WebSocket does ([workspaces.md](workspaces.md#how-a-connection-travels)). A
+proxy in front of keera-agents must let it, over HTTP/1.1, and not cut idle
+connections short.
 
 ## Shapes
 

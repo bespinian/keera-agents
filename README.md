@@ -63,6 +63,11 @@ StatefulSet each.
   names ([docs/channels.md](docs/channels.md#services)).
 - **Credentials stay out of agents.** The control plane makes the calls that
   need them ([docs/agents.md](docs/agents.md#what-an-agent-holds)).
+- **Workspaces.** An engineer gets a machine of their own with a coding
+  agent: pi in a terminal, or VS Code with Cline, in the browser. It has the
+  models of their key and the connectors they give it. They reach it with the
+  `keera` command line, in the browser or over SSH
+  ([docs/workspaces.md](docs/workspaces.md)).
 
 ## Run it
 
@@ -78,6 +83,7 @@ setting.
 - [install.md](docs/install.md) - every setting, and the deployment shapes
 - [run-locally.md](docs/run-locally.md) - the development loop
 - [agents.md](docs/agents.md) - how an agent runs, its keys and its lifecycle
+- [workspaces.md](docs/workspaces.md) - machines to work in, with a coding agent
 - [tasks.md](docs/tasks.md) - where tasks come from and where results go
 - [api.md](docs/api.md) - the panel's API
 - [channels.md](docs/channels.md) - setting up Teams, Google Chat, Slack,

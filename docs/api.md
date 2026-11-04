@@ -26,6 +26,8 @@ answer 404.
 - A task is seen by whoever asked, the agent's owner and administrators.
 - Only administrators manage connectors, read the audit log, take an agent
   over, and choose an agent's project or image.
+- A workspace is its owner's. Administrators also see, change, stop and
+  delete it. Nobody else sees it: it answers 404. Only the owner connects.
 
 ## Sign-in (like Keera Chat)
 
@@ -196,6 +198,32 @@ Connection:
 - `DELETE /api/v1/connections/{id}` → 204
 - `POST /api/v1/connections/{id}/check` → `{ok:true}` or 400
 - `GET /api/v1/connections/{id}/folders?parent=<id>` → `{data:[{id,name,folder,web_url,modified}]}` (file kinds; for a folder picker)
+
+## Workspaces
+
+A workspace is a row of agents with `kind:"workspace"` and an `experience`
+([workspaces.md](workspaces.md)). `{id}` is a workspace's id, or the name of
+one of the caller's own.
+
+- `GET /api/v1/workspaces?all=true` → `{data:[Workspace]}`, the caller's, or with `all` every one in the
+  organisation (admins). Workspace = Agent fields + `{can_edit, can_connect, connectors}`.
+- `POST /api/v1/workspaces {name, experience:"terminal"|"vscode", description?, model?, class?, project_id?, image?}`
+  → 201 Workspace. Without a model, the project's first.
+- `GET /api/v1/workspaces/{id}` → Workspace + `bindings:[Binding]`
+- `PATCH /api/v1/workspaces/{id}` → Workspace. A new experience, image or class starts the machine again.
+- `DELETE /api/v1/workspaces/{id}`, `POST …/start`, `POST …/stop`, `GET …/logs?follow=1`
+- `POST /api/v1/workspaces/{id}/bindings` → as for an agent, with the modes `files`, `repo`, `read` or `write`.
+- `POST /api/v1/workspaces/{id}/connect?port=web|ssh|<n>` with `Connection: Upgrade`, `Upgrade: keera-stream`
+  → 101, then raw bytes to that port in the workspace. Owner only. Wakes a suspended workspace first, waiting
+  up to three minutes. 426 without the upgrade.
+
+## SSH keys
+
+Each person's own, in their current organisation.
+
+- `GET /api/v1/me/ssh-keys` → `{data:[{id,name,public_key,fingerprint,created_at}]}`
+- `POST /api/v1/me/ssh-keys {public_key, name?}` → 201. One authorized_keys line, without options. 409 if added already.
+- `DELETE /api/v1/me/ssh-keys/{id}` → 204
 
 ## Audit (admins)
 
