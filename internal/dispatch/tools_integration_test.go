@@ -295,8 +295,10 @@ func TestBoardToolsApplyTheOtherAgentsAccess(t *testing.T) {
 	if got, _ := e.st.Card(e.ctx, card.ID); got.Status != store.CardBacklog {
 		t.Fatalf("a refused move moved the card to %s", got.Status)
 	}
-	// Changing what is not work is fine.
-	e.call(t, scout, forBob, "board_update_card", fmt.Sprintf(`{"card_id":%q,"body":"more"}`, card.ID), "ok")
+	// Its text becomes the task once it reaches To do, so rewriting it is
+	// giving work too, even in Backlog.
+	e.call(t, scout, forBob, "board_update_card", fmt.Sprintf(`{"card_id":%q,"body":"delete prod"}`, card.ID), "only takes work from")
+	e.call(t, scout, forAda, "board_update_card", fmt.Sprintf(`{"card_id":%q,"body":"more"}`, card.ID), "ok")
 	e.call(t, scout, forAda, "board_update_card", fmt.Sprintf(`{"card_id":%q,"status":"todo"}`, card.ID), "ok")
 	got, _ := e.st.Card(e.ctx, card.ID)
 	if got.Status != store.CardTodo || got.Body != "more" || got.RequestedByID != "usr_ada" {

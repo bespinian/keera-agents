@@ -264,9 +264,10 @@ func May(a store.Agent, u gateway.User) (bool, string) {
 }
 
 // GivesWork reports whether a change to a card gives its agent work, so the
-// agent's access rule applies to whoever makes it. A card in To do becomes a
-// task, so assigning it counts, and so do moving or rewriting an assigned one
-// there.
+// agent's access rule applies to whoever makes it. Assigning a card counts,
+// and so does moving an assigned one to To do, where it becomes a task. So
+// does rewriting an assigned card in any column: its text becomes the task
+// once someone moves it to To do.
 func GivesWork(before, after store.Card) bool {
 	if after.AgentID == nil {
 		return false
@@ -274,15 +275,15 @@ func GivesWork(before, after store.Card) bool {
 	if before.AgentID == nil || *before.AgentID != *after.AgentID {
 		return true
 	}
-	return after.Status == store.CardTodo &&
-		(before.Status != after.Status || before.Title != after.Title || before.Body != after.Body)
+	return before.Title != after.Title || before.Body != after.Body ||
+		after.Status == store.CardTodo && before.Status != after.Status
 }
 
 // CommentGivesWork reports whether a comment on a card gives its agent
-// work: the card is about to become a task, and its comments go into the
-// prompt. So the agent's access rule applies to whoever comments.
+// work: its comments go into the task, whenever the card becomes one. So
+// the agent's access rule applies to whoever comments.
 func CommentGivesWork(c store.Card) bool {
-	return c.AgentID != nil && c.Status == store.CardTodo
+	return c.AgentID != nil
 }
 
 // person formats who asked, for a task's context.

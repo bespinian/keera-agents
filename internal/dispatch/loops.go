@@ -87,6 +87,11 @@ func (d *Dispatcher) PickUpCards(ctx context.Context) {
 		if c.AgentID == nil {
 			continue
 		}
+		// Checked when the work was given, but the agent's rule may have
+		// changed since, or the person may have left.
+		if !d.mayPickUp(ctx, c) {
+			continue
+		}
 		comments, _ := d.st.Comments(ctx, c.ID)
 		board, _ := d.st.Board(ctx, c.BoardID)
 		dedupe := "card:" + c.ID + ":" + strconv.FormatInt(c.UpdatedAt.UnixNano(), 36)
@@ -208,6 +213,37 @@ func (d *Dispatcher) checkWatch(ctx context.Context, b store.Binding) error {
 		}
 	}
 	return d.st.SetWatchCursor(ctx, b.ID, cursor)
+}
+
+// mayPickUp applies the card's agent's access rule to whoever gave it the
+// work. A card it refuses goes back to Backlog with a comment saying why, so
+// it is not checked again every round.
+func (d *Dispatcher) mayPickUp(ctx context.Context, c store.Card) bool {
+	a, err := d.st.Agent(ctx, *c.AgentID)
+	if err != nil {
+		d.log.Warn("could not read a card's agent", "card", c.ID, "error", err)
+		return false
+	}
+	ok, why, err := d.mayGive(ctx, a, c.OrgID, c.RequestedByID)
+	if err != nil {
+		d.log.Warn("could not check who gave a card its work", "card", c.ID, "error", err)
+		return false
+	}
+	if ok {
+		return true
+	}
+	d.log.Info("did not pick up a card", "card", c.ID, "agent", a.ID, "reason", why)
+	if err := d.st.MoveCard(ctx, c.ID, store.CardBacklog, nil); err != nil {
+		d.log.Warn("could not move a refused card to Backlog", "card", c.ID, "error", err)
+		return false
+	}
+	agentID := a.ID
+	_, _ = d.st.AddComment(ctx, store.Comment{
+		ID: id.New("cmt"), CardID: c.ID, Author: a.Name, AgentID: &agentID,
+		Body: "I did not take this card: " + cmp.Or(c.RequestedBy, "whoever gave it to me") +
+			" may not give me work any more. Someone who may can move it back to To do.",
+	})
+	return false
 }
 
 // latest lists each file once, where it first appears, as it was last

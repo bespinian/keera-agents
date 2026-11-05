@@ -85,7 +85,9 @@ func TestGivesWork(t *testing.T) {
 			with(func(c *store.Card) { c.Status = store.CardTodo; c.Body = "Daily" }),
 			true,
 		},
-		{"rewritten in Backlog", card, with(func(c *store.Card) { c.Body = "Daily" }), false},
+		// It becomes the task once someone moves it to To do.
+		{"rewritten in Backlog", card, with(func(c *store.Card) { c.Body = "Daily" }), true},
+		{"relabelled in Backlog", card, with(func(c *store.Card) { c.Labels = []string{"q3"} }), false},
 		{"moved to Done", card, with(func(c *store.Card) { c.Status = store.CardDone }), false},
 		{"unassigned", card, with(func(c *store.Card) { c.AgentID = nil; c.Status = store.CardTodo }), false},
 	} {
@@ -103,8 +105,8 @@ func TestCommentGivesWork(t *testing.T) {
 		want bool
 	}{
 		{"assigned in To do", store.Card{Status: store.CardTodo, AgentID: &scout}, true},
-		{"assigned in Backlog", store.Card{Status: store.CardBacklog, AgentID: &scout}, false},
-		{"assigned in progress", store.Card{Status: store.CardInProgress, AgentID: &scout}, false},
+		{"assigned in Backlog", store.Card{Status: store.CardBacklog, AgentID: &scout}, true},
+		{"assigned in progress", store.Card{Status: store.CardInProgress, AgentID: &scout}, true},
 		{"unassigned in To do", store.Card{Status: store.CardTodo}, false},
 	} {
 		if got := CommentGivesWork(tc.card); got != tc.want {

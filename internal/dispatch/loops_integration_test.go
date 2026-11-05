@@ -215,6 +215,32 @@ func TestACardQueuedButNotMovedIsMovedNextRound(t *testing.T) {
 	}
 }
 
+func TestPickUpChecksWhoGaveTheWork(t *testing.T) {
+	e := setup(t)
+	// Ada's own agent: Bob gave the card its work before Ada narrowed it.
+	mine := e.agent(t, "org_a", "Scout", store.AccessOwner)
+	c := e.card(t, "org_a", store.CardTodo, &mine.ID)
+
+	// The gateway cannot say who Bob is, so the card waits.
+	e.gw.down.Store(true)
+	e.d.PickUpCards(e.ctx)
+	if got, _ := e.st.Card(e.ctx, c.ID); got.Status != store.CardTodo {
+		t.Fatalf("card in %s while the gateway was down", got.Status)
+	}
+	e.gw.down.Store(false)
+
+	e.d.PickUpCards(e.ctx)
+	if n := len(e.tasks(t, mine)); n != 0 {
+		t.Fatalf("Bob's card made %d tasks for Ada's agent", n)
+	}
+	got, _ := e.st.Card(e.ctx, c.ID)
+	comments, _ := e.st.Comments(e.ctx, c.ID)
+	if got.Status != store.CardBacklog || len(comments) != 1 ||
+		!strings.Contains(comments[0].Body, "bob@example.ch may not give me work") {
+		t.Fatalf("card in %s, comments %+v", got.Status, comments)
+	}
+}
+
 // pickUp picks up a card and returns its task.
 func (e *testEnv) pickUp(t *testing.T, a store.Agent, c store.Card) store.Task {
 	t.Helper()

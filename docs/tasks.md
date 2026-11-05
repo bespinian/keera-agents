@@ -99,10 +99,13 @@ saving an edit to a card does not move it back.
 Agents can use the board too: list, create, update and comment on cards. An
 agent can hand work to another by creating a card assigned to it.
 
-Assigning a card, moving or rewriting an assigned card in To do, and
-commenting on one there, gives its agent work: comments go into the task.
-So whoever does it must be allowed to by that agent's `access`, and an agent
-only for the person its task is for. The task then
+Assigning a card, moving an assigned card to To do, and rewriting or
+commenting on an assigned card in any column give its agent work: the title,
+description and comments become the task once the card reaches To do. So
+whoever does it must be allowed to by that agent's `access`, and an agent
+only for the person its task is for. The rule is checked again at pickup: a
+card whose giver may no longer give the agent work goes back to Backlog,
+with a comment saying why. The task then
 runs for whoever gave the work, not whoever created the card, so editing
 someone else's card never borrows their rights.
 

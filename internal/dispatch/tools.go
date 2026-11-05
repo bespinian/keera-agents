@@ -400,16 +400,28 @@ func (d *Dispatcher) mayGiveFor(ctx context.Context, t store.Task, agentID strin
 	if err != nil {
 		return err
 	}
-	var u gateway.User
-	if t.RequestedByID != "" {
-		if u, err = d.gw.UserByID(ctx, t.OrgID, t.RequestedByID); err != nil {
-			return fmt.Errorf("could not check who this task is for: %w", err)
-		}
+	ok, why, err := d.mayGive(ctx, other, t.OrgID, t.RequestedByID)
+	if err != nil {
+		return fmt.Errorf("could not check who this task is for: %w", err)
 	}
-	if ok, why := May(other, u); !ok {
+	if !ok {
 		return errors.New(why)
 	}
 	return nil
+}
+
+// mayGive applies a's access rule to the person with userID, or to nobody
+// when it is empty.
+func (d *Dispatcher) mayGive(ctx context.Context, a store.Agent, orgID, userID string) (bool, string, error) {
+	var u gateway.User
+	if userID != "" {
+		var err error
+		if u, err = d.gw.UserByID(ctx, orgID, userID); err != nil {
+			return false, "", err
+		}
+	}
+	ok, why := May(a, u)
+	return ok, why, nil
 }
 
 // EnsureBoard returns the organisation's first board, creating it.
