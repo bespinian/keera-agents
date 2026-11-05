@@ -442,7 +442,7 @@ func TestCardPickup(t *testing.T) {
 	}
 	// Whoever last gave the work is kept apart from who created the card.
 	got.RequestedBy, got.RequestedByID = "bob@example.ch", "usr_bob"
-	if _, err := st.UpdateCard(ctx, got); err != nil {
+	if _, err := st.UpdateCard(ctx, got, got); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := st.Card(ctx, c1.ID); got.RequestedByID != "usr_bob" || got.CreatedBy != "ada" {

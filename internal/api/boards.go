@@ -255,11 +255,12 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request, p Principal)
 	if !readJSON(w, r, &in) {
 		return
 	}
+	before := c
 	if err := s.applyCard(r.Context(), p, &c, in); err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	out, err := s.st.UpdateCard(r.Context(), c)
+	out, err := s.st.UpdateCard(r.Context(), before, c)
 	if err != nil {
 		s.fail(w, err)
 		return

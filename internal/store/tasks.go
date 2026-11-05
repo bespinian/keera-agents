@@ -117,6 +117,13 @@ func (s *Store) Task(ctx context.Context, id string) (Task, error) {
 	return scanTask(s.pool.QueryRow(ctx, taskSelect+` WHERE t.id = $1`, id))
 }
 
+// DedupedTask is the agent's task with the dedupe key.
+func (s *Store) DedupedTask(ctx context.Context, agentID, key string) (Task, error) {
+	t, err := scanTask(s.pool.QueryRow(ctx, taskSelect+` WHERE t.agent_id = $1 AND t.dedupe_key = $2`,
+		agentID, key))
+	return t, notFound(err)
+}
+
 // TaskQuery narrows a task list. Empty fields do not narrow.
 type TaskQuery struct {
 	OrgID   string

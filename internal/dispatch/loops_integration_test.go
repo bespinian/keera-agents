@@ -165,13 +165,53 @@ func TestACardInToDoMakesOneTask(t *testing.T) {
 	e.finish(t, task.ID, store.TaskSucceeded, "Here it is.", "")
 	e.d.Deliver(e.ctx)
 	got, _ = e.st.Card(e.ctx, c.ID)
+	before := got
 	got.Status = store.CardTodo
-	if _, err := e.st.UpdateCard(e.ctx, got); err != nil {
+	if _, err := e.st.UpdateCard(e.ctx, before, got); err != nil {
 		t.Fatal(err)
 	}
 	e.d.PickUpCards(e.ctx)
 	if n := len(e.tasks(t, a)); n != 2 {
 		t.Fatalf("a card back in To do made %d tasks in all", n)
+	}
+}
+
+func TestAnEditDoesNotUndoAMoveMadeMeanwhile(t *testing.T) {
+	e := setup(t)
+	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	c := e.card(t, "org_a", store.CardTodo, &a.ID)
+	task := e.pickUp(t, a, c)
+	// A person opens the card while the agent works on it.
+	open, _ := e.st.Card(e.ctx, c.ID)
+	e.finish(t, task.ID, store.TaskSucceeded, "Done.", "")
+	e.d.Deliver(e.ctx)
+	edited := open
+	edited.Title = "Renamed"
+	if _, err := e.st.UpdateCard(e.ctx, open, edited); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := e.st.Card(e.ctx, c.ID)
+	if got.Status != store.CardReview || got.Title != "Renamed" {
+		t.Fatalf("card in %s, titled %q", got.Status, got.Title)
+	}
+}
+
+func TestACardQueuedButNotMovedIsMovedNextRound(t *testing.T) {
+	e := setup(t)
+	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	c := e.card(t, "org_a", store.CardTodo, &a.ID)
+	// The task went in, but the move after it did not.
+	e.exec(t, `CREATE FUNCTION no_moves() RETURNS trigger LANGUAGE plpgsql
+		AS $$ BEGIN RAISE EXCEPTION 'moves are down'; END $$;
+		CREATE TRIGGER no_moves BEFORE UPDATE ON cards
+		FOR EACH ROW EXECUTE FUNCTION no_moves()`)
+	e.d.PickUpCards(e.ctx)
+	e.exec(t, `DROP TRIGGER no_moves ON cards`)
+	e.d.PickUpCards(e.ctx)
+	ts := e.tasks(t, a)
+	got, _ := e.st.Card(e.ctx, c.ID)
+	if len(ts) != 1 || got.Status != store.CardInProgress || got.TaskID == nil || *got.TaskID != ts[0].ID {
+		t.Fatalf("%d tasks, card in %s, task %v", len(ts), got.Status, got.TaskID)
 	}
 }
 

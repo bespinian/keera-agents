@@ -99,14 +99,20 @@ func (d *Dispatcher) PickUpCards(ctx context.Context) {
 			RequestedBy:   c.RequestedBy,
 			RequestedByID: c.RequestedByID,
 		})
+		// Queued before, but the card was not moved: move it now, or it
+		// stays in To do and runs again once its result bumps it.
 		if errors.Is(err, errDuplicate) {
-			continue
-		}
-		if err != nil {
+			t, err = d.st.DedupedTask(ctx, *c.AgentID, dedupe)
+			if err != nil || (t.State != store.TaskQueued && t.State != store.TaskRunning) {
+				continue
+			}
+		} else if err != nil {
 			d.log.Warn("could not queue a card", "card", c.ID, "error", err)
 			continue
 		}
-		_ = d.st.MoveCard(ctx, c.ID, store.CardInProgress, &t.ID)
+		if err := d.st.MoveCard(ctx, c.ID, store.CardInProgress, &t.ID); err != nil {
+			d.log.Warn("could not move a card to In progress", "card", c.ID, "error", err)
+		}
 	}
 }
 

@@ -120,12 +120,18 @@ func (s *Store) CreateCard(ctx context.Context, c Card) (Card, error) {
 	return s.Card(ctx, c.ID)
 }
 
-func (s *Store) UpdateCard(ctx context.Context, c Card) (Card, error) {
-	if err := one(s.pool.Exec(ctx, `UPDATE cards SET title = $2, body = $3, status = $4,
-		position = $5, agent_id = $6, labels = $7, due_at = $8, requested_by = $9,
+// UpdateCard writes c. Its status and position are written only if they
+// differ from before, the card as it was read: an agent finishing the card
+// meanwhile moves it, and saving an edit must not move it back.
+func (s *Store) UpdateCard(ctx context.Context, before, c Card) (Card, error) {
+	moved := c.Status != before.Status || c.Position != before.Position
+	if err := one(s.pool.Exec(ctx, `UPDATE cards SET title = $2, body = $3,
+		status = CASE WHEN $11 THEN $4 ELSE status END,
+		position = CASE WHEN $11 THEN $5 ELSE position END,
+		agent_id = $6, labels = $7, due_at = $8, requested_by = $9,
 		requested_by_id = $10, updated_at = now() WHERE id = $1`,
 		c.ID, c.Title, c.Body, c.Status, c.Position, c.AgentID, emptyIfNil(c.Labels), c.DueAt,
-		c.RequestedBy, c.RequestedByID)); err != nil {
+		c.RequestedBy, c.RequestedByID, moved)); err != nil {
 		return Card{}, err
 	}
 	return s.Card(ctx, c.ID)

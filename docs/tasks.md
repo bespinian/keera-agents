@@ -93,7 +93,8 @@ A card in To do with an agent is picked up within seconds: it moves to In
 progress, the agent works on it with its title, description and comments, and
 the result is added as a comment. A card that went well moves to Review, for a
 person to check. One that failed moves to Backlog, so it is not picked up
-again in a loop. A card a person moved meanwhile stays where they put it.
+again in a loop. A card a person moved meanwhile stays where they put it, and
+saving an edit to a card does not move it back.
 
 Agents can use the board too: list, create, update and comment on cards. An
 agent can hand work to another by creating a card assigned to it.

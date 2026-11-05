@@ -500,10 +500,12 @@ func (d *Dispatcher) toolUpdateCard(ctx context.Context, a store.Agent, t store.
 		if err := d.st.MoveCard(ctx, c.ID, after.Status, nil); err != nil {
 			return nil, err
 		}
+		// Moved already, so the update below leaves status and position be.
 		moved, _ := d.st.Card(ctx, c.ID)
 		c.Status, c.Position = moved.Status, moved.Position
+		before.Status, before.Position = c.Status, c.Position
 	}
-	out, err := d.st.UpdateCard(ctx, c)
+	out, err := d.st.UpdateCard(ctx, before, c)
 	if err != nil {
 		return nil, err
 	}
