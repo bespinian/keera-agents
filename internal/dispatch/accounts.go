@@ -112,18 +112,27 @@ func (d *Dispatcher) asPerson(ctx context.Context, conn channels.Connection, nam
 		return conn, errors.New(again)
 	}
 	access, err := d.tokens.get(ctx, conn.ID, userID, string(refresh), func(ctx context.Context) (channels.Grant, error) {
-		g, err := p.Refresh(ctx, conn, string(refresh))
-		if err != nil {
-			return g, fmt.Errorf("%w. If it persists, %s", err, again)
-		}
-		// A service that rotates refresh tokens accepts the old one no more.
-		if g.Refresh != "" && g.Refresh != string(refresh) {
-			sealed := d.box.Seal(accountName(conn.ID, userID), []byte(g.Refresh))
-			if err := d.st.SetAccountToken(ctx, conn.ID, userID, sealed); err != nil {
-				return g, err
+		// Read again under a lock: another replica may have rotated the
+		// token since.
+		var g channels.Grant
+		err := d.st.RotateAccountToken(ctx, conn.ID, userID, func(sealed []byte) ([]byte, error) {
+			current, err := d.box.Open(accountName(conn.ID, userID), sealed)
+			if err != nil {
+				return nil, errors.New(again)
 			}
+			if g, err = p.Refresh(ctx, conn, string(current)); err != nil {
+				return nil, fmt.Errorf("%w. If it persists, %s", err, again)
+			}
+			// A service that rotates refresh tokens accepts the old one no more.
+			if g.Refresh != "" && g.Refresh != string(current) {
+				return d.box.Seal(accountName(conn.ID, userID), []byte(g.Refresh)), nil
+			}
+			return nil, nil
+		})
+		if errors.Is(err, store.ErrNotFound) {
+			err = errors.New(again)
 		}
-		return g, nil
+		return g, err
 	})
 	if err != nil {
 		return conn, err
@@ -185,9 +194,12 @@ type heldToken struct {
 	mu sync.Mutex
 	// from is a hash of the refresh token the access token came from. A new
 	// sign-in changes it, and so replaces the token.
-	from   [32]byte
-	access string
-	expiry time.Time
+	from [32]byte
+	// replaced is a hash of the refresh token the last refresh rotated out.
+	// A caller that read it before the refresh gets the new access token.
+	replaced [32]byte
+	access   string
+	expiry   time.Time
 }
 
 // tokenEarly is how long before expiry a token is replaced, so it does not
@@ -219,7 +231,7 @@ func (t *tokens) get(ctx context.Context, connectionID, userID, refresh string,
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	from := sha256.Sum256([]byte(refresh))
-	if h.from == from && h.access != "" && time.Now().Before(h.expiry.Add(-tokenEarly)) {
+	if (h.from == from || h.replaced == from) && h.access != "" && time.Now().Before(h.expiry.Add(-tokenEarly)) {
 		return h.access, nil
 	}
 	g, err := fetch(ctx)
@@ -227,7 +239,9 @@ func (t *tokens) get(ctx context.Context, connectionID, userID, refresh string,
 		return "", err
 	}
 	if g.Refresh != "" {
-		from = sha256.Sum256([]byte(g.Refresh))
+		if next := sha256.Sum256([]byte(g.Refresh)); next != from {
+			h.replaced, from = from, next
+		}
 	}
 	h.from, h.access, h.expiry = from, g.Access, g.Expiry
 	return g.Access, nil
@@ -239,6 +253,7 @@ func (t *tokens) set(connectionID, userID string, g channels.Grant) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.from, h.access, h.expiry = sha256.Sum256([]byte(g.Refresh)), g.Access, g.Expiry
+	h.replaced = [32]byte{}
 }
 
 func (t *tokens) forget(connectionID, userID string) {

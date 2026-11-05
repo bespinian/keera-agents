@@ -779,11 +779,36 @@ func TestAccounts(t *testing.T) {
 	if err != nil || a.Account != "ada@acme.ch" || string(a.Token) != "t1" || a.OrgID != "org_a" {
 		t.Fatalf("Account = %+v, %v", a, err)
 	}
-	if err := st.SetAccountToken(ctx, c.ID, "usr_1", []byte("t3")); err != nil {
-		t.Fatal(err)
+	rotate := func(from, to string) {
+		t.Helper()
+		if err := st.RotateAccountToken(ctx, c.ID, "usr_1", func(token []byte) ([]byte, error) {
+			if string(token) != from {
+				t.Errorf("rotating from %q, want %q", token, from)
+			}
+			if to == "" {
+				return nil, nil
+			}
+			return []byte(to), nil
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
+	rotate("t1", "t3")
+	rotate("t3", "") // a service that does not rotate keeps the token
 	if a, _ := st.Account(ctx, c.ID, "usr_1"); string(a.Token) != "t3" {
 		t.Errorf("rotated token = %q", a.Token)
+	}
+	// One that fails keeps it too.
+	if err := st.RotateAccountToken(ctx, c.ID, "usr_1", func([]byte) ([]byte, error) {
+		return []byte("t4"), errors.New("refused")
+	}); err == nil {
+		t.Fatal("a failed refresh did not fail")
+	}
+	if a, _ := st.Account(ctx, c.ID, "usr_1"); string(a.Token) != "t3" {
+		t.Errorf("token after a failed refresh = %q", a.Token)
+	}
+	if err := st.RotateAccountToken(ctx, c.ID, "usr_9", nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("RotateAccountToken for nobody: %v", err)
 	}
 	if mine, _ := st.UserAccounts(ctx, "org_a", "usr_1"); len(mine) != 1 || mine[0].ConnectionID != c.ID {
 		t.Errorf("UserAccounts = %+v", mine)

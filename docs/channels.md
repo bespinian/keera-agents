@@ -284,7 +284,9 @@ picker shows your folders.
 
 **The tokens stay in the control plane.** Each person's refresh token is
 sealed with `KEERA_AGENTS_SECRET_KEY`, and access tokens are only kept in
-memory. Neither reaches an agent. When someone leaves the organisation or is
+memory. Neither reaches an agent. Replicas take turns refreshing a person's
+token, so a service that replaces the refresh token each time never sees an
+old one. When someone leaves the organisation or is
 disabled, their sign-ins are forgotten within ten minutes.
 
 The channel's target and read-only mode still apply on top. Remember that the

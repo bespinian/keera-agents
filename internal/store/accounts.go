@@ -39,12 +39,28 @@ func (s *Store) SaveAccount(ctx context.Context, a Account) error {
 	return err
 }
 
-// SetAccountToken replaces the refresh token, as when the service rotates
-// it.
-func (s *Store) SetAccountToken(ctx context.Context, connectionID, userID string, token []byte) error {
-	_, err := s.pool.Exec(ctx, `UPDATE accounts SET token = $3, updated_at = now()
-		WHERE connection_id = $1 AND user_id = $2`, connectionID, userID, token)
-	return err
+// RotateAccountToken calls refresh with the person's refresh token while
+// their row is locked, and stores the token it returns unless that is nil.
+// So replicas take turns, and each starts from the token the last one
+// stored: a service that rotates tokens refuses an old one, and may end the
+// sign-in for it.
+func (s *Store) RotateAccountToken(ctx context.Context, connectionID, userID string,
+	refresh func(token []byte) ([]byte, error),
+) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var token []byte
+		if err := tx.QueryRow(ctx, `SELECT token FROM accounts
+			WHERE connection_id = $1 AND user_id = $2 FOR UPDATE`, connectionID, userID).Scan(&token); err != nil {
+			return notFound(err)
+		}
+		next, err := refresh(token)
+		if err != nil || next == nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE accounts SET token = $3, updated_at = now()
+			WHERE connection_id = $1 AND user_id = $2`, connectionID, userID, next)
+		return err
+	})
 }
 
 func (s *Store) Account(ctx context.Context, connectionID, userID string) (Account, error) {

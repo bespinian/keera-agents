@@ -36,6 +36,11 @@ func TestTokens(t *testing.T) {
 	if got, _ := tk.get(ctx, "con_2", "usr_1", "r9", fetch(channels.Grant{Access: "a4", Expiry: hour})); got != "a3" || fetches != 2 {
 		t.Fatalf("after rotation: %q after %d fetches", got, fetches)
 	}
+	// A caller that read the token before it rotated gets the new access
+	// token, not a refresh with the old one.
+	if got, _ := tk.get(ctx, "con_2", "usr_1", "r1", fetch(channels.Grant{Access: "a5", Expiry: hour})); got != "a3" || fetches != 2 {
+		t.Fatalf("read before rotation: %q after %d fetches", got, fetches)
+	}
 	// A token about to expire is replaced.
 	tk.set("con_3", "usr_2", channels.Grant{Refresh: "r", Access: "old", Expiry: time.Now().Add(time.Minute)})
 	if got, _ := tk.get(ctx, "con_3", "usr_2", "r", fetch(channels.Grant{Access: "new", Expiry: hour})); got != "new" {
