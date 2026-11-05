@@ -243,13 +243,24 @@ func TokenHash(token string) []byte {
 }
 
 // Start creates the agent's container, or replaces it so changed settings
-// apply. The workspace is kept.
+// apply. The workspace is kept. It reads the agent again under its lock: two
+// quick edits start in turn, and each must apply what is saved now, not
+// what it was given, nor start an agent stopped meanwhile.
 func (m *Manager) Start(ctx context.Context, a store.Agent) error {
+	if m.driver == nil {
+		return ErrNoRuntime
+	}
 	unlock, err := m.lock(ctx, a.ID)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	if a, err = m.st.Agent(ctx, a.ID); err != nil {
+		return err
+	}
+	if !a.Enabled {
+		return nil
+	}
 	return m.start(ctx, a)
 }
 

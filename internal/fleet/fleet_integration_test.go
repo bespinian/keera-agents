@@ -756,3 +756,41 @@ func TestReachAnswersOnlyForARunningWorkspace(t *testing.T) {
 		t.Fatalf("Reach of a stopped workspace = %v", err)
 	}
 }
+
+// A start applies the agent as it is saved now, not the copy it was given.
+func TestAStartAppliesTheLatestSettings(t *testing.T) {
+	f := newFixture(t, Options{})
+	ctx := context.Background()
+	stale := f.agent(t, func(a *store.Agent) { a.Image = "agent:a" })
+	saved := stale
+	saved.Image = "agent:c"
+	if _, err := f.st.UpdateAgent(ctx, saved); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Start(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	f.driver.mu.Lock()
+	image := f.driver.specs[stale.ID].Image
+	f.driver.mu.Unlock()
+	if image != "agent:c" {
+		t.Fatalf("started %q", image)
+	}
+
+	// One stopped meanwhile is not started.
+	stopped := f.agent(t)
+	off := stopped
+	off.Enabled = false
+	if _, err := f.st.UpdateAgent(ctx, off); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Start(ctx, stopped); err != nil {
+		t.Fatal(err)
+	}
+	f.driver.mu.Lock()
+	_, made := f.driver.specs[stopped.ID]
+	f.driver.mu.Unlock()
+	if made {
+		t.Fatal("started an agent stopped meanwhile")
+	}
+}
