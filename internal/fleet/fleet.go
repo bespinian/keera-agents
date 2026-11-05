@@ -132,10 +132,18 @@ func (m *Manager) Tiers() []runtime.Isolation {
 // CheckClass refuses a class outside the operator's limits.
 func (m *Manager) CheckClass(c runtime.Class) error { return m.opts.Limits.Check(c) }
 
-func (m *Manager) lock(id string) func() {
-	mu, _ := m.locks.LoadOrStore(id, &sync.Mutex{})
-	mu.(*sync.Mutex).Lock()
-	return mu.(*sync.Mutex).Unlock
+// lock takes the agent's lock, or gives up when ctx ends: a start pulling
+// an image can hold it for minutes, and callers behind it have deadlines of
+// their own.
+func (m *Manager) lock(ctx context.Context, id string) (func(), error) {
+	held, _ := m.locks.LoadOrStore(id, make(chan struct{}, 1))
+	ch := held.(chan struct{})
+	select {
+	case ch <- struct{}{}:
+		return func() { <-ch }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("the agent is busy with another change: %w", ctx.Err())
+	}
 }
 
 // keyName is how an agent's key is named in the gateway, so people reading
@@ -176,7 +184,11 @@ func (m *Manager) ensureKey(ctx context.Context, a *store.Agent) error {
 // running agent's next gateway request fails with 401, and its runtime then
 // fetches the new key.
 func (m *Manager) Rekey(ctx context.Context, a store.Agent) error {
-	defer m.lock(a.ID)()
+	unlock, err := m.lock(ctx, a.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	old := a.GatewayKeyID
 	a.GatewayKeyID, a.GatewayKey = "", nil
 	if err := m.ensureKey(ctx, &a); err != nil {
@@ -203,7 +215,11 @@ func (m *Manager) OpenKey(a store.Agent) (string, error) {
 // reads the agent again under its lock, so two runtime calls at once mint
 // one key, not two with one never revoked.
 func (m *Manager) RecoverKey(ctx context.Context, agentID string) (string, error) {
-	defer m.lock(agentID)()
+	unlock, err := m.lock(ctx, agentID)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	a, err := m.st.Agent(ctx, agentID)
 	if err != nil {
 		return "", err
@@ -229,7 +245,11 @@ func TokenHash(token string) []byte {
 // Start creates the agent's container, or replaces it so changed settings
 // apply. The workspace is kept.
 func (m *Manager) Start(ctx context.Context, a store.Agent) error {
-	defer m.lock(a.ID)()
+	unlock, err := m.lock(ctx, a.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	return m.start(ctx, a)
 }
 
@@ -299,7 +319,11 @@ func stale(a store.Agent, st runtime.Status) bool {
 // checks again under the lock, so it does not undo a start that is just
 // storing its token.
 func (m *Manager) restartStale(ctx context.Context, agentID string) error {
-	defer m.lock(agentID)()
+	unlock, err := m.lock(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	a, err := m.st.Agent(ctx, agentID)
 	if err != nil {
 		return err
@@ -318,7 +342,11 @@ func (m *Manager) Wake(ctx context.Context, agentID string) error {
 	if m.driver == nil {
 		return ErrNoRuntime
 	}
-	defer m.lock(agentID)()
+	unlock, err := m.lock(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	a, err := m.st.Agent(ctx, agentID)
 	if err != nil {
 		return err
@@ -351,7 +379,11 @@ func (m *Manager) Stop(ctx context.Context, a store.Agent, reason string) error 
 
 // stop is Stop, with detail saying why on the agent's state.
 func (m *Manager) stop(ctx context.Context, a store.Agent, reason, detail string) error {
-	defer m.lock(a.ID)()
+	unlock, err := m.lock(ctx, a.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	_ = m.st.CancelAgentTasks(ctx, a.ID, reason)
 	if m.driver != nil {
 		if err := m.driver.Suspend(ctx, a.ID); err != nil && !errors.Is(err, runtime.ErrNotFound) {
@@ -364,7 +396,11 @@ func (m *Manager) stop(ctx context.Context, a store.Agent, reason, detail string
 // Delete cancels the agent's unfinished tasks and removes its container,
 // workspace and key.
 func (m *Manager) Delete(ctx context.Context, a store.Agent) error {
-	defer m.lock(a.ID)()
+	unlock, err := m.lock(ctx, a.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	_ = m.st.CancelAgentTasks(ctx, a.ID, "the agent was deleted")
 	if m.driver != nil {
 		if err := m.driver.Terminate(ctx, a.ID); err != nil {
@@ -486,7 +522,10 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 // again and holds off claims until the container has stopped. It reports
 // whether the agent stayed suspended.
 func (m *Manager) suspendIdle(ctx context.Context, a store.Agent) bool {
-	unlock := m.lock(a.ID)
+	unlock, err := m.lock(ctx, a.ID)
+	if err != nil {
+		return false
+	}
 	suspended, err := m.st.SuspendIdle(ctx, a.ID, time.Now().Add(-m.idleLimit(a)), func() error {
 		return m.driver.Suspend(ctx, a.ID)
 	})

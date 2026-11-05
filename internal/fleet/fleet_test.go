@@ -1,6 +1,8 @@
 package fleet
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -57,4 +59,29 @@ func TestStuckAfterAnHourPending(t *testing.T) {
 	if m.stuck("other", true, now.Add(3*maxStartWait)) {
 		t.Fatal("agents share a clock")
 	}
+}
+
+func TestLockGivesUpWhenTheCallerDoes(t *testing.T) {
+	m := New(nil, nil, nil, nil, Options{})
+	unlock, err := m.lock(context.Background(), "agt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if _, err := m.lock(short, "agt"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second lock = %v", err)
+	}
+	// Another agent's lock is free.
+	other, err := m.lock(context.Background(), "agt_other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other()
+	unlock()
+	again, err := m.lock(context.Background(), "agt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again()
 }

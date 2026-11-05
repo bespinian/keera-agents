@@ -271,32 +271,55 @@ func (a *App) Background(ctx context.Context) {
 		}
 		func() {
 			defer release()
-			round, cancel := context.WithTimeout(ctx, time.Minute)
-			defer cancel()
 			now := time.Now()
-			disp.ExpireTasks(round)
-			disp.RunSchedules(round, now)
-			disp.PickUpCards(round)
-			disp.Deliver(round)
-			disp.CheckWatches(round, now)
-			if now.Sub(lastReconcile) >= 15*time.Second {
-				fl.Reconcile(round)
+			step(ctx, func(ctx context.Context) { disp.ExpireTasks(ctx) })
+			step(ctx, func(ctx context.Context) { disp.RunSchedules(ctx, now) })
+			step(ctx, func(ctx context.Context) { disp.PickUpCards(ctx) })
+			step(ctx, func(ctx context.Context) { disp.Deliver(ctx) })
+			step(ctx, func(ctx context.Context) { disp.CheckWatches(ctx, now) })
+			// The rarer steps count as done only if they finished in time;
+			// otherwise the next round tries again.
+			if now.Sub(lastReconcile) >= 15*time.Second && step(ctx, fl.Reconcile) {
 				lastReconcile = now
 			}
-			if now.Sub(lastOwners) >= 10*time.Minute {
-				fl.CheckOwners(round)
-				disp.CheckAccounts(round)
+			if now.Sub(lastOwners) >= 10*time.Minute && step(ctx, func(ctx context.Context) {
+				fl.CheckOwners(ctx)
+				disp.CheckAccounts(ctx)
+			}) {
 				lastOwners = now
 			}
-			if now.Sub(lastPrune) >= 24*time.Hour {
-				if n, err := st.PruneTasks(round, now.Add(-store.TaskRetention)); err == nil && n > 0 {
+			var pruned bool
+			if now.Sub(lastPrune) >= 24*time.Hour && step(ctx, func(ctx context.Context) {
+				n, err := st.PruneTasks(ctx, now.Add(-store.TaskRetention))
+				if err == nil {
+					err = st.PruneWrites(ctx, now.AddDate(0, 0, -7))
+				}
+				if err != nil {
+					log.Warn("could not delete old tasks", "error", err)
+					return
+				}
+				if n > 0 {
 					log.Info("deleted old tasks", "count", n)
 				}
-				_ = st.PruneWrites(round, now.AddDate(0, 0, -7))
+				pruned = true
+			}) && pruned {
 				lastPrune = now
 			}
 		}()
 	}
+}
+
+// stepTimeout bounds one step of a round, so a slow one, such as a delivery
+// waiting on a service, leaves the others their time. Tests shorten it.
+var stepTimeout = time.Minute
+
+// step runs f with its own deadline and reports whether it finished before
+// the deadline.
+func step(ctx context.Context, f func(context.Context)) bool {
+	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	f(ctx)
+	return ctx.Err() == nil
 }
 
 // NewLogger writes to stderr, as text or JSON.
