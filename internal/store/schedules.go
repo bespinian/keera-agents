@@ -90,14 +90,28 @@ func (s *Store) Upcoming(ctx context.Context, orgID string, limit int) ([]Schedu
 }
 
 // ClaimRun moves a schedule from the run it was due for to the next, and
-// reports whether this caller won. Only the winner starts the task, so
-// several replicas run each schedule once.
-func (s *Store) ClaimRun(ctx context.Context, id string, due time.Time, next *time.Time) (bool, error) {
-	// A schedule that never runs again is switched off.
-	tag, err := s.pool.Exec(ctx, `UPDATE schedules SET next_run_at = $3, last_run_at = now(),
-		enabled = enabled AND $3::timestamptz IS NOT NULL
-		WHERE id = $1 AND next_run_at = $2`, id, due, next)
-	return tag.RowsAffected() == 1, err
+// reports whether this caller won, so several replicas run each schedule
+// once. The winner's task, unless nil, is queued in the same transaction: a
+// run is never claimed without its task, nor queued without being claimed.
+func (s *Store) ClaimRun(ctx context.Context, id string, due time.Time, next *time.Time, task *Task) (bool, error) {
+	won := false
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		// A schedule that never runs again is switched off.
+		tag, err := tx.Exec(ctx, `UPDATE schedules SET next_run_at = $3, last_run_at = now(),
+			enabled = enabled AND $3::timestamptz IS NOT NULL
+			WHERE id = $1 AND next_run_at = $2`, id, due, next)
+		if err != nil || tag.RowsAffected() != 1 {
+			return err
+		}
+		if task != nil {
+			if _, err := tx.Exec(ctx, insertTask, taskArgs(*task)...); err != nil {
+				return conflict(err)
+			}
+		}
+		won = true
+		return nil
+	})
+	return won && err == nil, err
 }
 
 func (s *Store) DeleteSchedule(ctx context.Context, id string) error {

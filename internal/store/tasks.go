@@ -101,16 +101,22 @@ func (s *Store) queryTasks(ctx context.Context, tail string, args ...any) ([]Tas
 // CreateTask queues a task. A task with a dedupe key the agent has seen
 // before returns ErrConflict, so a redelivered webhook does nothing.
 func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
-	origin, _ := json.Marshal(t.Origin)
-	_, err := s.pool.Exec(ctx, `INSERT INTO tasks (id, org_id, agent_id, source, origin,
-		dedupe_key, conversation, prompt, context, requested_by, requested_by_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		t.ID, t.OrgID, t.AgentID, t.Source, origin, t.DedupeKey, t.Conversation, t.Prompt,
-		t.Context, t.RequestedBy, t.RequestedByID)
-	if err != nil {
+	if _, err := s.pool.Exec(ctx, insertTask, taskArgs(t)...); err != nil {
 		return Task{}, conflict(err)
 	}
 	return s.Task(ctx, t.ID)
+}
+
+const insertTask = `INSERT INTO tasks (id, org_id, agent_id, source, origin,
+	dedupe_key, conversation, prompt, context, requested_by, requested_by_id)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`
+
+func taskArgs(t Task) []any {
+	origin, _ := json.Marshal(t.Origin)
+	return []any{
+		t.ID, t.OrgID, t.AgentID, t.Source, origin, t.DedupeKey, t.Conversation, t.Prompt,
+		t.Context, t.RequestedBy, t.RequestedByID,
+	}
 }
 
 func (s *Store) Task(ctx context.Context, id string) (Task, error) {

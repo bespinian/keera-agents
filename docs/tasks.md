@@ -76,7 +76,9 @@ after the change. When they go back, a run in the hour that comes twice runs
 once. A schedule that runs every hour keeps its usual minutes either way.
 
 Exactly one replica starts each run: the run is claimed by moving the
-schedule's next time with a compare-and-set. A run missed by more than a day,
+schedule's next time with a compare-and-set, in the same transaction that
+queues its task. So a run is never claimed without its task: if queueing
+fails, the next round tries again. A run missed by more than a day,
 as after a long outage, is skipped rather than run late. An expression that
 never matches again turns the schedule off.
 

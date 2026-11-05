@@ -388,14 +388,26 @@ func TestClaimRunOnce(t *testing.T) {
 		t.Fatalf("DueSchedules = %+v, %v", list, err)
 	}
 	next := due.Add(24 * time.Hour)
-	if won, err := st.ClaimRun(ctx, sc.ID, *list[0].NextRunAt, &next); !won || err != nil {
+	// A task that cannot be stored leaves the run unclaimed, to try again.
+	broken := &Task{ID: id.New("task"), OrgID: "org_a", AgentID: "agt_gone", Source: "schedule", Prompt: "p"}
+	if won, err := st.ClaimRun(ctx, sc.ID, *list[0].NextRunAt, &next, broken); won || err == nil {
+		t.Fatalf("claim with a broken task = %v, %v", won, err)
+	}
+	if got, _ := st.Schedule(ctx, sc.ID); got.NextRunAt == nil || !got.NextRunAt.Equal(*list[0].NextRunAt) {
+		t.Fatalf("a failed claim moved the run to %v", got.NextRunAt)
+	}
+	run := &Task{ID: id.New("task"), OrgID: "org_a", AgentID: a.ID, Source: "schedule", Prompt: "p"}
+	if won, err := st.ClaimRun(ctx, sc.ID, *list[0].NextRunAt, &next, run); !won || err != nil {
 		t.Fatalf("first claim = %v, %v", won, err)
 	}
-	if won, _ := st.ClaimRun(ctx, sc.ID, *list[0].NextRunAt, &next); won {
+	if _, err := st.Task(ctx, run.ID); err != nil {
+		t.Fatalf("the claimed run's task: %v", err)
+	}
+	if won, _ := st.ClaimRun(ctx, sc.ID, *list[0].NextRunAt, &next, nil); won {
 		t.Fatal("claimed twice")
 	}
 	// One that never runs again is switched off.
-	if won, _ := st.ClaimRun(ctx, sc.ID, next, nil); !won {
+	if won, _ := st.ClaimRun(ctx, sc.ID, next, nil, nil); !won {
 		t.Fatal("last claim lost")
 	}
 	if got, _ := st.Schedule(ctx, sc.ID); got.Enabled || got.NextRunAt != nil {

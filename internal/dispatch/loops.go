@@ -37,35 +37,47 @@ func (d *Dispatcher) RunSchedules(ctx context.Context, now time.Time) {
 			// As when its time zone left the zone database: it stops.
 			d.log.Warn("a schedule will not run again", "schedule", sc.ID, "error", err)
 		}
-		won, err := d.st.ClaimRun(ctx, sc.ID, *sc.NextRunAt, nextAt)
-		if err != nil || !won {
-			continue
-		}
 		// A run missed by more than a day, as after a long outage, is
 		// skipped rather than run late.
-		if now.Sub(*sc.NextRunAt) > 24*time.Hour {
+		var task *store.Task
+		if now.Sub(*sc.NextRunAt) <= 24*time.Hour {
+			t, err := newTask(scheduleTask(sc))
+			if err != nil {
+				d.log.Warn("a scheduled run has nothing to do", "schedule", sc.ID, "error", err)
+			} else {
+				task = &t
+			}
+		}
+		won, err := d.st.ClaimRun(ctx, sc.ID, *sc.NextRunAt, nextAt, task)
+		if err != nil {
+			// Neither claimed nor queued, so the next round tries again.
+			d.log.Warn("could not start a scheduled run", "schedule", sc.ID, "error", err)
 			continue
 		}
-		if _, err := d.SubmitSchedule(ctx, sc); err != nil && !errors.Is(err, errDuplicate) {
-			d.log.Warn("could not queue a scheduled task", "schedule", sc.ID, "error", err)
+		if won && task != nil {
+			d.queued(task.AgentID)
 		}
 	}
 }
 
-// SubmitSchedule queues one run of a schedule, as when it is due or someone
-// runs it now.
+// SubmitSchedule queues one run of a schedule now, as when someone asks.
 func (d *Dispatcher) SubmitSchedule(ctx context.Context, sc store.Schedule) (store.Task, error) {
+	return d.Submit(ctx, scheduleTask(sc))
+}
+
+// scheduleTask is one run of a schedule.
+func scheduleTask(sc store.Schedule) store.Task {
 	o := store.Origin{Label: "Schedule " + sc.Name, ScheduleID: sc.ID}
 	if sc.ReplyBindingID != nil {
 		o.ReplyBindingID = *sc.ReplyBindingID
 	}
-	return d.Submit(ctx, store.Task{
+	return store.Task{
 		OrgID: sc.OrgID, AgentID: sc.AgentID, Source: protocol.SourceSchedule, Origin: o,
 		Prompt:        sc.Prompt,
 		Context:       fmt.Sprintf("The schedule %q (%s), run for %s.", sc.Name, describe(sc.Cron), sc.RequestedBy),
 		RequestedBy:   sc.RequestedBy,
 		RequestedByID: sc.RequestedByID,
-	})
+	}
 }
 
 func describe(expr string) string {

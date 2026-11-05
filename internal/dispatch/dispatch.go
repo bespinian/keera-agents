@@ -190,12 +190,9 @@ var (
 
 // Submit queues a task and wakes its agent.
 func (d *Dispatcher) Submit(ctx context.Context, t store.Task) (store.Task, error) {
-	if t.ID == "" {
-		t.ID = id.New("task")
-	}
-	t.Prompt = strings.TrimSpace(t.Prompt)
-	if t.Prompt == "" {
-		return store.Task{}, ErrNoPrompt
+	t, err := newTask(t)
+	if err != nil {
+		return store.Task{}, err
 	}
 	out, err := d.st.CreateTask(ctx, t)
 	if errors.Is(err, store.ErrConflict) {
@@ -204,11 +201,28 @@ func (d *Dispatcher) Submit(ctx context.Context, t store.Task) (store.Task, erro
 	if err != nil {
 		return store.Task{}, err
 	}
-	if d.opts.OnQueued != nil {
-		d.opts.OnQueued(out.AgentID)
-	}
-	d.wake(out.AgentID)
+	d.queued(out.AgentID)
 	return out, nil
+}
+
+// newTask readies t to be stored.
+func newTask(t store.Task) (store.Task, error) {
+	if t.ID == "" {
+		t.ID = id.New("task")
+	}
+	t.Prompt = strings.TrimSpace(t.Prompt)
+	if t.Prompt == "" {
+		return store.Task{}, ErrNoPrompt
+	}
+	return t, nil
+}
+
+// queued tells the agent it has a task.
+func (d *Dispatcher) queued(agentID string) {
+	if d.opts.OnQueued != nil {
+		d.opts.OnQueued(agentID)
+	}
+	d.wake(agentID)
 }
 
 // wake runs in the background: a webhook must be answered within seconds,
