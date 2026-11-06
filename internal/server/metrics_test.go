@@ -58,3 +58,18 @@ func TestSnapshot(t *testing.T) {
 		t.Errorf("no queue, but the oldest waited %s", s.OldestQueued)
 	}
 }
+
+// While it migrates, the control plane is alive but not ready.
+func TestStartingIsAliveButNotReady(t *testing.T) {
+	h := startingHandler()
+	for path, want := range map[string]int{
+		"/healthz": http.StatusOK, "/readyz": http.StatusServiceUnavailable,
+		"/api/v1/agents": http.StatusServiceUnavailable,
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != want {
+			t.Errorf("%s = %d, want %d", path, rec.Code, want)
+		}
+	}
+}

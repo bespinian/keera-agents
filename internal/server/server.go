@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -46,6 +48,33 @@ func Run() error {
 	if err != nil {
 		return err
 	}
+
+	// Listening starts first: migrating can wait for another replica, and a
+	// liveness probe that gets no answer meanwhile restarts the pod. Until
+	// the app is wired, /healthz answers and everything else says starting.
+	ln, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", cfg.Addr, err)
+	}
+	var handler atomic.Pointer[http.Handler]
+	starting := startingHandler()
+	handler.Store(&starting)
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			(*handler.Load()).ServeHTTP(w, r)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       time.Minute,
+		// Long polls from agents wait up to protocol.MaxWait; log streams
+		// lift this themselves.
+		WriteTimeout: 2 * time.Minute,
+		IdleTimeout:  2 * time.Minute,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ln) }()
+	// Returning before the end, as when migrating fails, stops it too.
+	defer func() { _ = srv.Close() }()
+
 	st, err := store.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("opening the database: %w", err)
@@ -83,16 +112,7 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           app.Handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       time.Minute,
-		// Long polls from agents wait up to protocol.MaxWait; log streams
-		// lift this themselves.
-		WriteTimeout: 2 * time.Minute,
-		IdleTimeout:  2 * time.Minute,
-	}
+	handler.Store(&app.Handler)
 
 	background := make(chan struct{})
 	go func() {
@@ -100,16 +120,12 @@ func Run() error {
 		close(background)
 	}()
 
-	errc := make(chan error, 1)
-	go func() {
-		log.Info("keera-agents is listening", "addr", cfg.Addr, "public_url", cfg.PublicURL,
-			"gateway", cfg.GatewayURL, "driver", cfg.Runtime.Driver, "version", version.String())
-		if !strings.HasPrefix(cfg.PublicURL, "http://127.") && !strings.HasPrefix(cfg.PublicURL, "http://[::1]") {
-			log.Info("the gateway must allow this address to sign in; set KEERA_AGENTS_URL=" +
-				cfg.PublicURL + " on Keera Gateway")
-		}
-		errc <- srv.ListenAndServe()
-	}()
+	log.Info("keera-agents is ready", "addr", cfg.Addr, "public_url", cfg.PublicURL,
+		"gateway", cfg.GatewayURL, "driver", cfg.Runtime.Driver, "version", version.String())
+	if !strings.HasPrefix(cfg.PublicURL, "http://127.") && !strings.HasPrefix(cfg.PublicURL, "http://[::1]") {
+		log.Info("the gateway must allow this address to sign in; set KEERA_AGENTS_URL=" +
+			cfg.PublicURL + " on Keera Gateway")
+	}
 
 	select {
 	case err := <-errc:
@@ -136,6 +152,19 @@ func Run() error {
 		log.Warn("stopped before all accepted work was done", "error", err)
 	}
 	return nil
+}
+
+// startingHandler answers while the control plane starts: alive, not ready.
+func startingHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "keera-agents is starting", http.StatusServiceUnavailable)
+	})
+	return mux
 }
 
 // App is the control plane, wired: its HTTP handler and its periodic work.

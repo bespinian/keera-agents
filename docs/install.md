@@ -120,6 +120,19 @@ Calls to the gateway are not checked: the operator sets its address.
 | `/healthz`, `/readyz` | Liveness, and readiness with the database | the orchestrator         |
 | `/metrics`            | Prometheus metrics                        | Prometheus               |
 
+**Probes.** `/healthz` answers as soon as the process listens, before the
+schema migrates, which can wait for another replica. Use it for liveness.
+`/readyz` answers 503 until the control plane is ready, and while the
+database does not answer: use it for readiness. In an image without curl,
+`keera-agents health` checks `/readyz`.
+
+```yaml
+livenessProbe:
+  httpGet: { path: /healthz, port: 8070 }
+readinessProbe:
+  httpGet: { path: /readyz, port: 8070 }
+```
+
 **Publish `/runtime` only inside the cluster.** It authenticates every call
 with a runtime token, but nothing outside needs it. The chat services need
 `/hooks/` from the internet; people need the rest.
