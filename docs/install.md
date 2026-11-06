@@ -239,6 +239,12 @@ agent image on, too. `make sbom` writes the SBOMs of locally built images to
 
 ## Upgrading
 
-The schema migrates at start, under an advisory lock. Upgrade the agent image
-with the control plane: agents pick up a new image when they are restarted or
-their settings change.
+Take a backup first ([Backups](#backups)). The schema migrates at start, under
+an advisory lock. Upgrade the agent image with the control plane: agents pick
+up a new image when they are restarted or their settings change.
+
+**Rolling back.** A release refuses to start against a database that a newer
+release migrated, since it would misread it. To go back, restore the database
+from the backup taken before the upgrade, then start the older release. During
+a rolling update, replicas of the old release that restart after the new one
+has migrated stay down until the update finishes.

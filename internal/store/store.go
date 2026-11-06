@@ -26,6 +26,8 @@ var (
 	// ErrConflict is a unique constraint, such as an agent name taken in the
 	// organisation.
 	ErrConflict = errors.New("store: already exists")
+	// ErrNewerSchema is a database migrated by a newer release.
+	ErrNewerSchema = errors.New("store: the database is newer than this version")
 )
 
 type Store struct {
@@ -92,6 +94,24 @@ func (s *Store) Migrate(ctx context.Context) (applied []string, err error) {
 		names = append(names, e.Name())
 	}
 	slices.Sort(names)
+
+	// A database a newer release migrated has tables this one does not
+	// know, and rows it would misread. Running against it, as after
+	// rolling back the binary alone, could damage it.
+	rows, err := conn.Query(ctx, "SELECT version FROM schema_migrations ORDER BY version")
+	if err != nil {
+		return nil, err
+	}
+	known, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range known {
+		if !slices.Contains(names, v) {
+			return nil, fmt.Errorf("%w: the database has migration %s, which this version does not know. "+
+				"Run the version that applied it, or restore the backup taken before upgrading", ErrNewerSchema, v)
+		}
+	}
 
 	for _, name := range names {
 		var seen bool

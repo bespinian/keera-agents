@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,6 +37,17 @@ func openTest(t *testing.T) *Store {
 		t.Fatalf("second Migrate = %v, %v", applied, err)
 	}
 	return st
+}
+
+func TestMigrateRefusesANewerDatabase(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	if _, err := st.pool.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ('9999_future.sql')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Migrate(ctx); !errors.Is(err, ErrNewerSchema) || !strings.Contains(err.Error(), "9999_future.sql") {
+		t.Fatalf("Migrate = %v", err)
+	}
 }
 
 func newAgent(t *testing.T, st *Store, org, name string) Agent {
