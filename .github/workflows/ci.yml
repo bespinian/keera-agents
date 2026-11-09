@@ -1,6 +1,7 @@
-# Every commit must be formatted, pass the linters, build, and pass the unit
-# and integration tests. The integration tests need Postgres and skip without
-# KEERA_AGENTS_TEST_DATABASE_URL, so they get their own job.
+# Every commit must be formatted, pass the linters, build, build the images,
+# and pass the unit and integration tests. The integration tests need
+# Postgres and skip without KEERA_AGENTS_TEST_DATABASE_URL, so they get their
+# own job.
 name: CI
 
 on:
@@ -72,6 +73,23 @@ jobs:
         run: make test
         env:
           CGO_ENABLED: "1"
+
+  # Otherwise a broken Containerfile, or a pinned version or checksum that no
+  # longer matches, shows only when a release is tagged.
+  images:
+    name: Build the images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the control plane's image
+        run: make image
+
+      - name: Build the agent image
+        run: make agent-image
+
+      - name: Build the workspace image
+        run: make workspace-image
 
   integration:
     name: Integration tests
