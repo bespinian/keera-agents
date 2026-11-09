@@ -86,7 +86,7 @@ ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/keera-agents", "agent"]
 # or code-server with Cline. Debian, not Alpine: code-server is built for
 # glibc. A deployment that wants other tools builds its own FROM it and sets
 # KEERA_AGENTS_WORKSPACE_IMAGE; keep the entrypoint, the user and /workspace.
-FROM docker.io/library/node:24.22.2-trixie-slim AS workspace
+FROM docker.io/library/node:26.13.0-trixie-slim AS workspace
 
 ARG TARGETARCH
 ARG PI_VERSION=1.5.0
