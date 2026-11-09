@@ -93,6 +93,13 @@ ARG PI_VERSION=1.5.0
 ARG CODE_SERVER_VERSION=4.145.2
 ARG CLINE_VERSION=4.1.26
 ARG TTYD_VERSION=1.7.7
+# The downloads below are checked against these, as their releases publish
+# them. Change them with the versions.
+ARG TTYD_SHA256_AMD64=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
+ARG TTYD_SHA256_ARM64=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
+ARG CODE_SERVER_SHA256_AMD64=7eddbdeaab34380bde3ac3bbadce58fe2f5722c4877f331ea593ae797c2517e1
+ARG CODE_SERVER_SHA256_ARM64=0fa9af7f602536b1e320a17d32bb1a85e4a924fdc09283898f1bea73d2a5c1e7
+ARG CLINE_SHA256=d8ea4c3505052c48e7c7a5558e7213a53827b6ba1da7e56513c87d896df51c4d
 
 LABEL org.opencontainers.image.title="Keera Workspace" \
       org.opencontainers.image.vendor="bespinian GmbH" \
@@ -111,12 +118,18 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       bash build-essential ca-certificates curl git jq less openssh-client openssh-server \
       procps python3 python3-venv ripgrep tini tmux tzdata unzip vim-tiny \
- && case "$TARGETARCH" in amd64) ttyd=x86_64 ;; arm64) ttyd=aarch64 ;; *) exit 1 ;; esac \
+ && case "$TARGETARCH" in \
+      amd64) ttyd=x86_64 ttyd_sum=$TTYD_SHA256_AMD64 cs_sum=$CODE_SERVER_SHA256_AMD64 ;; \
+      arm64) ttyd=aarch64 ttyd_sum=$TTYD_SHA256_ARM64 cs_sum=$CODE_SERVER_SHA256_ARM64 ;; \
+      *) exit 1 ;; \
+    esac \
  && curl -fsSL -o /usr/local/bin/ttyd \
       "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd}" \
+ && echo "$ttyd_sum  /usr/local/bin/ttyd" | sha256sum -c - \
  && chmod 0755 /usr/local/bin/ttyd \
  && curl -fsSL -o /tmp/code-server.deb \
       "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${TARGETARCH}.deb" \
+ && echo "$cs_sum  /tmp/code-server.deb" | sha256sum -c - \
  && apt-get install -y --no-install-recommends /tmp/code-server.deb \
  && rm -rf /tmp/code-server.deb /var/lib/apt/lists/*
 
@@ -126,7 +139,8 @@ RUN NPM_CONFIG_PREFIX=/usr/local npm install -g --ignore-scripts "@earendil-work
  && npm cache clean --force \
  && mkdir -p /opt/keera/vscode-extensions \
  && curl -fsSL -o "/opt/keera/vscode-extensions/cline-${CLINE_VERSION}.vsix" \
-      "https://open-vsx.org/api/saoudrizwan/claude-dev/${CLINE_VERSION}/file/saoudrizwan.claude-dev-${CLINE_VERSION}.vsix"
+      "https://open-vsx.org/api/saoudrizwan/claude-dev/${CLINE_VERSION}/file/saoudrizwan.claude-dev-${CLINE_VERSION}.vsix" \
+ && echo "$CLINE_SHA256  /opt/keera/vscode-extensions/cline-${CLINE_VERSION}.vsix" | sha256sum -c -
 
 # The node image's user has uid 1000, which is the agent's. The password is
 # '*', not locked: sshd refuses a locked account even for a key. sshd wants

@@ -229,7 +229,9 @@ read-only root filesystem, so install tools in the image, not at run time
 ([Hardening](agents.md#hardening)).
 Setting `KEERA_AGENT_LOG_LEVEL=debug` in such an image makes the runtime log
 more. `make workspace-image` builds the image workspaces run in
-([workspaces.md](workspaces.md#the-image)).
+([workspaces.md](workspaces.md#the-image)). It checks each file it downloads,
+ttyd, code-server and Cline, against a SHA-256 pinned in the Containerfile:
+change those with the versions.
 
 Each release publishes all three, built by GitHub Actions from the tag:
 `ghcr.io/bespinian/keera-agents:<tag>`, `ghcr.io/bespinian/keera-agent:<tag>`
