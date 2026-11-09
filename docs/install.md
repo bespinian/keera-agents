@@ -250,6 +250,25 @@ some other workflow in the repository. Verify the image you base your own
 agent image on, too. `make sbom` writes the SBOMs of locally built images to
 `build/sbom`.
 
+## Backups
+
+Three things hold state. Back up all three, on the same schedule.
+
+| What                      | Holds                                              | Without it                                             |
+| ------------------------- | -------------------------------------------------- | ------------------------------------------------------ |
+| The database              | agents, connectors, tasks, schedules, the board    | everything is gone                                     |
+| `KEERA_AGENTS_SECRET_KEY` | the key the database's credentials are sealed with | connectors must be entered again, people sign in again |
+| Agents' workspaces        | `MEMORY.md`, chat histories, files and clones      | agents forget, and unpushed work is lost               |
+
+Back up the database with `pg_dump`, and keep the secret key apart from it,
+in your secret store. A workspace is a volume per agent: on Kubernetes, the
+PVCs labelled `app.kubernetes.io/managed-by=keera-agents`, backed up with
+volume snapshots or a tool such as Velero; on podman, the volumes named
+`keera-agent-…-workspace`, with `podman volume export`.
+
+To restore, restore the database and the volumes, and start keera-agents with
+the same secret key. Agents pick up their workspaces when they start.
+
 ## Upgrading
 
 Take a backup first ([Backups](#backups)). The schema migrates at start, under
