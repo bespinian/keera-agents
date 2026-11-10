@@ -161,9 +161,16 @@ func (d *Dispatcher) receive(ctx context.Context, adapter channels.Chat, conn ch
 	if msg.MessageID != "" {
 		task.DedupeKey = &dedupe
 	}
-	if _, err := d.Submit(ctx, task); err != nil && !errors.Is(err, errDuplicate) {
+	_, err = d.Submit(ctx, task)
+	switch {
+	case err == nil, errors.Is(err, errDuplicate):
+	case errors.Is(err, ErrNoPrompt):
+		reply("I could not take this on: " + err.Error() + ".")
+	default:
+		// The error may be the database's, which is no one's business in
+		// the chat.
 		d.log.Warn("could not queue a task from a message", "agent", a.ID, "error", err)
-		reply("I could not take this on: " + err.Error())
+		reply("I could not take this on because of a problem on my side; try again in a moment.")
 	}
 }
 

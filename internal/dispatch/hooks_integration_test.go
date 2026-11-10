@@ -278,3 +278,29 @@ func (e *testEnv) chatConn(t *testing.T, c store.Connection) (channels.Chat, cha
 	}
 	return e.chat, conn
 }
+
+func TestAMessageThatCannotBeQueuedSaysSoPlainly(t *testing.T) {
+	e := setup(t)
+	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	c := e.conn(t, "org_a", chatKind, map[string]string{"token": "x"})
+	e.bind(t, a, c, "sales", store.ModeChat)
+	adapter, conn := e.chatConn(t, c)
+	send := func(id, text string) {
+		e.d.receive(e.ctx, adapter, conn, inbound(hookBody{ID: id, Channel: "sales", Email: "ada@example.ch", Text: text}))
+	}
+
+	// Nothing but blanks, as a message with only an image: the person can
+	// fix that.
+	send("1", "  ")
+	// The database refuses: that stays in the log.
+	e.exec(t, `CREATE FUNCTION no_tasks() RETURNS trigger LANGUAGE plpgsql
+		AS $$ BEGIN RAISE EXCEPTION 'relation tasks is broken'; END $$;
+		CREATE TRIGGER no_tasks BEFORE INSERT ON tasks FOR EACH ROW EXECUTE FUNCTION no_tasks()`)
+	send("2", "find the invoice")
+
+	got := e.chat.messages()
+	if len(got) != 2 || !strings.Contains(got[0], "a task needs something to do") ||
+		!strings.Contains(got[1], "a problem on my side") || strings.Contains(got[1], "broken") {
+		t.Fatalf("answered %q", got)
+	}
+}
