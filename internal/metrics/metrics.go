@@ -40,6 +40,12 @@ type Registry struct {
 	webhooks     *family
 	starts       *family
 	folderChecks *family
+	gatewayCalls *family
+	gatewayTime  *family
+	rounds       *family
+	// lastRound is when this replica last finished a round of the periodic
+	// work, in Unix seconds; 0 if it never has.
+	lastRound atomic.Int64
 }
 
 // New makes a registry for the given build version.
@@ -65,6 +71,12 @@ func New(version string) *Registry {
 			"Containers created for agents and workspaces.", "kind", "outcome"),
 		folderChecks: counter("keera_agents_folder_checks_total",
 			"Checks of watched folders for new files.", "kind", "outcome"),
+		gatewayCalls: counter("keera_agents_gateway_calls_total",
+			"Calls to Keera Gateway's control API: ok, 4xx, 5xx, unreachable, or error for an answer it could not read.", "op", "outcome"),
+		gatewayTime: histogram("keera_agents_gateway_call_duration_seconds",
+			"How long a call to Keera Gateway's control API took.", callBuckets, "op", "outcome"),
+		rounds: histogram("keera_agents_background_round_duration_seconds",
+			"How long one round of the periodic work took, on the replica that ran it.", callBuckets),
 	}
 }
 
@@ -129,6 +141,24 @@ func (r *Registry) FolderCheck(kind, outcome string) {
 	}
 }
 
+// GatewayCall records one call to the gateway's control API.
+func (r *Registry) GatewayCall(op, outcome string, d time.Duration) {
+	if r == nil {
+		return
+	}
+	r.gatewayCalls.inc(op, outcome)
+	r.gatewayTime.observe(d, op, outcome)
+}
+
+// Round records one finished round of the periodic work.
+func (r *Registry) Round(end time.Time, d time.Duration) {
+	if r == nil {
+		return
+	}
+	r.rounds.observe(d)
+	r.lastRound.Store(end.Unix())
+}
+
 // Snapshot is what the database says at the time of a scrape.
 type Snapshot struct {
 	// Machines counts agents and workspaces by kind and state.
@@ -161,10 +191,13 @@ func (r *Registry) Write(w io.Writer, s Snapshot) {
 	fmt.Fprintf(&buf, "keera_agents_oldest_queued_task_seconds %s\n", seconds(s.OldestQueued))
 	gauge(&buf, "keera_agents_results_undelivered",
 		"Finished tasks whose result has not gone back yet.", s.Undelivered)
+	gauge(&buf, "keera_agents_background_last_round_timestamp_seconds",
+		"When this replica last finished a round of the periodic work, as a Unix time; 0 if never.",
+		int(r.lastRound.Load()))
 
 	for _, f := range []*family{
 		r.tasks, r.taskDuration, r.taskWait, r.deliveries, r.toolCalls, r.toolDuration,
-		r.webhooks, r.starts, r.folderChecks,
+		r.webhooks, r.starts, r.folderChecks, r.gatewayCalls, r.gatewayTime, r.rounds,
 	} {
 		f.write(&buf)
 	}
@@ -240,14 +273,19 @@ func (f *family) write(w *bytes.Buffer) {
 			fmt.Fprintf(w, "%s{%s} %d\n", f.name, labels, s.count.Load())
 			continue
 		}
+		// A histogram without labels has only le.
+		le := "le="
+		if labels != "" {
+			le = labels + ",le="
+		}
 		var cum int64
 		for i, ub := range f.buckets {
 			cum += s.hist[i].Load()
-			fmt.Fprintf(w, "%s_bucket{%s,le=\"%s\"} %d\n",
-				f.name, labels, strconv.FormatFloat(ub, 'g', -1, 64), cum)
+			fmt.Fprintf(w, "%s_bucket{%s\"%s\"} %d\n",
+				f.name, le, strconv.FormatFloat(ub, 'g', -1, 64), cum)
 		}
 		cum += s.hist[len(f.buckets)].Load()
-		fmt.Fprintf(w, "%s_bucket{%s,le=\"+Inf\"} %d\n", f.name, labels, cum)
+		fmt.Fprintf(w, "%s_bucket{%s\"+Inf\"} %d\n", f.name, le, cum)
 		fmt.Fprintf(w, "%s_count{%s} %d\n", f.name, labels, cum)
 		fmt.Fprintf(w, "%s_sum{%s} %s\n", f.name, labels, seconds(time.Duration(s.micros.Load())*time.Microsecond))
 	}
@@ -255,6 +293,9 @@ func (f *family) write(w *bytes.Buffer) {
 
 // labelSet renders a NUL-joined key as name="value" pairs.
 func (f *family) labelSet(key string) string {
+	if len(f.labels) == 0 {
+		return ""
+	}
 	values := strings.SplitN(key, "\x00", len(f.labels))
 	pairs := make([]string, len(f.labels))
 	for i, name := range f.labels {

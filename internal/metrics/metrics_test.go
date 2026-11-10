@@ -26,6 +26,8 @@ func TestWrite(t *testing.T) {
 	r.Webhook("slack", "unverified")
 	r.MachineStart("agent", "ok")
 	r.FolderCheck("gdrive", "error")
+	r.GatewayCall("GET /v1/service/users", "5xx", 2*time.Second)
+	r.Round(time.Unix(1767261600, 0), 40*time.Millisecond)
 
 	out := render(r, Snapshot{
 		Machines: map[[2]string]int{{"agent", "running"}: 2, {"workspace", "suspended"}: 0},
@@ -57,6 +59,11 @@ func TestWrite(t *testing.T) {
 		`keera_agents_webhooks_total{kind="slack",outcome="unverified"} 1`,
 		`keera_agents_machine_starts_total{kind="agent",outcome="ok"} 1`,
 		`keera_agents_folder_checks_total{kind="gdrive",outcome="error"} 1`,
+		`keera_agents_gateway_calls_total{op="GET /v1/service/users",outcome="5xx"} 1`,
+		`keera_agents_gateway_call_duration_seconds_bucket{op="GET /v1/service/users",outcome="5xx",le="2.5"} 1`,
+		"keera_agents_background_last_round_timestamp_seconds 1767261600",
+		`keera_agents_background_round_duration_seconds_bucket{le="0.05"} 1`,
+		`keera_agents_background_round_duration_seconds_count{} 1`,
 	} {
 		if !strings.Contains(out, want+"\n") {
 			t.Errorf("missing %s", want)

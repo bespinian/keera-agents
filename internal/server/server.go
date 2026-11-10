@@ -173,6 +173,7 @@ type App struct {
 	st      *store.Store
 	fleet   *fleet.Manager
 	disp    *dispatch.Dispatcher
+	metrics *metrics.Registry
 	log     *slog.Logger
 }
 
@@ -180,6 +181,7 @@ type App struct {
 // first. driver may be nil: agents can then be set up but not run.
 func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.Driver, box *secret.Box, log *slog.Logger) (*App, error) {
 	reg := metrics.New(version.String())
+	gw.Observe(reg.GatewayCall)
 	limits, err := runtime.LimitsFrom(cfg.Runtime, driver)
 	if err != nil {
 		return nil, err
@@ -221,7 +223,7 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 	})
 	mux.Handle("GET /metrics", metricsHandler(st, reg, cfg.MetricsToken, log))
 	mux.Handle("/", webui.Handler())
-	return &App{Handler: mux, st: st, fleet: fl, disp: disp, log: log}, nil
+	return &App{Handler: mux, st: st, fleet: fl, disp: disp, metrics: reg, log: log}, nil
 }
 
 // metricsHandler serves the Prometheus exposition to whoever holds token. With
@@ -301,6 +303,7 @@ func (a *App) Background(ctx context.Context) {
 		func() {
 			defer release()
 			now := time.Now()
+			defer func() { a.metrics.Round(time.Now(), time.Since(now)) }()
 			step(ctx, func(ctx context.Context) { disp.ExpireTasks(ctx) })
 			step(ctx, func(ctx context.Context) { disp.RunSchedules(ctx, now) })
 			step(ctx, func(ctx context.Context) { disp.PickUpCards(ctx) })

@@ -162,17 +162,24 @@ scrape_configs:
 
 **Counters** count what one replica did, so sum them across replicas:
 
-| Metric                                    | Labels          | What it counts                                                       |
-| ----------------------------------------- | --------------- | -------------------------------------------------------------------- |
-| `keera_agents_tasks_total`                | source, state   | finished tasks, counted when their result is handed back             |
-| `keera_agents_task_duration_seconds`      | source, state   | how long a task ran                                                  |
-| `keera_agents_task_wait_seconds`          | source          | how long a task waited in the queue                                  |
-| `keera_agents_deliveries_total`           | source, outcome | results handed back: `ok`, `error`, or `retry` when nothing was sent |
-| `keera_agents_tool_calls_total`           | kind, outcome   | platform and connector tool calls, such as `jira` or `board`         |
-| `keera_agents_tool_call_duration_seconds` | kind, outcome   | how long a tool call took                                            |
-| `keera_agents_webhooks_total`             | kind, outcome   | webhooks: `accepted`, `unverified`, `unreadable` or `unconfigured`   |
-| `keera_agents_machine_starts_total`       | kind, outcome   | containers created for agents and workspaces                         |
-| `keera_agents_folder_checks_total`        | kind, outcome   | checks of watched folders                                            |
+| Metric                                           | Labels          | What it counts                                                                   |
+| ------------------------------------------------ | --------------- | -------------------------------------------------------------------------------- |
+| `keera_agents_tasks_total`                       | source, state   | finished tasks, counted when their result is handed back                         |
+| `keera_agents_task_duration_seconds`             | source, state   | how long a task ran                                                              |
+| `keera_agents_task_wait_seconds`                 | source          | how long a task waited in the queue                                              |
+| `keera_agents_deliveries_total`                  | source, outcome | results handed back: `ok`, `error`, or `retry` when nothing was sent             |
+| `keera_agents_tool_calls_total`                  | kind, outcome   | platform and connector tool calls, such as `jira` or `board`                     |
+| `keera_agents_tool_call_duration_seconds`        | kind, outcome   | how long a tool call took                                                        |
+| `keera_agents_webhooks_total`                    | kind, outcome   | webhooks: `accepted`, `unverified`, `unreadable` or `unconfigured`               |
+| `keera_agents_machine_starts_total`              | kind, outcome   | containers created for agents and workspaces                                     |
+| `keera_agents_folder_checks_total`               | kind, outcome   | checks of watched folders                                                        |
+| `keera_agents_gateway_calls_total`               | op, outcome     | calls to the gateway's control API: `ok`, `4xx`, `5xx`, `unreachable` or `error` |
+| `keera_agents_gateway_call_duration_seconds`     | op, outcome     | how long a call to the gateway took                                              |
+| `keera_agents_background_round_duration_seconds` |                 | how long a round of the periodic work took                                       |
+
+`keera_agents_background_last_round_timestamp_seconds` is when the replica
+last finished a round of the periodic work, which runs on one replica at a
+time: take the max across replicas.
 
 **Gauges** are read from the database at each scrape, so every replica shows
 the same values. Take the max, not the sum:
@@ -190,7 +197,11 @@ Worth an alert: `keera_agents_oldest_queued_task_seconds` over a few minutes,
 since a task fails after an hour of waiting; `keera_agents_machines` with
 `state="failed"` above zero; a rise in `keera_agents_webhooks_total` with
 `outcome="unverified"`, which may be someone probing, or a changed secret at
-the chat service; and `keera_agents_results_undelivered` that keeps growing.
+the chat service; `keera_agents_results_undelivered` that keeps growing;
+`keera_agents_gateway_calls_total` with `outcome="unreachable"` or `"5xx"`,
+since sign-ins and agents' keys need the gateway; and
+`time() - max(keera_agents_background_last_round_timestamp_seconds)` over five
+minutes, since schedules, cards and deliveries then wait.
 
 Model calls, tokens and spend are on Keera Gateway's own `/metrics`. Each task
 is one session there, so its Sessions screen shows the model side of a task.

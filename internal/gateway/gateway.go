@@ -35,6 +35,23 @@ type Client struct {
 	base       string
 	serviceKey string
 	http       *http.Client
+	// observe, if set, hears of every call: what it was, how it went and
+	// how long it took.
+	observe func(op, outcome string, d time.Duration)
+}
+
+// Observe sets what hears of every call, such as the metrics. Set it before
+// the client is used.
+func (c *Client) Observe(f func(op, outcome string, d time.Duration)) { c.observe = f }
+
+// opName names a call for metrics: its method and path, without ids or the
+// query, so the names stay few.
+func opName(method, path string) string {
+	path, _, _ = strings.Cut(path, "?")
+	if strings.HasPrefix(path, "/v1/service/keys/") {
+		path = "/v1/service/keys/{id}"
+	}
+	return method + " " + path
 }
 
 // New returns a client for the gateway at base, such as http://gateway:8080.
@@ -240,7 +257,31 @@ func (c *Client) Catalog(ctx context.Context, orgID, projectID string) (Catalog,
 func (c *Client) call(ctx context.Context, method, path, token string, in, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
+	start := time.Now()
+	err := c.send(ctx, method, path, token, in, out)
+	if c.observe != nil && !errors.Is(err, context.Canceled) {
+		c.observe(opName(method, path), outcome(err), time.Since(start))
+	}
+	return err
+}
 
+// outcome says how a call went: ok, 4xx or 5xx as the gateway answered,
+// unreachable, or error for an answer it could not read.
+func outcome(err error) string {
+	e, ok := errors.AsType[*Error](err)
+	switch {
+	case err == nil:
+		return "ok"
+	case !ok:
+		return "error"
+	case e.Code == "gateway_unreachable":
+		return "unreachable"
+	default:
+		return fmt.Sprintf("%dxx", e.Status/100)
+	}
+}
+
+func (c *Client) send(ctx context.Context, method, path, token string, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
