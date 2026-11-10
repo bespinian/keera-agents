@@ -820,6 +820,13 @@ connected to, and calls a service only within what its channel names
 ([Services](#services)). A member choosing a folder in the panel sees folder
 names only.
 
+That keeps file names out of the panel, not out of reach. A member may connect
+their own agent to any folder a shared connector reaches, and the agent then
+reads its files, which can include files the member could not open
+themselves. So give a shared file connector only folders everyone in the
+organisation may read, or use one people sign in to, which reaches only what
+each person can.
+
 ## Not built yet
 
 - Tasks from GitHub or GitLab, such as an issue assigned to an agent. For now,
