@@ -42,6 +42,8 @@ var insideNetwork = []netip.Prefix{
 	netip.MustParsePrefix("192.168.0.0/16"),
 	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("fc00::/7"),
+	// NAT64 for one network only (RFC 8215), which reaches its inside.
+	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("224.0.0.0/4"),
 	netip.MustParsePrefix("ff00::/8"),
 }
@@ -159,10 +161,30 @@ func denyDial(deny []netip.Prefix, why string) func(network, address string, _ s
 		// A prefix never matches a zoned or IPv4-mapped address, so strip both.
 		ip := ap.Addr().WithZone("").Unmap()
 		for _, p := range deny {
-			if p.Contains(ip) {
+			if p.Contains(ip) || p.Contains(embedded(ip)) {
 				return fmt.Errorf("keera-agents does not connect to %s; %s", ip, why)
 			}
 		}
 		return nil
 	}
+}
+
+var (
+	nat64     = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFour = netip.MustParsePrefix("2002::/16")
+)
+
+// embedded is the IPv4 address that an IPv6 one reaches through a
+// translator: NAT64 (RFC 6052) or 6to4 (RFC 3056). Otherwise it is the
+// zero Addr, which no prefix contains. 64:ff9b::a9fe:a9fe reaches
+// 169.254.169.254 as surely as the address itself does.
+func embedded(ip netip.Addr) netip.Addr {
+	b := ip.As16()
+	switch {
+	case nat64.Contains(ip):
+		return netip.AddrFrom4([4]byte(b[12:16]))
+	case sixToFour.Contains(ip):
+		return netip.AddrFrom4([4]byte(b[2:6]))
+	}
+	return netip.Addr{}
 }

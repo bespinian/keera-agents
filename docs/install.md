@@ -107,7 +107,9 @@ network. If you set `HTTPS_PROXY` to a private address, name the proxy host
 too.
 
 The check applies to the address a name resolves to, so a public name that
-points into the network is blocked too. Behind a proxy, the proxy must filter.
+points into the network is blocked too. An IPv6 address that reaches IPv4
+through NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`) is checked as the IPv4
+address it reaches. Behind a proxy, the proxy must filter.
 Calls to the gateway are not checked: the operator sets its address.
 
 ## One listener, five surfaces

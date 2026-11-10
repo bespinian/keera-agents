@@ -18,12 +18,14 @@ func TestTheDefaultDenyListBlocksTheHostAndTheMetadataService(t *testing.T) {
 		"0.0.0.0:80", "[fe80::1%eth0]:80", "100.100.100.200:80", "168.63.129.16:80",
 		// IPv4 written as IPv6 is still loopback.
 		"[::ffff:127.0.0.1]:80",
+		// So is IPv4 reached through NAT64 or 6to4.
+		"[64:ff9b::a9fe:a9fe]:80", "[2002:7f00:1::1]:80",
 	} {
 		if check("tcp", addr, nil) == nil {
 			t.Errorf("%s was not blocked", addr)
 		}
 	}
-	for _, addr := range []string{"10.0.0.7:8000", "[2001:db8::1]:443", "8.8.8.8:443"} {
+	for _, addr := range []string{"10.0.0.7:8000", "[2001:db8::1]:443", "8.8.8.8:443", "[64:ff9b::808:808]:443"} {
 		if err := check("tcp", addr, nil); err != nil {
 			t.Errorf("%s was blocked: %v", addr, err)
 		}
@@ -101,5 +103,18 @@ func TestOnlyNamedHostsReachInside(t *testing.T) {
 	deny, _ := ParsePrefixes(DefaultDeny)
 	if err := dial(Policy{Deny: deny, LimitPrivate: true, PrivateHosts: []string{"localhost"}}, "localhost"); err == nil {
 		t.Error("a named host reached a denied address")
+	}
+}
+
+// An address inside the network stays inside through a translator.
+func TestInsideThroughATranslatorIsInside(t *testing.T) {
+	check := denyDial(insideNetwork, "test")
+	for _, addr := range []string{"[64:ff9b::a00:7]:443", "[2002:c0a8:101::1]:443", "[64:ff9b:1::a00:7]:443"} {
+		if check("tcp", addr, nil) == nil {
+			t.Errorf("%s was not blocked", addr)
+		}
+	}
+	if err := check("tcp", "[64:ff9b::808:808]:443", nil); err != nil {
+		t.Errorf("a public address through NAT64 was blocked: %v", err)
 	}
 }
