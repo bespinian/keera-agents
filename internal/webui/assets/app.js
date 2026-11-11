@@ -153,10 +153,10 @@ function decode(segment) {
 function navigate(path) {
   closeDrawer();
   if (location.pathname + location.search !== path) history.pushState({}, "", path);
-  renderRoute();
+  renderRoute({ moved: true });
 }
 
-window.addEventListener("popstate", () => renderRoute());
+window.addEventListener("popstate", () => renderRoute({ moved: true }));
 
 function currentTheme() {
   return remembered("keera.theme", { lasting: true }) || "system";
@@ -369,7 +369,8 @@ function renderTopbar() {
       h(
         "div",
         { class: "stack" },
-        h("h1", { id: "page-title" }, ""),
+        // Focused when the screen changes, so a screen reader starts there.
+        h("h1", { id: "page-title", tabindex: "-1" }, ""),
         h("div", { class: "page-sub", id: "page-sub" }, ""),
       ),
       h("div", { class: "spacer" }),
@@ -408,7 +409,10 @@ function tearDown() {
   }
 }
 
-async function renderRoute() {
+/** renderRoute shows the screen for the current path. moved is a move to
+ *  another screen, not a reload of this one: focus then goes to its title,
+ *  as it would on a new page. */
+async function renderRoute({ moved = false } = {}) {
   tearDown();
   const gen = ++rendering;
   const available = visibleRoutes();
@@ -432,7 +436,7 @@ async function renderRoute() {
   let titleMark = null;
   const ctx = {
     state,
-    reload: renderRoute,
+    reload: () => renderRoute(),
     navigate,
     /** param is a detail screen's path segment, such as an agent id, and sub
      *  the one after it, such as a tab. */
@@ -468,6 +472,7 @@ async function renderRoute() {
     }
     replace(outlet, banner("bad", err.message || "Something went wrong loading this page."));
   }
+  if (moved) document.getElementById("page-title")?.focus({ preventScroll: true });
 }
 
 function accountMenu(anchor) {

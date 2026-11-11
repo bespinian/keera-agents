@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { installFakeDOM } from "./fakedom.mjs";
 
 installFakeDOM();
-const { pill, card, fail } = await import("../assets/ui.js");
+const { pill, card, fail, banner } = await import("../assets/ui.js");
 
 test("a pill may start with a dot", () => {
   const plain = pill("Off");
@@ -45,4 +45,13 @@ test("fail opens the fold, focuses the field and throws its message", () => {
   assert.throws(() => fail({ focus() {} }, "Pick a day."), {
     message: "Pick a day.",
   });
+});
+
+test("a bad banner is an alert, and the others are not", () => {
+  assert.equal(banner("bad", "It failed.").getAttribute("role"), "alert");
+  assert.equal(banner("info", "Note this.").getAttribute("role"), null);
+  // Attributes given still apply.
+  const styled = banner("bad", { id: "why" }, "It failed.");
+  assert.equal(styled.getAttribute("id"), "why");
+  assert.equal(styled.className, "banner banner-bad");
 });

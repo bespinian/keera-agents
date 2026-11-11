@@ -1375,11 +1375,13 @@ export function secretField(value, ariaLabel, { compact = false } = {}) {
 }
 
 /** banner is a coloured note. tone is bad, warn, info or good. Attributes,
- *  such as a style, may come before the children as a plain object. */
+ *  such as a style, may come before the children as a plain object. A bad
+ *  one is an alert, so a screen reader says it when it appears. */
 export function banner(tone, ...children) {
   const first = children[0];
   const props = first && Object.getPrototypeOf(first) === Object.prototype ? children.shift() : {};
-  return h("div", { ...props, class: `banner banner-${tone}` }, ...children);
+  const role = tone === "bad" ? { role: "alert" } : {};
+  return h("div", { ...role, ...props, class: `banner banner-${tone}` }, ...children);
 }
 
 /** showError shows a failure in a dialog's error host and scrolls to it, as
