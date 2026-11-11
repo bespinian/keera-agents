@@ -3,6 +3,9 @@
 # instruction runs.
 .git
 .github
+# Claude Code's settings and worktrees, which can hold whole copies of the
+# repository.
+.claude
 docs
 /build
 # A bare `go build ./cmd/keera-agents` writes here; `make build` uses build/.
