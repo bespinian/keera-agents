@@ -249,7 +249,9 @@ change those with the versions.
 
 Each release publishes all three, built by GitHub Actions from the tag:
 `ghcr.io/bespinian/keera-agents:<tag>`, `ghcr.io/bespinian/keera-agent:<tag>`
-and `ghcr.io/bespinian/keera-workspace:<tag>`. The release lists an SBOM for
+and `ghcr.io/bespinian/keera-workspace:<tag>`. They are for `linux/amd64`
+only. The Containerfile builds for `arm64` too: on such a machine, build them
+with the `make` targets above. The release lists an SBOM for
 each. Every image carries the licences of what is compiled in, in
 `/THIRD_PARTY_NOTICES`.
 
