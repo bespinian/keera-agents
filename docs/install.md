@@ -78,9 +78,10 @@ entered again, and agents get new keys at their next start.
 | `KEERA_AGENTS_UPSTREAM_PRIVATE`     | `none`                       | Hosts inside the network connectors may reach              |
 
 keera-agents refuses to start with a missing required setting, a service key
-under 32 characters or a secret key under 16, an unknown driver, log level or
-log format, an address with a path, a duration it cannot read or below its
-minimum, or an address list it cannot read, and says which.
+under 32 characters or a secret key under 16, a metrics token under 16 or the
+same as the service or secret key, an unknown driver, log level or log format,
+an address with a path, a duration it cannot read or below its minimum, or an
+address list it cannot read, and says which.
 
 ### Where connectors may connect
 
