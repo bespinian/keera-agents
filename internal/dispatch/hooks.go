@@ -161,9 +161,11 @@ func (d *Dispatcher) receive(ctx context.Context, adapter channels.Chat, conn ch
 	if msg.MessageID != "" {
 		task.DedupeKey = &dedupe
 	}
-	_, err = d.Submit(ctx, task)
+	out, err := d.Submit(ctx, task)
 	switch {
-	case err == nil, errors.Is(err, errDuplicate):
+	case err == nil:
+		d.ackLater(adapter, conn, msg.Target, out.ID)
+	case errors.Is(err, errDuplicate):
 	case errors.Is(err, ErrNoPrompt):
 		reply("I could not take this on: " + err.Error() + ".")
 	default:
@@ -172,6 +174,35 @@ func (d *Dispatcher) receive(ctx context.Context, adapter channels.Chat, conn ch
 		d.log.Warn("could not queue a task from a message", "agent", a.ID, "error", err)
 		reply("I could not take this on because of a problem on my side; try again in a moment.")
 	}
+}
+
+// ackAfter is how long a chat task may take before the agent says it is on
+// it. Most answers come sooner, and then the thread gets only the answer.
+const ackAfter = 10 * time.Second
+
+// ackLater tells the sender the agent is on it, if the task has not finished
+// after d.ackAfter. Without it, the thread stays silent while the agent
+// starts up or finishes another task, and people wonder if it heard them.
+// It is only a courtesy: a restart in between loses it, and nothing else
+// waits for it.
+func (d *Dispatcher) ackLater(adapter channels.Chat, conn channels.Connection, to channels.Target, taskID string) {
+	time.AfterFunc(d.ackAfter, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		t, err := d.st.Task(ctx, taskID)
+		if err != nil || t.Finished() {
+			return
+		}
+		text := "I am working on it and will answer here when I am done."
+		if t.State == store.TaskQueued {
+			if l, err := d.st.AgentLoad(ctx, t.AgentID); err == nil && l.RunningTaskID != "" {
+				text = "I am finishing another task first. Then I will work on this and answer here."
+			}
+		}
+		if _, err := adapter.Send(ctx, conn, to, text); err != nil {
+			d.log.Warn("could not say a task is under way", "connection", conn.ID, "task", taskID, "error", err)
+		}
+	})
 }
 
 // route picks the agent a message is for, since several agents can share one

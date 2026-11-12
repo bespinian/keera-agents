@@ -304,3 +304,49 @@ func TestAMessageThatCannotBeQueuedSaysSoPlainly(t *testing.T) {
 		t.Fatalf("answered %q", got)
 	}
 }
+
+func TestASlowChatTaskSaysItIsUnderWay(t *testing.T) {
+	e := setup(t)
+	e.d.ackAfter = 50 * time.Millisecond
+	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	c := e.conn(t, "org_a", chatKind, map[string]string{"token": "x"})
+	e.bind(t, a, c, "sales", store.ModeChat)
+	adapter, conn := e.chatConn(t, c)
+	send := func(id string) store.Task {
+		e.d.receive(e.ctx, adapter, conn, inbound(hookBody{ID: id, Channel: "sales", Email: "ada@example.ch", Text: "go"}))
+		return e.tasks(t, a)[0]
+	}
+	// said waits for the n-th message, then for any that should not come.
+	said := func(n int) []string {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for len(e.chat.messages()) < n && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		time.Sleep(4 * e.d.ackAfter)
+		return e.chat.messages()
+	}
+
+	// An answer in time comes alone.
+	quick := send("m1")
+	e.finish(t, quick.ID, store.TaskSucceeded, "done", "")
+	if got := said(0); len(got) != 0 {
+		t.Fatalf("a quick task said %q", got)
+	}
+
+	// A slow one says it is on it, in the message's thread.
+	slow := send("m2")
+	if got := said(1); len(got) != 1 || got[0] != "sales/m2: I am working on it and will answer here when I am done." {
+		t.Fatalf("a slow task said %q", got)
+	}
+
+	// One behind another task says it waits.
+	if _, err := e.st.ClaimTask(e.ctx, a.ID, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	send("m3")
+	got := said(2)
+	if len(got) != 2 || !strings.HasPrefix(got[1], "sales/m3: I am finishing another task first.") {
+		t.Fatalf("a task behind %s said %q", slow.ID, got)
+	}
+}

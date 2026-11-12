@@ -55,13 +55,19 @@ type Dispatcher struct {
 	// work is what runs after its request has been answered, such as a
 	// webhook's messages. Shutdown waits for it.
 	work sync.WaitGroup
+	// ackAfter is how long a chat task may take before the agent says it is
+	// on it. Tests shorten it.
+	ackAfter time.Duration
 }
 
 func New(st *store.Store, fl *fleet.Manager, gw *gateway.Client, box *secret.Box, opts Options) *Dispatcher {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	return &Dispatcher{st: st, fleet: fl, gw: gw, box: box, opts: opts, log: opts.Log, files: newGrants()}
+	return &Dispatcher{
+		st: st, fleet: fl, gw: gw, box: box, opts: opts, log: opts.Log, files: newGrants(),
+		ackAfter: ackAfter,
+	}
 }
 
 // Go runs f after its request has been answered, so shutdown waits for it.

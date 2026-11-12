@@ -38,6 +38,11 @@ agent listens, there or on `*`. An administrator can add more.
 **Quiet by default.** In a channel, an agent only sees messages that mention
 the bot. In a channel nobody listens on, keera-agents says nothing.
 
+**Slow answers say so.** If a task has not finished 10 seconds after the
+message, the agent replies in the thread that it is working on it, or that it
+is finishing another task first. A quicker answer comes alone. This note is
+not saved anywhere, so a restart in those 10 seconds skips it.
+
 **Redelivered webhooks** are dropped by message id, so a service retrying a
 slow webhook does not make two tasks.
 
