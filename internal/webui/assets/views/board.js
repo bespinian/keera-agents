@@ -573,11 +573,7 @@ export async function boardView(ctx) {
   return h(
     "div",
     {},
-    listHead(
-      null,
-      [picker, boardMenu],
-      { label: "New card", onClick: () => newCard("backlog") },
-    ),
+    listHead(null, [picker, boardMenu], { label: "New card", onClick: () => newCard("backlog") }),
     agents.length
       ? null
       : banner(

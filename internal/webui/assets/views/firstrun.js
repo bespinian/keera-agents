@@ -23,9 +23,7 @@ export function firstRun(ctx, setup, agents) {
         "Connectors let agents take work from Teams, Google Chat or Slack, " +
         "work with files in Google Drive or OneDrive, and use GitHub, Jira " +
         "and more.",
-      action: admin
-        ? { label: "Open connector catalogue", run: () => ctx.navigate("/connectors/catalogue") }
-        : null,
+      action: admin ? { label: "Open connector catalogue", run: () => ctx.navigate("/connectors/catalogue") } : null,
       skipped: !admin,
       by: "An administrator",
     },
@@ -53,7 +51,8 @@ export function firstRun(ctx, setup, agents) {
 
 function stepList(steps) {
   const nextIndex = steps.findIndex((s) => !s.done && !s.skipped);
-  const button = (a, primary) => h("button", { class: "btn" + (primary ? " btn-primary" : ""), onClick: a.run }, a.label);
+  const button = (a, primary) =>
+    h("button", { class: "btn" + (primary ? " btn-primary" : ""), onClick: a.run }, a.label);
 
   return h(
     "div",

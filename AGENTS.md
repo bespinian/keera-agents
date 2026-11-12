@@ -27,7 +27,7 @@ calls its control API and never imports its code.
 | `internal/stream`       | Connections passed through HTTP, to a port inside a workspace.             |
 | `internal/dispatch`     | Tasks from chats, schedules, cards and folders; delivery; tools.           |
 | `internal/schedule`     | Cron expressions.                                                          |
-| `internal/channels`     | The adapters, one package per service; see `docs/channels.md`.            |
+| `internal/channels`     | The adapters, one package per service; see `docs/channels.md`.             |
 | `internal/channels/all` | Registers every adapter.                                                   |
 | `internal/webui`        | The panel, embedded. Same design as the gateway's.                         |
 | `internal/metrics`      | The Prometheus exposition on `/metrics`.                                   |
