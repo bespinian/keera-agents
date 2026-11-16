@@ -14,7 +14,7 @@
 # drivers mount the root filesystem read-only, so only /workspace and /tmp are
 # writable at run time.
 
-FROM docker.io/library/golang:1.27.3-alpine AS build
+FROM docker.io/library/golang:1.27.4-alpine AS build
 
 ARG VERSION=""
 
@@ -86,10 +86,10 @@ ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/keera-agents", "agent"]
 # or code-server with Cline. Debian, not Alpine: code-server is built for
 # glibc. A deployment that wants other tools builds its own FROM it and sets
 # KEERA_AGENTS_WORKSPACE_IMAGE; keep the entrypoint, the user and /workspace.
-FROM docker.io/library/node:26.13.0-trixie-slim AS workspace
+FROM docker.io/library/node:26.13.1-trixie-slim AS workspace
 
 ARG TARGETARCH
-ARG PI_VERSION=1.5.0
+ARG PI_VERSION=1.5.2
 ARG CODE_SERVER_VERSION=4.145.2
 ARG CLINE_VERSION=4.1.26
 ARG TTYD_VERSION=1.7.7
