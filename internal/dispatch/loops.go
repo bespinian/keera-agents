@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/metrics"
 	"github.com/bespinian/keera-agents/internal/protocol"
@@ -177,7 +177,7 @@ func (d *Dispatcher) CheckWatches(ctx context.Context, now time.Time) {
 }
 
 func (d *Dispatcher) checkWatch(ctx context.Context, b store.Binding) error {
-	adapter, conn, err := connect(ctx, d, b.ConnectionID, "folders", channels.FilesFor)
+	adapter, conn, err := connect(ctx, d, b.ConnectionID, "folders", connectors.FilesFor)
 	if err != nil {
 		return err
 	}
@@ -260,8 +260,8 @@ func (d *Dispatcher) mayPickUp(ctx context.Context, c store.Card) bool {
 
 // latest lists each file once, where it first appears, as it was last
 // listed: a file changed twice is one task, about the file as it is now.
-func latest(files []channels.File) []channels.File {
-	var out []channels.File
+func latest(files []connectors.File) []connectors.File {
+	var out []connectors.File
 	at := map[string]int{}
 	for _, f := range files {
 		if i, ok := at[f.ID]; ok {
@@ -361,23 +361,23 @@ func (d *Dispatcher) deliver(ctx context.Context, t store.Task) error {
 		}
 		b, err := d.st.Binding(ctx, t.Origin.ReplyBindingID)
 		if errors.Is(err, store.ErrNotFound) {
-			return errors.New("the schedule's channel is gone")
+			return errors.New("the schedule's chat is gone")
 		}
 		if err != nil {
 			return fmt.Errorf("%w: %w", errNotSent, err)
 		}
 		if b.Target == store.AnyConversation {
-			return errors.New("the schedule's channel takes every conversation, so it names none to post in")
+			return errors.New("the schedule's chat takes every conversation, so it names none to post in")
 		}
-		return d.send(ctx, b.ConnectionID, channels.Target{Conversation: b.Target}, resultText(t))
+		return d.send(ctx, b.ConnectionID, connectors.Target{Conversation: b.Target}, resultText(t))
 	case protocol.SourceBoard:
 		return d.deliverCard(ctx, t)
 	}
 	return nil
 }
 
-func (d *Dispatcher) send(ctx context.Context, connectionID string, to channels.Target, text string) error {
-	adapter, conn, err := connect(ctx, d, connectionID, "channels", channels.ChatFor)
+func (d *Dispatcher) send(ctx context.Context, connectionID string, to connectors.Target, text string) error {
+	adapter, conn, err := connect(ctx, d, connectionID, "channels", connectors.ChatFor)
 	if errors.Is(err, errConnectorGone) {
 		return err
 	}
@@ -404,8 +404,8 @@ func unreached(err error) bool {
 
 // replyTarget is where the answer to a chat task goes: the message's own
 // conversation and thread.
-func replyTarget(o store.Origin) channels.Target {
-	return channels.Target{Conversation: o.Conversation, Thread: o.Thread, Extra: o.Extra}
+func replyTarget(o store.Origin) connectors.Target {
+	return connectors.Target{Conversation: o.Conversation, Thread: o.Thread, Extra: o.Extra}
 }
 
 // errNotSent marks a delivery that failed before anything went out, so it

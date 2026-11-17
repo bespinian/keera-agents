@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -15,32 +15,32 @@ import (
 // fakeAPI is an API kind with a tool that reads and one that writes.
 type fakeAPI struct{}
 
-func (fakeAPI) Descriptor() channels.Descriptor {
-	return channels.Descriptor{Kind: "fakeapi", Label: "Fake API", TargetLabel: "Project"}
+func (fakeAPI) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{Kind: "fakeapi", Label: "Fake API", TargetLabel: "Project"}
 }
 
-func (fakeAPI) Check(context.Context, channels.Connection) error { return nil }
+func (fakeAPI) Check(context.Context, connectors.Connection) error { return nil }
 
-func (fakeAPI) Tools() []channels.Tool {
-	return []channels.Tool{
+func (fakeAPI) Tools() []connectors.Tool {
+	return []connectors.Tool{
 		{Name: "search", Description: "Search.", Parameters: json.RawMessage(
 			`{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}`)},
 		{Name: "create", Description: "Create.", Write: true},
 	}
 }
 
-func (fakeAPI) Target(_ context.Context, _ channels.Connection, t string) (string, error) {
+func (fakeAPI) Target(_ context.Context, _ connectors.Connection, t string) (string, error) {
 	return t, nil
 }
 
-func (fakeAPI) Call(context.Context, channels.Connection, string, string, json.RawMessage) (any, error) {
+func (fakeAPI) Call(context.Context, connectors.Connection, string, string, json.RawMessage) (any, error) {
 	return nil, nil
 }
 
 func TestAPITools(t *testing.T) {
-	channels.Register(fakeAPI{})
+	connectors.Register(fakeAPI{})
 	read := store.Binding{ID: "bnd_r", Kind: "fakeapi", Target: "ACME", Mode: store.ModeRead}
-	write := store.Binding{ID: "bnd_w", Kind: "fakeapi", Target: channels.AnyTarget, Mode: store.ModeWrite}
+	write := store.Binding{ID: "bnd_w", Kind: "fakeapi", Target: connectors.AnyTarget, Mode: store.ModeWrite}
 	chat := store.Binding{ID: "bnd_c", Kind: "slack", Target: "C1", Mode: store.ModeChat}
 
 	names := func(bs ...store.Binding) []string {
@@ -109,7 +109,7 @@ func TestCutResult(t *testing.T) {
 }
 
 func TestToolKind(t *testing.T) {
-	channels.Register(fakeAPI{})
+	connectors.Register(fakeAPI{})
 	for name, want := range map[string]string{
 		"fakeapi_search":    "fakeapi",
 		"send_message":      "chat",

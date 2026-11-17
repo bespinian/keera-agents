@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -38,7 +38,7 @@ func (s *Server) view(c store.Connection, bindings int) connectionView {
 		}
 		slices.Sort(v.SecretsSet)
 	}
-	if d, ok := channels.Describe(channels.Kind(c.Kind)); ok && d.Chat {
+	if d, ok := connectors.Describe(connectors.Kind(c.Kind)); ok && d.Chat {
 		v.WebhookURL = s.disp.WebhookURL(c.ID)
 	}
 	return v
@@ -48,7 +48,7 @@ func (s *Server) view(c store.Connection, bindings int) connectionView {
 // in to registers with the service.
 func (s *Server) connectionKinds(w http.ResponseWriter, _ *http.Request, _ Principal) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"data": channels.Descriptors(), "callback_url": s.disp.AccountCallbackURL(),
+		"data": connectors.Descriptors(), "callback_url": s.disp.AccountCallbackURL(),
 	})
 }
 
@@ -90,6 +90,42 @@ func (s *Server) listConnections(w http.ResponseWriter, r *http.Request, p Princ
 	writeJSON(w, http.StatusOK, res)
 }
 
+// getConnection is one connector, with where agents use it. Someone else's
+// workspace is left out, as it is from the workspaces list.
+func (s *Server) getConnection(w http.ResponseWriter, r *http.Request, p Principal) {
+	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	all, err := s.st.ConnectionBindings(ctx, c.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	bindings := make([]store.Binding, 0, len(all))
+	for _, b := range all {
+		if b.AgentKind == store.KindAgent || b.AgentOwnerID == p.UserID || p.CanAdmin() {
+			bindings = append(bindings, b)
+		}
+	}
+	v := s.view(c, len(all))
+	if c.PerUser {
+		acc, err := s.st.Account(ctx, c.ID, p.UserID)
+		switch {
+		case err == nil:
+			v.Account = &acc
+		case !errors.Is(err, store.ErrNotFound):
+			s.fail(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, struct {
+		connectionView
+		Uses []store.Binding `json:"uses"`
+	}{v, bindings})
+}
+
 type connectionInput struct {
 	Kind    string            `json:"kind"`
 	Name    *string           `json:"name"`
@@ -103,7 +139,7 @@ type connectionInput struct {
 // fill splits a form into settings and secrets by the kind's fields, keeps
 // secrets left empty, and checks the required ones. A saved secret is kept
 // only while its endpoint stays the same.
-func fill(d channels.Descriptor, config, secrets, in map[string]string, inSecrets map[string]string) error {
+func fill(d connectors.Descriptor, config, secrets, in map[string]string, inSecrets map[string]string) error {
 	moved := ""
 	for _, f := range d.Fields {
 		if v, ok := in[f.Name]; ok && f.Endpoint && strings.TrimSpace(v) != config[f.Name] {
@@ -133,15 +169,15 @@ func fill(d channels.Descriptor, config, secrets, in map[string]string, inSecret
 }
 
 // check asks the service whether the settings work, before they are saved.
-func check(ctx context.Context, c channels.Connection) error {
+func check(ctx context.Context, c connectors.Connection) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	a, ok := channels.AdapterFor(c.Kind)
+	a, ok := connectors.AdapterFor(c.Kind)
 	if !ok {
 		return errors.New("unknown kind of connector")
 	}
 	if c.PerUser {
-		p, ok := channels.PerUserFor(c.Kind)
+		p, ok := connectors.PerUserFor(c.Kind)
 		if !ok {
 			return errors.New("this kind of connector does not let people sign in")
 		}
@@ -159,7 +195,7 @@ func (s *Server) createConnection(w http.ResponseWriter, r *http.Request, p Prin
 	if !readJSON(w, r, &in) {
 		return
 	}
-	d, ok := channels.Describe(channels.Kind(in.Kind))
+	d, ok := connectors.Describe(connectors.Kind(in.Kind))
 	if !ok {
 		badRequest(w, "there is no kind of connector called "+in.Kind)
 		return
@@ -189,7 +225,7 @@ func (s *Server) createConnection(w http.ResponseWriter, r *http.Request, p Prin
 // prepare writes a form onto c, asks the service whether it works, and seals
 // the secrets. secrets holds those already saved; a secret left empty keeps
 // its value.
-func (s *Server) prepare(ctx context.Context, d channels.Descriptor, c *store.Connection, secrets map[string]string, in connectionInput) error {
+func (s *Server) prepare(ctx context.Context, d connectors.Descriptor, c *store.Connection, secrets map[string]string, in connectionInput) error {
 	if in.Name != nil && strings.TrimSpace(*in.Name) != "" {
 		c.Name = trim(*in.Name, 100)
 	}
@@ -200,7 +236,7 @@ func (s *Server) prepare(ctx context.Context, d channels.Descriptor, c *store.Co
 	if err := fill(d, c.Config, secrets, in.Config, in.Secrets); err != nil {
 		return err
 	}
-	if err := check(ctx, channels.Connection{
+	if err := check(ctx, connectors.Connection{
 		ID: c.ID, Kind: d.Kind, Config: c.Config, Secrets: secrets, PerUser: c.PerUser,
 	}); err != nil {
 		return err
@@ -245,7 +281,7 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Prin
 		badRequest(w, "a connector keeps whom it acts as; create a new one")
 		return
 	}
-	d, _ := channels.Describe(channels.Kind(c.Kind))
+	d, _ := connectors.Describe(connectors.Kind(c.Kind))
 	secrets, err := s.disp.OpenSecrets(c)
 	if err != nil {
 		// Unreadable secrets, as after a changed secret key, are replaced.
@@ -302,13 +338,13 @@ func (s *Server) checkConnection(w http.ResponseWriter, r *http.Request, p Princ
 // as the caller when people sign in to the connector. A member sees folder
 // names only: the connection may reach files they could not open
 // themselves. Their agents can still read those files once connected to a
-// folder; docs/channels.md says so.
+// folder; docs/connectors.md says so.
 func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Principal) {
 	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
 	if !ok {
 		return
 	}
-	adapter, ok := channels.FilesFor(channels.Kind(c.Kind))
+	adapter, ok := connectors.FilesFor(connectors.Kind(c.Kind))
 	if !ok {
 		badRequest(w, c.Name+" holds no files")
 		return
@@ -323,7 +359,7 @@ func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Pri
 		badRequest(w, err.Error())
 		return
 	}
-	out := []channels.File{}
+	out := []connectors.File{}
 	for _, f := range files {
 		if f.Folder || p.CanAdmin() {
 			out = append(out, f)

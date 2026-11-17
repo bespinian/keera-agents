@@ -3,12 +3,14 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/gateway"
+	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
@@ -29,12 +31,12 @@ func TestRoute(t *testing.T) {
 		{"C-sales", "scouting report please", "sales"}, // a longer word is not the name
 		{"D-123", "hello", "any"},                      // only the catch-all listens
 	} {
-		b, ok := route(bindings, channels.Inbound{Target: channels.Target{Conversation: tc.conv}, Text: tc.text})
+		b, ok := route(bindings, connectors.Inbound{Target: connectors.Target{Conversation: tc.conv}, Text: tc.text})
 		if !ok || b.ID != tc.want {
 			t.Errorf("%s %q: got %q, want %q", tc.conv, tc.text, b.ID, tc.want)
 		}
 	}
-	if _, ok := route(bindings[1:], channels.Inbound{Target: channels.Target{Conversation: "C-other"}}); ok {
+	if _, ok := route(bindings[1:], connectors.Inbound{Target: connectors.Target{Conversation: "C-other"}}); ok {
 		t.Error("routed a message nobody listens to")
 	}
 }
@@ -159,7 +161,7 @@ func TestCardPrompt(t *testing.T) {
 }
 
 func TestLatest(t *testing.T) {
-	got := latest([]channels.File{{ID: "a", Name: "old"}, {ID: "b"}, {ID: "a", Name: "new"}})
+	got := latest([]connectors.File{{ID: "a", Name: "old"}, {ID: "b"}, {ID: "a", Name: "new"}})
 	if len(got) != 2 || got[0].ID != "a" || got[0].Name != "new" || got[1].ID != "b" {
 		t.Errorf("latest = %+v", got)
 	}
@@ -234,7 +236,7 @@ func TestBindingList(t *testing.T) {
 		{ID: "bnd_2", Mode: store.ModeChat, Kind: "slack", Target: store.AnyConversation},
 		{ID: "bnd_3", Mode: store.ModeFiles, Kind: "drive", Target: "F1"},
 	}
-	if got := bindingList(bindings, "Your channels", isChannel); got != " Your channels:\n- bnd_1: #support (slack)" {
+	if got := bindingList(bindings, "Your channels", isChannel); got != " Your channels:\n- bnd_1: #support, C1 (slack)" {
 		t.Errorf("channels = %q", got)
 	}
 	if got := bindingList(bindings, "Your folders", isFolder); got != " Your folders:\n- bnd_3: F1 (drive)" {
@@ -242,6 +244,25 @@ func TestBindingList(t *testing.T) {
 	}
 	if got := bindingList(bindings[:2], "Your folders", isFolder); got != "" {
 		t.Errorf("no folders = %q", got)
+	}
+}
+
+func TestConnected(t *testing.T) {
+	got := connected([]store.Binding{
+		{ID: "bnd_1", Mode: store.ModeChat, Kind: "slack", Target: "C1", Label: "#support"},
+		{ID: "bnd_2", Mode: store.ModeChat, Kind: "slack", Target: store.AnyConversation},
+		{ID: "bnd_3", Mode: store.ModeRepo, Kind: "github", Target: "acme/web", Label: "Our site"},
+	})
+	want := []protocol.Connected{
+		{ID: "bnd_1", What: protocol.ConnectedChannel, Service: "slack", Name: "#support, C1"},
+		// A label never hides the repository's owner/name.
+		{
+			ID: "bnd_3", What: protocol.ConnectedRepository, Service: "github", Name: "Our site, acme/web",
+			Clone: "git clone http://127.0.0.1:7417/bnd_3/web.git",
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("connected = %+v", got)
 	}
 }
 

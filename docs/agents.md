@@ -32,7 +32,7 @@ reaches a container. Posting a message or reading a file is a _platform tool_:
 the runtime asks the control plane, which checks that the agent may and makes
 the call itself. Its answer is cut at 64 KiB, and the agent is told to ask for
 less. What that lets an agent reach is in
-[channels.md](channels.md#what-an-agent-can-reach).
+[connectors.md](connectors.md#what-an-agent-can-reach).
 
 **The gateway key is not in the pod spec.** Anyone who can read pods in the
 agents' namespace sees the runtime token, which is useless outside that
@@ -68,6 +68,10 @@ person who asked hears back. The same goes for an agent whose machine has
 waited an hour to start, as when no node has room for its pod. Each agent runs **one task at a time**:
 it is one machine with one workspace, and two tasks writing the same files
 would trip over each other. Tasks wait in the queue in order.
+
+On a deployment that bills machine time, an organisation without credit
+starts no machine, and its waiting tasks fail with the reason
+([billing.md](billing.md#when-an-organisation-may-not-run-machines)).
 
 **Changing settings.** Instructions, model and tools reach the runtime at its
 next task, through the bootstrap's version. A changed project or budget gets a
@@ -112,6 +116,11 @@ lacks tool calling, or its backend does not parse tool calls.
 | MCP        | every MCP server the agent's key may call, as `<server>__<tool>`                        |
 | Platform   | `send_message`, `board_*`, `files_*` for connected folders, `repo_*` for repositories   |
 | Services   | `<kind>_<tool>` for each API connector, such as `jira_search_issues` or `aws_costs`     |
+
+The prompt lists what the agent is connected to: each channel, folder,
+repository and service, with the id its tools take and, for a repository, the
+command that clones it. The same lists are in the tools' descriptions, but
+models tend to miss them there.
 
 A chat thread keeps its history in the workspace, so a follow-up in the same
 thread has the context of the earlier messages.

@@ -18,6 +18,9 @@ The first lets the gateway hand a sign-in over to
 revoke agents' keys, look people up and read what an agent may use, and nothing
 else. See Keera Gateway's `docs/agents.md`.
 
+To bill organisations for their machines, set prices
+([billing.md](billing.md)). The gateway needs nothing more.
+
 ## Configuration
 
 Every setting is an environment variable.
@@ -76,12 +79,14 @@ entered again, and agents get new keys at their next start.
 | `KEERA_AGENTS_METRICS_TOKEN`        | unset: `/metrics` is off     | Reads `/metrics` and nothing else. See [Metrics](#metrics) |
 | `KEERA_AGENTS_UPSTREAM_DENY`        | loopback and cloud metadata  | Addresses connectors never reach. See below                |
 | `KEERA_AGENTS_UPSTREAM_PRIVATE`     | `none`                       | Hosts inside the network connectors may reach              |
+| `KEERA_AGENTS_PRICE_*`              | unset: machines are free     | What machine time costs. See [billing.md](billing.md)      |
 
 keera-agents refuses to start with a missing required setting, a service key
 under 32 characters or a secret key under 16, a metrics token under 16 or the
 same as the service or secret key, an unknown driver, log level or log format,
-an address with a path, a duration it cannot read or below its minimum, or an
-address list it cannot read, and says which.
+an address with a path, a duration it cannot read or below its minimum, an
+address list it cannot read, or a price that is not from 0 to 1000, and says
+which.
 
 ### Where connectors may connect
 

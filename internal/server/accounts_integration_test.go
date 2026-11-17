@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -20,27 +20,27 @@ import (
 // called as.
 type fakeDocs struct{ personal }
 
-func (fakeDocs) Descriptor() channels.Descriptor {
-	return channels.Descriptor{
+func (fakeDocs) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{
 		Kind: "fakedocs", Label: "Fake Docs", Setup: "Share it.", TargetLabel: "Document", AnyTarget: true,
-		Fields: []channels.Field{{Name: "key", Label: "Key", Secret: true, Required: true}},
+		Fields: []connectors.Field{{Name: "key", Label: "Key", Secret: true, Required: true}},
 	}
 }
 
-func (fakeDocs) Check(context.Context, channels.Connection) error { return nil }
+func (fakeDocs) Check(context.Context, connectors.Connection) error { return nil }
 
-func (fakeDocs) Tools() []channels.Tool {
-	return []channels.Tool{{Name: "whoami", Description: "Whom the call is as."}}
+func (fakeDocs) Tools() []connectors.Tool {
+	return []connectors.Tool{{Name: "whoami", Description: "Whom the call is as."}}
 }
 
-func (fakeDocs) Target(_ context.Context, conn channels.Connection, target string) (string, error) {
+func (fakeDocs) Target(_ context.Context, conn connectors.Connection, target string) (string, error) {
 	if conn.PerUser && conn.Token == "" {
 		return "", errors.New("called as nobody")
 	}
 	return target, nil
 }
 
-func (fakeDocs) Call(_ context.Context, conn channels.Connection, _, _ string, _ json.RawMessage) (any, error) {
+func (fakeDocs) Call(_ context.Context, conn connectors.Connection, _, _ string, _ json.RawMessage) (any, error) {
 	return conn.Account + " with " + conn.Token, nil
 }
 
@@ -48,121 +48,121 @@ func (fakeDocs) Call(_ context.Context, conn channels.Connection, _, _ string, _
 // account, and an access token is its refresh token with a- before it.
 type personal struct{}
 
-func (personal) SignIn() channels.SignIn {
-	return channels.SignIn{Setup: "Register {callback}.", Fields: []channels.Field{
+func (personal) SignIn() connectors.SignIn {
+	return connectors.SignIn{Setup: "Register {callback}.", Fields: []connectors.Field{
 		{Name: "client_id", Label: "Client ID", Required: true},
 		{Name: "client_secret", Label: "Client secret", Secret: true, Required: true},
 	}}
 }
 
-func (personal) SignInURL(conn channels.Connection, redirect, state, challenge string) (string, error) {
+func (personal) SignInURL(conn connectors.Connection, redirect, state, challenge string) (string, error) {
 	return "https://idp.example/auth?" + url.Values{
 		"client_id": {conn.Config["client_id"]}, "redirect_uri": {redirect}, "state": {state},
 		"code_challenge": {challenge},
 	}.Encode(), nil
 }
 
-func (personal) Exchange(_ context.Context, _ channels.Connection, _, code, verifier string) (channels.Grant, error) {
+func (personal) Exchange(_ context.Context, _ connectors.Connection, _, code, verifier string) (connectors.Grant, error) {
 	if code != "good" || verifier == "" {
-		return channels.Grant{}, errors.New("bad code")
+		return connectors.Grant{}, errors.New("bad code")
 	}
-	return channels.Grant{Refresh: "r1", Access: "a0", Expiry: time.Now().Add(time.Hour), Account: "ada@acme.ch"}, nil
+	return connectors.Grant{Refresh: "r1", Access: "a0", Expiry: time.Now().Add(time.Hour), Account: "ada@acme.ch"}, nil
 }
 
-func (personal) CheckClient(_ context.Context, conn channels.Connection) error {
+func (personal) CheckClient(_ context.Context, conn connectors.Connection) error {
 	if conn.Secrets["client_secret"] != "pw" {
 		return errors.New("unknown client")
 	}
 	return nil
 }
 
-func (personal) Refresh(_ context.Context, _ channels.Connection, refresh string) (channels.Grant, error) {
-	return channels.Grant{Access: "a-" + refresh, Expiry: time.Now().Add(time.Hour)}, nil
+func (personal) Refresh(_ context.Context, _ connectors.Connection, refresh string) (connectors.Grant, error) {
+	return connectors.Grant{Access: "a-" + refresh, Expiry: time.Now().Add(time.Hour)}, nil
 }
 
 // fakeFiles is a file store people sign in to. Each file is named after
 // whom it was listed as.
 type fakeFiles struct{ personal }
 
-func (fakeFiles) Descriptor() channels.Descriptor {
-	return channels.Descriptor{
+func (fakeFiles) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{
 		Kind: "fakefiles", Label: "Fake Files", Setup: "Share it.", TargetLabel: "Folder",
-		Fields: []channels.Field{{Name: "key", Label: "Key", Secret: true, Required: true}},
+		Fields: []connectors.Field{{Name: "key", Label: "Key", Secret: true, Required: true}},
 	}
 }
 
-func (fakeFiles) Check(context.Context, channels.Connection) error { return nil }
+func (fakeFiles) Check(context.Context, connectors.Connection) error { return nil }
 
-func (fakeFiles) List(_ context.Context, conn channels.Connection, _ string) ([]channels.File, error) {
-	return []channels.File{{ID: "f1", Name: conn.Account + " with " + conn.Token}}, nil
+func (fakeFiles) List(_ context.Context, conn connectors.Connection, _ string) ([]connectors.File, error) {
+	return []connectors.File{{ID: "f1", Name: conn.Account + " with " + conn.Token}}, nil
 }
 
-func (fakeFiles) Read(context.Context, channels.Connection, string) (channels.File, []byte, error) {
-	return channels.File{}, nil, errors.New("not here")
+func (fakeFiles) Read(context.Context, connectors.Connection, string) (connectors.File, []byte, error) {
+	return connectors.File{}, nil, errors.New("not here")
 }
 
-func (fakeFiles) Write(context.Context, channels.Connection, string, string, string, []byte) (channels.File, error) {
-	return channels.File{}, errors.New("not here")
+func (fakeFiles) Write(context.Context, connectors.Connection, string, string, string, []byte) (connectors.File, error) {
+	return connectors.File{}, errors.New("not here")
 }
 
 // Changes lists one new file, after the first call, only for a person.
-func (fakeFiles) Changes(_ context.Context, conn channels.Connection, _, cursor string) ([]channels.File, string, error) {
+func (fakeFiles) Changes(_ context.Context, conn connectors.Connection, _, cursor string) ([]connectors.File, string, error) {
 	if conn.Token == "" {
 		return nil, "", errors.New("called as nobody")
 	}
 	if cursor == "" {
 		return nil, "c1", nil
 	}
-	return []channels.File{{ID: "new", Name: "invoice.pdf", Modified: time.Now()}}, "c2", nil
+	return []connectors.File{{ID: "new", Name: "invoice.pdf", Modified: time.Now()}}, "c2", nil
 }
 
 // fakeCode is a code host people sign in to. git is given the person's
 // token.
 type fakeCode struct{ personal }
 
-func (fakeCode) Descriptor() channels.Descriptor {
-	return channels.Descriptor{
+func (fakeCode) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{
 		Kind: "fakecode", Label: "Fake Code", Setup: "Share it.", TargetLabel: "Repository",
-		Fields: []channels.Field{{Name: "key", Label: "Key", Secret: true, Required: true}},
+		Fields: []connectors.Field{{Name: "key", Label: "Key", Secret: true, Required: true}},
 	}
 }
 
-func (fakeCode) Check(context.Context, channels.Connection) error { return nil }
+func (fakeCode) Check(context.Context, connectors.Connection) error { return nil }
 
-func (fakeCode) Repo(_ context.Context, conn channels.Connection, path string) (channels.Repo, error) {
+func (fakeCode) Repo(_ context.Context, conn connectors.Connection, path string) (connectors.Repo, error) {
 	if conn.Token == "" {
-		return channels.Repo{}, errors.New("called as nobody")
+		return connectors.Repo{}, errors.New("called as nobody")
 	}
-	return channels.Repo{Path: path, DefaultBranch: "main"}, nil
+	return connectors.Repo{Path: path, DefaultBranch: "main"}, nil
 }
 
-func (fakeCode) Remote(_ context.Context, conn channels.Connection, path string) (channels.Remote, error) {
-	return channels.Remote{URL: "https://code.example/" + path + ".git", User: "x", Password: conn.Token}, nil
+func (fakeCode) Remote(_ context.Context, conn connectors.Connection, path string) (connectors.Remote, error) {
+	return connectors.Remote{URL: "https://code.example/" + path + ".git", User: "x", Password: conn.Token}, nil
 }
 
-func (fakeCode) Issues(context.Context, channels.Connection, string, string, bool) ([]channels.Issue, error) {
+func (fakeCode) Issues(context.Context, connectors.Connection, string, string, bool) ([]connectors.Issue, error) {
 	return nil, nil
 }
 
-func (fakeCode) Issue(context.Context, channels.Connection, string, int, bool) (channels.Issue, error) {
-	return channels.Issue{}, nil
+func (fakeCode) Issue(context.Context, connectors.Connection, string, int, bool) (connectors.Issue, error) {
+	return connectors.Issue{}, nil
 }
 
-func (fakeCode) Comment(context.Context, channels.Connection, string, int, bool, string) error {
+func (fakeCode) Comment(context.Context, connectors.Connection, string, int, bool, string) error {
 	return nil
 }
 
-func (fakeCode) OpenChange(context.Context, channels.Connection, string, channels.Change) (channels.Issue, error) {
-	return channels.Issue{}, nil
+func (fakeCode) OpenChange(context.Context, connectors.Connection, string, connectors.Change) (connectors.Issue, error) {
+	return connectors.Issue{}, nil
 }
 
 // A connector people sign in to acts as whoever a task is for.
 func TestAccounts(t *testing.T) {
 	ta := startApp(t)
 	ctx, st, call := ta.ctx, ta.st, ta.call
-	channels.Register(fakeDocs{})
-	channels.Register(fakeFiles{})
-	channels.Register(fakeCode{})
+	connectors.Register(fakeDocs{})
+	connectors.Register(fakeFiles{})
+	connectors.Register(fakeCode{})
 
 	// raw sends Ada's sign-in with more cookies, and does not follow
 	// redirects, so the test sees what each answer sets.
@@ -335,8 +335,8 @@ func TestAccounts(t *testing.T) {
 func TestPersonalFilesAndCode(t *testing.T) {
 	ta := startApp(t)
 	ctx, st, call := ta.ctx, ta.st, ta.call
-	channels.Register(fakeFiles{})
-	channels.Register(fakeCode{})
+	connectors.Register(fakeFiles{})
+	connectors.Register(fakeCode{})
 
 	a, err := st.CreateAgent(ctx, store.Agent{
 		ID: id.New("agt"), OrgID: "org_a", OwnerID: "usr_ada", OwnerEmail: "ada@example.ch",

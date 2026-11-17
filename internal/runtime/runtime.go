@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 )
 
@@ -96,6 +97,17 @@ func (c Class) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Size is a class in whole units, for metering: CPU in millicores, memory and
+// disk in MiB. A field that does not parse is 0, which Validate refuses
+// before any machine starts.
+func (c Class) Size() (cpuMillis, memoryMiB, diskMiB int64) {
+	c = c.WithDefaults()
+	cpu, _ := parseQuantity(c.CPU)
+	mem, _ := parseQuantity(c.Memory)
+	disk, _ := parseQuantity(c.Disk)
+	return int64(math.Round(cpu * 1000)), int64(math.Round(mem / (1 << 20))), int64(math.Round(disk / (1 << 20)))
 }
 
 // Limits bound the classes agents may ask for, so one organisation's agent

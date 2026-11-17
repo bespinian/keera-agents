@@ -7,20 +7,20 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/secret"
 	"github.com/bespinian/keera-agents/internal/store"
+	"github.com/bespinian/keera-agents/internal/store/storetest"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -86,11 +86,11 @@ type fakeChat struct {
 
 const chatKind = "dispatchchat"
 
-func (c *fakeChat) Descriptor() channels.Descriptor {
-	return channels.Descriptor{Kind: chatKind, Label: "Test Chat"}
+func (c *fakeChat) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{Kind: chatKind, Label: "Test Chat"}
 }
 
-func (c *fakeChat) Check(context.Context, channels.Connection) error { return nil }
+func (c *fakeChat) Check(context.Context, connectors.Connection) error { return nil }
 
 // hookBody is one webhook of fakeChat.
 type hookBody struct {
@@ -100,32 +100,32 @@ type hookBody struct {
 	Challenge string
 }
 
-func (c *fakeChat) Receive(_ context.Context, conn channels.Connection, r *http.Request, body []byte) (channels.Receipt, error) {
+func (c *fakeChat) Receive(_ context.Context, conn connectors.Connection, r *http.Request, body []byte) (connectors.Receipt, error) {
 	if r.Header.Get("X-Token") != conn.Secrets["token"] {
-		return channels.Receipt{}, channels.ErrUnverified
+		return connectors.Receipt{}, connectors.ErrUnverified
 	}
 	var in hookBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return channels.Receipt{}, err
+		return connectors.Receipt{}, err
 	}
 	if in.Challenge != "" {
-		return channels.Receipt{Response: channels.Response{
+		return connectors.Receipt{Response: connectors.Response{
 			Status: http.StatusAccepted, ContentType: "text/plain", Body: []byte(in.Challenge),
 		}}, nil
 	}
-	return channels.Receipt{Messages: []channels.Inbound{inbound(in)}}, nil
+	return connectors.Receipt{Messages: []connectors.Inbound{inbound(in)}}, nil
 }
 
-func inbound(in hookBody) channels.Inbound {
-	return channels.Inbound{
-		Target:    channels.Target{Conversation: in.Channel, Thread: in.ID},
-		Sender:    channels.Person{Email: in.Email, Outside: in.Outside},
+func inbound(in hookBody) connectors.Inbound {
+	return connectors.Inbound{
+		Target:    connectors.Target{Conversation: in.Channel, Thread: in.ID},
+		Sender:    connectors.Person{Email: in.Email, Outside: in.Outside},
 		Text:      in.Text,
 		MessageID: in.ID, Direct: in.Direct, ConversationLabel: "#" + in.Channel,
 	}
 }
 
-func (c *fakeChat) Send(_ context.Context, _ channels.Connection, to channels.Target, text string) (string, error) {
+func (c *fakeChat) Send(_ context.Context, _ connectors.Connection, to connectors.Target, text string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.fail != nil {
@@ -162,28 +162,8 @@ type testEnv struct {
 // starts from an empty schema, so it sees only its own rows.
 func setup(t *testing.T) *testEnv {
 	t.Helper()
-	dsn := os.Getenv("KEERA_AGENTS_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("KEERA_AGENTS_TEST_DATABASE_URL is not set")
-	}
+	st, dsn := storetest.Open(t)
 	ctx := context.Background()
-	db, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`)
-	_ = db.Close(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(st.Close)
-	if _, err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
 
 	gw := newFakeGateway()
 	gwSrv := httptest.NewServer(gw)
@@ -191,7 +171,7 @@ func setup(t *testing.T) *testEnv {
 	gwc := gateway.New(gwSrv.URL, serviceKey)
 	box, _ := secret.New("0123456789abcdef")
 	chat := &fakeChat{}
-	channels.Register(chat)
+	connectors.Register(chat)
 	queued := make(chan string, 64)
 	// No driver: waking an agent does nothing.
 	fl := fleet.New(st, gwc, nil, box, fleet.Options{Log: slog.New(slog.DiscardHandler)})

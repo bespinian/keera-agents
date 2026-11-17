@@ -111,8 +111,35 @@ type Bootstrap struct {
 	Gateway GatewayInfo `json:"gateway"`
 	// Tools are the platform tools this agent may call during a task.
 	Tools []ToolSpec `json:"tools"`
+	// Connected lists what the agent is connected to, for its prompt: the
+	// tools' descriptions alone are easy to miss.
+	Connected []Connected `json:"connected,omitempty"`
 	// Workspace is set for a workspace only.
 	Workspace *WorkspaceInfo `json:"workspace,omitempty"`
+}
+
+// What a Connected is.
+const (
+	ConnectedChannel    = "channel"
+	ConnectedFolder     = "folder"
+	ConnectedRepository = "repository"
+	ConnectedService    = "service"
+)
+
+// Connected is one channel, folder, repository or service an agent is
+// connected to.
+type Connected struct {
+	// ID is what the tools take to name it.
+	ID   string `json:"id"`
+	What string `json:"what"`
+	// Service is the service's name, such as GitHub.
+	Service string `json:"service"`
+	// Name is what it is called: a repository's owner/name, or a label
+	// and the target it stands for.
+	Name     string `json:"name"`
+	ReadOnly bool   `json:"read_only,omitempty"`
+	// Clone is the command that clones a repository.
+	Clone string `json:"clone,omitempty"`
 }
 
 // WorkspaceInfo is what a workspace's runtime needs beyond an agent's.
@@ -230,7 +257,7 @@ const (
 )
 
 // Finish ends a task. Result is what goes back to whoever asked: the chat
-// thread, the card or the schedule's channel.
+// thread, the card or the schedule's chat.
 type Finish struct {
 	State  string `json:"state"`
 	Result string `json:"result"`

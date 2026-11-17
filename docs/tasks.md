@@ -7,7 +7,7 @@ come from, who they are attributed to, and where their results go.
 | ---------- | ----------------------------------------------- | ------------------------ | ------------------------------------- |
 | `chat`     | someone writes to the agent in a connected chat | the sender               | a reply in the same thread            |
 | `chat`     | someone writes to the agent in Keera Chat       | the sender               | Keera Chat reads it from the task     |
-| `schedule` | a schedule is due                               | who last changed it      | the schedule's channel, if it has one |
+| `schedule` | a schedule is due                               | who last changed it      | the schedule's chat, if it has one    |
 | `board`    | a card assigned to the agent sits in To do      | who last gave it work    | a comment, and the card moves on      |
 | `file`     | a file is added or changed in a watched folder  | who connected the folder | the task log                          |
 | `manual`   | someone types a task in the panel               | that person              | the panel                             |

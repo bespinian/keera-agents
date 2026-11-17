@@ -647,3 +647,43 @@ func TestConfigFromEnv(t *testing.T) {
 		t.Error("a missing token was accepted")
 	}
 }
+
+func TestThePromptSaysWhatTheAgentIsConnectedTo(t *testing.T) {
+	r := &runner{cfg: config{Workspace: "/workspace"}, ws: newWorkspace(t), now: time.Now}
+	boot := protocol.Bootstrap{
+		Agent: protocol.Agent{Name: "Scout", Builtins: []string{protocol.BuiltinShell}},
+		Connected: []protocol.Connected{
+			{ID: "bnd_1", What: protocol.ConnectedChannel, Service: "Slack", Name: "#support"},
+			{
+				ID: "bnd_2", What: protocol.ConnectedRepository, Service: "GitHub", Name: "acme/web",
+				Clone: "git clone http://127.0.0.1:7417/bnd_2/web.git",
+			},
+			{ID: "bnd_3", What: protocol.ConnectedService, Service: "Jira", Name: "OPS", ReadOnly: true},
+		},
+	}
+	got := r.systemPrompt(boot)
+	for _, want := range []string{
+		"## What you are connected to",
+		"- Channel #support (Slack), id bnd_1\n",
+		"- Repository acme/web (GitHub), id bnd_2. Clone it with: git clone http://127.0.0.1:7417/bnd_2/web.git\n",
+		"- Service OPS (Jira), read only, id bnd_3\n",
+		"Work in a repository with git in your shell",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, got)
+		}
+	}
+
+	// Without a shell, it says it cannot clone rather than leave the model
+	// to work it out.
+	boot.Agent.Builtins = nil
+	got = r.systemPrompt(boot)
+	if strings.Contains(got, "git clone") || !strings.Contains(got, "You have no shell") {
+		t.Errorf("prompt without a shell:\n%s", got)
+	}
+
+	boot.Connected = nil
+	if got := r.systemPrompt(boot); strings.Contains(got, "connected to") {
+		t.Errorf("prompt with nothing connected:\n%s", got)
+	}
+}

@@ -26,7 +26,6 @@ import {
   every,
   fold,
   avatarOf,
-  agentIconPath,
   plural,
   formModal,
   fail,
@@ -126,7 +125,7 @@ export function taskList(ctx, { agentID = "", agents = [] }) {
       showAgent: !agentID,
       emptyTitle: filter.state || filter.source || filter.agent_id ? "No tasks match" : "No tasks yet",
       emptyBody: agentID
-        ? "Give it a task, add a channel, or put a card in To do with this agent."
+        ? "Give it a task, add a connector, or put a card in To do with this agent."
         : "Tasks come from chats, schedules, the board and folders, or from New task.",
     });
     replace(
@@ -304,11 +303,6 @@ export async function taskView(ctx) {
         h(
           "div",
           { class: "row-tight" },
-          task.agent_id
-            ? link(ctx, agentPath(task.agent_id), [icon(agentIconPath(task.agent_icon)), task.agent_name || "Agent"], {
-                class: "btn",
-              })
-            : null,
           isLive(task.state)
             ? busyButton({ class: "btn btn-danger", title: "Stop this task" }, "Cancel task", async () => {
                 task = { ...task, ...(await api.cancelTask(task.id)) };

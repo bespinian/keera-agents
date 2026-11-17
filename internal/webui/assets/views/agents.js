@@ -1,5 +1,5 @@
 // Agents: the organisation's assistants. Each runs in its own machine, calls
-// models through Keera Gateway, and takes work from its channels, schedules,
+// models through Keera Gateway, and takes work from its connectors, schedules,
 // the board and this panel.
 
 import { api } from "../api.js";
@@ -24,8 +24,9 @@ import {
   splitList,
   plural,
   toast,
-  avatarOf,
   agentIconPicker,
+  agentIconPath,
+  icon,
 } from "../ui.js";
 import { agentStatePill, agentPath, machineFold, AGENT_STATES, BUILTINS, ACCESS } from "../common.js";
 
@@ -51,14 +52,15 @@ function agentTable(ctx, agents) {
         cell: (a) =>
           h(
             "div",
-            { class: "stack" },
+            { class: "row" },
+            h("span", { class: "tile-mark tile-mark-sm" }, icon(agentIconPath(a.icon))),
             h(
-              "span",
-              { class: "who" },
-              avatarOf(a.name, { agent: true, icon: a.icon }),
+              "div",
+              { class: "stack" },
               rowLink(ctx, agentPath(a.id), a.name),
+              h("span", { class: "faint small" }, a.model),
+              a.description ? h("div", { class: "faint small clamp-2" }, a.description) : null,
             ),
-            a.description ? h("div", { class: "faint small clamp-2" }, a.description) : null,
           ),
         sortKey: (a) => a.name,
       },
@@ -80,23 +82,17 @@ function agentTable(ctx, agents) {
         sortKey: (a) => a.state,
       },
       {
-        label: "Model",
-        shrink: true,
-        cell: (a) => h("span", { class: "mono muted" }, a.model),
-        sortKey: (a) => a.model,
-      },
-      {
         label: "Owner",
         shrink: true,
         cell: (a) => h("span", { class: "muted" }, a.owner_email || "-"),
         sortKey: (a) => a.owner_email,
       },
       {
-        label: "Channels",
+        label: "Connectors",
         shrink: true,
         num: true,
-        cell: (a) => (a.channels ? num(a.channels) : dash()),
-        sortKey: (a) => a.channels || 0,
+        cell: (a) => (a.binding_count ? num(a.binding_count) : dash()),
+        sortKey: (a) => a.binding_count || 0,
         sortDir: "desc",
       },
       {
@@ -124,7 +120,8 @@ function agentTable(ctx, agents) {
               },
             ]
           : [],
-      sortBy: "Name",
+      sortBy: "Last active",
+      sortDir: "desc",
       rowClass: (a) => (a.enabled === false ? "row-faint" : ""),
     },
   );
@@ -329,8 +326,8 @@ export async function agentForm(ctx, agent) {
     h(
       "div",
       { class: project ? "field-row" : "" },
-      field("Model", model, "What it thinks with. A router picks a model for each request."),
       project ? field("Project", project, "Decides which models it may use and whose budget it spends.") : null,
+      field("Model", model, "What it thinks with. Pick a model that supports tool calling."),
     ),
     h(
       "div",

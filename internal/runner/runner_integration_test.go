@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -22,7 +21,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/secret"
 	"github.com/bespinian/keera-agents/internal/store"
-	"github.com/jackc/pgx/v5"
+	"github.com/bespinian/keera-agents/internal/store/storetest"
 )
 
 // stubGateway answers the gateway's service API: it mints keys, lists one
@@ -72,28 +71,8 @@ type testRunner struct {
 // empty schema, or skips.
 func openTest(t *testing.T) *testRunner {
 	t.Helper()
-	dsn := os.Getenv("KEERA_AGENTS_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("KEERA_AGENTS_TEST_DATABASE_URL is not set")
-	}
+	st, _ := storetest.Open(t)
 	ctx := context.Background()
-	db, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`)
-	_ = db.Close(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(st.Close)
-	if _, err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
 
 	gw := &stubGateway{}
 	gwSrv := httptest.NewServer(gw)

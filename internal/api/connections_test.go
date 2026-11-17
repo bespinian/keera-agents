@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 )
 
 func TestFillKeepsSecretsOnlyForTheSameEndpoint(t *testing.T) {
-	d := channels.Descriptor{Fields: []channels.Field{
+	d := connectors.Descriptor{Fields: []connectors.Field{
 		{Name: "token", Label: "Access token", Secret: true, Required: true},
 		{Name: "base_url", Label: "GitLab URL", Endpoint: true},
 		{Name: "note", Label: "Note"},

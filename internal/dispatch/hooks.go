@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
@@ -33,7 +33,7 @@ func (d *Dispatcher) ServeHook(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	adapter, ok := channels.ChatFor(channels.Kind(c.Kind))
+	adapter, ok := connectors.ChatFor(connectors.Kind(c.Kind))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -52,7 +52,7 @@ func (d *Dispatcher) ServeHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	receipt, err := adapter.Receive(r.Context(), conn, r, body)
-	if errors.Is(err, channels.ErrUnverified) {
+	if errors.Is(err, connectors.ErrUnverified) {
 		d.opts.Metrics.Webhook(c.Kind, "unverified")
 		http.Error(w, "unverified", http.StatusUnauthorized)
 		return
@@ -91,7 +91,7 @@ func (d *Dispatcher) ServeHook(w http.ResponseWriter, r *http.Request) {
 }
 
 // receive turns one message into a task for the agent it is meant for.
-func (d *Dispatcher) receive(ctx context.Context, adapter channels.Chat, conn channels.Connection, msg channels.Inbound) {
+func (d *Dispatcher) receive(ctx context.Context, adapter connectors.Chat, conn connectors.Connection, msg connectors.Inbound) {
 	reply := func(text string) {
 		if _, err := adapter.Send(ctx, conn, msg.Target, text); err != nil {
 			d.log.Warn("could not answer a message", "connection", conn.ID, "error", err)
@@ -136,7 +136,7 @@ func (d *Dispatcher) receive(ctx context.Context, adapter channels.Chat, conn ch
 		return
 	}
 
-	desc, _ := channels.Describe(conn.Kind)
+	desc, _ := connectors.Describe(conn.Kind)
 	where := msg.ConversationLabel
 	if where == "" {
 		where = msg.Target.Conversation
@@ -185,7 +185,7 @@ const ackAfter = 10 * time.Second
 // starts up or finishes another task, and people wonder if it heard them.
 // It is only a courtesy: a restart in between loses it, and nothing else
 // waits for it.
-func (d *Dispatcher) ackLater(adapter channels.Chat, conn channels.Connection, to channels.Target, taskID string) {
+func (d *Dispatcher) ackLater(adapter connectors.Chat, conn connectors.Connection, to connectors.Target, taskID string) {
 	time.AfterFunc(d.ackAfter, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -209,7 +209,7 @@ func (d *Dispatcher) ackLater(adapter channels.Chat, conn channels.Connection, t
 // bot. A message that starts with an agent's name goes to that agent. Others
 // go to the first agent bound to that conversation, or else to the first one
 // bound to every conversation.
-func route(bindings []store.Binding, msg channels.Inbound) (store.Binding, bool) {
+func route(bindings []store.Binding, msg connectors.Inbound) (store.Binding, bool) {
 	var here []store.Binding
 	for _, b := range bindings {
 		if b.Target == msg.Target.Conversation || b.Target == store.AnyConversation {

@@ -19,7 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/billing"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/id"
@@ -29,7 +30,8 @@ import (
 )
 
 type Options struct {
-	// PublicURL is where the chat services send webhooks.
+	// PublicURL is where services reach keera-agents: webhooks and the
+	// callback after someone connects their account.
 	PublicURL string
 	// WatchInterval is how often a watched folder is checked.
 	WatchInterval time.Duration
@@ -122,14 +124,14 @@ func (d *Dispatcher) OpenSecrets(c store.Connection) (map[string]string, error) 
 }
 
 // Conn turns a stored connection into what an adapter takes.
-func (d *Dispatcher) Conn(c store.Connection) (channels.Connection, error) {
+func (d *Dispatcher) Conn(c store.Connection) (connectors.Connection, error) {
 	secrets, err := d.OpenSecrets(c)
 	if err != nil {
-		return channels.Connection{}, fmt.Errorf("the credentials of %s cannot be read; enter them again: %w",
+		return connectors.Connection{}, fmt.Errorf("the credentials of %s cannot be read; enter them again: %w",
 			c.Name, err)
 	}
-	return channels.Connection{
-		ID: c.ID, Kind: channels.Kind(c.Kind), Config: c.Config, Secrets: secrets, PerUser: c.PerUser,
+	return connectors.Connection{
+		ID: c.ID, Kind: connectors.Kind(c.Kind), Config: c.Config, Secrets: secrets, PerUser: c.PerUser,
 	}, nil
 }
 
@@ -143,12 +145,12 @@ func (d *Dispatcher) binding(ctx context.Context, a store.Agent, id string, mode
 // adapter and connection, as the person task t is for when people sign in
 // to the connector. noun names such bindings for the model.
 func bound[T any](ctx context.Context, d *Dispatcher, a store.Agent, t store.Task, id, noun string,
-	adapterFor func(channels.Kind) (T, bool), modes ...string,
-) (store.Binding, T, channels.Connection, error) {
+	adapterFor func(connectors.Kind) (T, bool), modes ...string,
+) (store.Binding, T, connectors.Connection, error) {
 	b, ok := d.binding(ctx, a, id, modes...)
 	if !ok {
 		var none T
-		return b, none, channels.Connection{}, fmt.Errorf("%s is not one of your %s", id, noun)
+		return b, none, connectors.Connection{}, fmt.Errorf("%s is not one of your %s", id, noun)
 	}
 	adapter, conn, err := connect(ctx, d, b.ConnectionID, noun, adapterFor)
 	if err == nil {
@@ -160,23 +162,23 @@ func bound[T any](ctx context.Context, d *Dispatcher, a store.Agent, t store.Tas
 // connect loads a stored connection with its adapter. noun names what the
 // connection holds, such as channels, for the error when its kind cannot.
 func connect[T any](ctx context.Context, d *Dispatcher, connectionID, noun string,
-	adapterFor func(channels.Kind) (T, bool),
-) (T, channels.Connection, error) {
+	adapterFor func(connectors.Kind) (T, bool),
+) (T, connectors.Connection, error) {
 	var none T
 	c, err := d.st.Connection(ctx, connectionID)
 	if errors.Is(err, store.ErrNotFound) {
-		return none, channels.Connection{}, errConnectorGone
+		return none, connectors.Connection{}, errConnectorGone
 	}
 	if err != nil {
-		return none, channels.Connection{}, err
+		return none, connectors.Connection{}, err
 	}
 	conn, err := d.Conn(c)
 	if err != nil {
-		return none, channels.Connection{}, err
+		return none, connectors.Connection{}, err
 	}
 	adapter, ok := adapterFor(conn.Kind)
 	if !ok {
-		return none, channels.Connection{}, fmt.Errorf("keera-agents cannot work with %s %s", conn.Kind, noun)
+		return none, connectors.Connection{}, fmt.Errorf("keera-agents cannot work with %s %s", conn.Kind, noun)
 	}
 	return adapter, conn, nil
 }
@@ -237,7 +239,10 @@ func (d *Dispatcher) wake(agentID string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := d.fleet.Wake(ctx, agentID); err != nil && !errors.Is(err, fleet.ErrNoRuntime) {
+		// Refused for credit, the task fails at the next reconcile, with
+		// the reason; nothing is wrong to log.
+		if err := d.fleet.Wake(ctx, agentID); err != nil && !errors.Is(err, fleet.ErrNoRuntime) &&
+			!billing.IsRefused(err) {
 			d.log.Warn("could not wake an agent for its task", "agent", agentID, "error", err)
 		}
 	}()

@@ -21,9 +21,16 @@ import {
   empty,
   banner,
   checkButton,
+  detailHead,
+  gone,
+  card,
+  fact,
+  sectionHead,
+  rowLink,
+  icon,
+  date,
   secretField,
   isAdmin,
-  date,
   num,
   plural,
   pill,
@@ -34,7 +41,8 @@ import {
   fold,
 } from "../ui.js";
 import { render } from "../markdown.js";
-import { kindLabel, gives } from "../common.js";
+import { kindLabel, gives, MODES, agentPath, workspacePath, connectorPath } from "../common.js";
+import { targetText } from "./bindings.js";
 
 const catalogue = "/connectors/catalogue";
 
@@ -54,7 +62,7 @@ export async function connectorsView(ctx) {
 
   const head = listHead(
     "A connector is the organisation's account with a service, such as a chat, a file store, a code host or a CRM. " +
-      "Agents use it through their channels.",
+      "Agents use it once it is added to them.",
     [
       admin
         ? null
@@ -114,7 +122,7 @@ export async function connectorsView(ctx) {
         sortKey: (c) => (c.per_user ? 1 : 0),
         cell: (c) => (c.per_user ? accountControl(ctx, c) : h("span", { class: "faint" }, "One shared account")),
       },
-      { label: "Channels", num: true, shrink: true, sortKey: (c) => c.bindings, cell: (c) => num(c.bindings) },
+      { label: "Uses", num: true, shrink: true, sortKey: (c) => c.bindings, cell: (c) => num(c.bindings) },
       {
         label: "Added",
         num: true,
@@ -127,10 +135,12 @@ export async function connectorsView(ctx) {
     ],
     connections,
     {
+      ctx,
+      open: (c) => connectorPath(c.id),
       search: (c) => [c.name, kindLabel(c.kind, kinds), kindOf(c).vendor, kindOf(c).category].join(" "),
       searchLabel: "connectors",
-      sortBy: "Name",
-      tile: (c) => tile(ctx, c, kinds, admin),
+      sortBy: "Added",
+      sortDir: "desc",
       choices:
         categories.length > 1
           ? [
@@ -144,43 +154,6 @@ export async function connectorsView(ctx) {
     },
   );
   return h("div", {}, head, list);
-}
-
-function tile(ctx, c, kinds, admin) {
-  const kind = kinds.find((k) => k.kind === c.kind) || {};
-  return h(
-    "div",
-    { class: "model-tile" },
-    h(
-      "div",
-      { class: "model-tile-head" },
-      h("span", { class: "tile-mark" }, kindMark(c.kind, kinds)),
-      h(
-        "div",
-        { class: "stack", style: { gap: "1px", minWidth: "0" } },
-        h("span", { class: "model-tile-name" }, c.name),
-        h("span", { class: "faint small" }, kindLabel(c.kind, kinds)),
-      ),
-    ),
-    c.webhook_url
-      ? h(
-          "div",
-          { class: "stack" },
-          h("span", { class: "faint small" }, "Webhook URL"),
-          secretField(c.webhook_url, `Webhook URL of ${c.name}`, { compact: true }),
-        )
-      : null,
-    h(
-      "dl",
-      { class: "model-tile-facts" },
-      h("div", {}, h("dt", {}, "Channels"), h("dd", {}, num(c.bindings))),
-      h("div", {}, h("dt", {}, "Gives agents"), h("dd", {}, gives(kind))),
-      h("div", {}, h("dt", {}, "Acts as"), h("dd", {}, c.per_user ? "Each person" : "One shared account")),
-      h("div", {}, h("dt", {}, "Added"), h("dd", {}, date(c.created_at))),
-    ),
-    c.per_user ? accountControl(ctx, c) : null,
-    admin ? actions(ctx, c, kinds) : null,
-  );
 }
 
 /** accountControl connects the viewer's own account to a connector people
@@ -222,38 +195,169 @@ function signInResult(result, connections) {
   else toast(`Your account is connected to ${name}`, "good");
 }
 
-/** actions are an administrator's buttons for one connector. */
+/** actions are an administrator's buttons for one connector in the list.
+ *  Checking it is on its own screen. */
 function actions(ctx, c, kinds) {
   return h(
     "div",
-    { class: "row" },
-    checkButton(
-      "Check that the service still accepts its credentials",
-      () => api.checkConnection(c.id),
-      () => ({ label: "Works", tone: "good", title: "The service accepted the credentials" }),
-    ),
-    h("div", { class: "spacer" }),
+    { class: "row-tight" },
     iconButton(icons.pencil, "Edit this connector", () => openEditor(ctx, kinds, c), {
       label: `Edit ${c.name}`,
     }),
-    iconButton(
-      icons.trash,
-      "Delete this connector",
-      () =>
-        confirm({
-          title: `Delete ${c.name}?`,
-          body: c.bindings
-            ? `${c.bindings} ${plural(c.bindings, "channel")} use it and go with it. Agents stop working there.`
-            : "No channel uses it.",
-          confirmLabel: "Delete connector",
-          danger: true,
-          onConfirm: () => api.deleteConnection(c.id),
-          done: `${c.name} deleted`,
-          ctx,
-        }),
-      { danger: true, label: `Delete ${c.name}` },
+    iconButton(icons.trash, "Delete this connector", () => deleteConnector(ctx, c), {
+      danger: true,
+      label: `Delete ${c.name}`,
+    }),
+  );
+}
+
+/** deleteConnector asks first, then goes back to the list. */
+function deleteConnector(ctx, c) {
+  confirm({
+    title: `Delete ${c.name}?`,
+    body: c.bindings
+      ? `It is used in ${c.bindings} ${plural(c.bindings, "place")}. Agents stop working there.`
+      : "No agent uses it.",
+    confirmLabel: "Delete connector",
+    danger: true,
+    onConfirm: () => api.deleteConnection(c.id),
+    done: () => {
+      if (location.pathname === "/connectors") ctx.reload();
+      else ctx.navigate("/connectors");
+      return `${c.name} deleted`;
+    },
+  });
+}
+
+/** connectorView is one connector: what it is, and where agents use it. */
+export async function connectorView(ctx) {
+  let c;
+  try {
+    c = await api.connection(ctx.param);
+  } catch (err) {
+    if (err.status === 404) {
+      return gone(
+        ctx,
+        "/connectors",
+        "Connectors",
+        "No such connector",
+        "It was deleted, or it belongs to another organisation.",
+      );
+    }
+    throw err;
+  }
+  const kindsRes = await api.connectionKinds().catch(() => ({ data: [] }));
+  const kinds = kindsRes.data || [];
+  callbackURL = kindsRes.callback_url || "";
+  const kind = kinds.find((k) => k.kind === c.kind) || {};
+  const admin = isAdmin(ctx);
+  ctx.setTitle(c.name, kindLabel(c.kind, kinds), h("span", { class: "tile-mark" }, kindMark(c.kind, kinds)));
+
+  const controls = admin
+    ? [
+        checkButton(
+          "Check that the service still accepts its credentials",
+          () => api.checkConnection(c.id),
+          () => ({ label: "Works", tone: "good", title: "The service accepted the credentials" }),
+        ),
+        h("button", { class: "btn", onClick: () => openEditor(ctx, kinds, c) }, icon(icons.pencil), "Edit"),
+        h("button", { class: "btn btn-danger", onClick: () => deleteConnector(ctx, c) }, icon(icons.trash), "Delete"),
+      ]
+    : [];
+
+  const uses = c.uses || [];
+  const hiddenUses = c.bindings - uses.length;
+  const tools = toolList(kind);
+
+  return h(
+    "div",
+    { class: "grid" },
+    detailHead(
+      ctx,
+      ["/connectors", "Connectors"],
+      [kind.category ? pill(kind.category) : null],
+      h("div", { class: "row-tight", style: { flexWrap: "wrap" } }, controls),
+    ),
+    h(
+      "div",
+      { class: tools ? "grid grid-2" : "grid" },
+      card(
+        "Details",
+        [
+          fact("Service", kindLabel(c.kind, kinds)),
+          fact("Gives agents", gives(kind)),
+          fact("Acts as", c.per_user ? accountControl(ctx, c) : "One shared account"),
+          fact("Uses", num(c.bindings)),
+          fact("Added", c.created_by ? `${date(c.created_at)} by ${c.created_by}` : date(c.created_at)),
+          admin && c.webhook_url
+            ? fact("Webhook URL", secretField(c.webhook_url, `Webhook URL of ${c.name}`, { hidden: true }))
+            : null,
+        ],
+        { style: { alignSelf: "start" }, bodyClass: "card-body facts" },
+      ),
+      tools ? card("What agents can do", tools, { style: { alignSelf: "start" } }) : null,
+    ),
+    sectionHead(
+      "Where agents use it",
+      hiddenUses > 0 ? `and in ${hiddenUses} ${plural(hiddenUses, "workspace")} of other people` : null,
+      { margin: "0" },
+    ),
+    table(
+      [
+        {
+          label: "Agent",
+          sortKey: (b) => b.agent_name,
+          cell: (b) =>
+            h(
+              "div",
+              { class: "stack" },
+              rowLink(ctx, usePath(b), b.agent_name),
+              b.agent_kind === "workspace" ? h("span", { class: "faint small" }, "Workspace") : null,
+            ),
+        },
+        {
+          label: "Where",
+          sortKey: (b) => b.label || b.target,
+          cell: (b) =>
+            h(
+              "div",
+              { class: "stack" },
+              h("span", {}, b.label || targetText(b, kinds)),
+              b.label && b.target !== b.label ? h("span", { class: "faint small mono" }, targetText(b, kinds)) : null,
+            ),
+        },
+        {
+          label: "Mode",
+          shrink: true,
+          sortKey: (b) => b.mode,
+          cell: (b) =>
+            pill((MODES[b.mode] || [b.mode])[0], b.mode === "chat" ? "accent" : b.mode === "write" ? "warn" : ""),
+        },
+        {
+          label: "Added",
+          shrink: true,
+          num: true,
+          sortKey: (b) => b.created_at,
+          sortDir: "desc",
+          cell: (b) => stamp(b.created_at),
+        },
+      ],
+      uses,
+      {
+        ctx,
+        open: usePath,
+        sortBy: "Added",
+        sortDir: "desc",
+        emptyTitle: "No agent uses it yet",
+        emptyBody: "Add it to an agent on the agent's Connectors tab.",
+      },
     ),
   );
+}
+
+/** usePath is the Connectors tab of the agent or workspace using it. */
+function usePath(b) {
+  return b.agent_kind === "workspace" ? workspacePath(b.agent_id, "connectors") : agentPath(b.agent_id, "connectors");
 }
 
 /** catalogueView lists every kind of connector, and the organisation's
@@ -264,7 +368,10 @@ export async function catalogueView(ctx) {
   const kinds = kindsRes.data || [];
   callbackURL = kindsRes.callback_url || "";
   const connections = conns.data || [];
-  const rows = kinds.map((k) => ({ k, mine: connections.filter((c) => c.kind === k.kind) }));
+  // Alphabetical first, so each category lists its services by name.
+  const rows = kinds
+    .map((k) => ({ k, mine: connections.filter((c) => c.kind === k.kind) }))
+    .sort((a, b) => a.k.label.localeCompare(b.k.label));
   ctx.setSubtitle(`${rows.length} ${plural(rows.length, "service")}`);
   const unique = (f) => [...new Set(kinds.map(f).filter(Boolean))].sort();
 
@@ -306,6 +413,7 @@ export async function catalogueView(ctx) {
       search: (r) =>
         [r.k.label, r.k.kind, r.k.vendor, r.k.category, r.k.summary, ...(r.k.tools || []).map((t) => t.name)].join(" "),
       searchLabel: "services",
+      sortBy: "Category",
       tile: (r) => catalogueTile(r, kinds),
       choices: [
         {
@@ -381,9 +489,9 @@ function toolList(kind) {
     h(
       "div",
       { class: "hint" },
-      "A channel that may only read never gets the tools that write. ",
+      "An agent that may only read never gets the tools that write. ",
       kind.target_label
-        ? `Each channel names one ${kind.target_label.toLowerCase()}, and its tools stay in it.`
+        ? `Adding it to an agent names one ${kind.target_label.toLowerCase()}, and its tools stay in it.`
         : "The service's own permissions decide what it reaches.",
     ),
   );
@@ -410,11 +518,12 @@ function showKind(kind) {
   });
 }
 
-/** setupText fills in the webhook URL, or says where it will be, and the
- *  address people come back to after signing in. */
-export function setupText(setup, webhook, callback = "") {
+/** setupText says where the webhook URL is, and fills in the address
+ *  people come back to after signing in. The URL itself stays out of the
+ *  text, so it shows only when someone reveals it. */
+export function setupText(setup, saved, callback = "") {
   return String(setup || "")
-    .replaceAll("{webhook}", webhook || "the webhook URL (shown once saved)")
+    .replaceAll("{webhook}", saved ? "the webhook URL above" : "the webhook URL (shown once saved)")
     .replaceAll("{callback}", callback ? "`" + callback + "`" : "this panel's /auth/connector/callback");
 }
 
@@ -494,20 +603,23 @@ function openEditor(ctx, kinds, conn, kind = null) {
       conn && conn.per_user
         ? field("Acts as", h("div", {}, "Each person's own account"), "Each person connects theirs on the connector.")
         : null,
-      field("Name", name, "Shown when adding a channel to an agent."),
+      field("Name", name, "Shown when adding it to an agent."),
       fields.filter((f) => f.required).map(fieldOf),
       advanced,
+      conn && conn.webhook_url
+        ? field("Webhook URL", secretField(conn.webhook_url, "Webhook URL", { hidden: true }))
+        : null,
       setup
         ? h(
             "div",
             { class: "field" },
             h("label", {}, `Setting up ${kind.label}`),
-            h("div", { class: "preview" }, render(setupText(setup, conn && conn.webhook_url, callbackURL))),
+            h("div", { class: "preview" }, render(setupText(setup, !!(conn && conn.webhook_url), callbackURL))),
             kind.chat && !conn
               ? h(
                   "div",
                   { class: "hint" },
-                  "The webhook URL is known once the connector is saved. It shows then, and on the connector's card.",
+                  "The webhook URL is known once the connector is saved. It shows then, and when you edit it.",
                 )
               : null,
           )
@@ -565,16 +677,21 @@ function showWebhook(conn, kind) {
     body: h(
       "div",
       {},
-      h("div", { class: "field" }, h("label", {}, "Webhook URL"), secretField(conn.webhook_url, "Webhook URL")),
+      h(
+        "div",
+        { class: "field" },
+        h("label", {}, "Webhook URL"),
+        secretField(conn.webhook_url, "Webhook URL", { hidden: true }),
+      ),
       kind.setup
         ? h(
             "div",
             { class: "field" },
             h("label", {}, `Setting up ${kind.label}`),
-            h("div", { class: "preview" }, render(setupText(kind.setup, conn.webhook_url))),
+            h("div", { class: "preview" }, render(setupText(kind.setup, true))),
           )
         : null,
-      banner("info", { style: { marginBottom: "0" } }, "The URL also shows on the connector's card."),
+      banner("info", { style: { marginBottom: "0" } }, "It also shows when you edit the connector."),
     ),
   });
 }

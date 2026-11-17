@@ -252,6 +252,51 @@ func (c *Client) Catalog(ctx context.Context, orgID, projectID string) (Catalog,
 	return out, err
 }
 
+// Credit is whether an organisation may run machines, as the gateway, which
+// holds its credit, decides. See docs/billing.md.
+type Credit struct {
+	// Payments says organisations pay in advance on this gateway.
+	Payments      bool  `json:"payments"`
+	BalanceMicros int64 `json:"balance_micros"`
+	// Refusal is set when the organisation may not run machines now.
+	Refusal *Refusal `json:"refusal"`
+}
+
+// Refusal says why, in words for the people in the organisation.
+type Refusal struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func (c *Client) Credit(ctx context.Context, orgID string) (Credit, error) {
+	var out Credit
+	err := c.call(ctx, "GET", "/v1/service/billing?"+url.Values{"org_id": {orgID}}.Encode(),
+		c.serviceKey, nil, &out)
+	return out, err
+}
+
+// BillLine is one organisation's use of one item in one hour. ID makes
+// sending it again harmless: the gateway records each id once.
+type BillLine struct {
+	ID             string    `json:"id"`
+	OrgID          string    `json:"org_id"`
+	TS             time.Time `json:"ts"`
+	Item           string    `json:"item"`
+	Unit           string    `json:"unit"`
+	QuantityMicros int64     `json:"quantity_micros"`
+	Micros         int64     `json:"micros"`
+}
+
+// MaxBillLines is the most lines the gateway takes in one call.
+const MaxBillLines = 1000
+
+// Bill adds lines to the organisations' bills, and takes them from their
+// credit when they pay in advance.
+func (c *Client) Bill(ctx context.Context, lines []BillLine) error {
+	return c.call(ctx, "POST", "/v1/service/billing/lines", c.serviceKey,
+		map[string]any{"lines": lines}, nil)
+}
+
 // ------------------------------------------------------------ plumbing
 
 func (c *Client) call(ctx context.Context, method, path, token string, in, out any) error {

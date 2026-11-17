@@ -18,9 +18,10 @@ import (
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/api"
-	"github.com/bespinian/keera-agents/internal/channels"
-	"github.com/bespinian/keera-agents/internal/channels/all"
+	"github.com/bespinian/keera-agents/internal/billing"
 	"github.com/bespinian/keera-agents/internal/config"
+	"github.com/bespinian/keera-agents/internal/connectors"
+	"github.com/bespinian/keera-agents/internal/connectors/all"
 	"github.com/bespinian/keera-agents/internal/dispatch"
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
@@ -104,7 +105,7 @@ func Run() error {
 		log.Warn("KEERA_AGENTS_DRIVER is not set, so agents can be set up but not run")
 	}
 
-	all.Register(channels.Options{
+	all.Register(connectors.Options{
 		HTTP: &http.Client{Timeout: 30 * time.Second, Transport: cfg.Egress.Transport()},
 		Dial: cfg.Egress.Dial(),
 	})
@@ -154,12 +155,15 @@ func Run() error {
 	return nil
 }
 
+// healthz says the process is up, while it starts and after.
+func healthz(w http.ResponseWriter, _ *http.Request) {
+	_, _ = w.Write([]byte("ok\n"))
+}
+
 // startingHandler answers while the control plane starts: alive, not ready.
 func startingHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("ok\n"))
-	})
+	mux.HandleFunc("GET /healthz", healthz)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "keera-agents is starting", http.StatusServiceUnavailable)
@@ -173,6 +177,7 @@ type App struct {
 	st      *store.Store
 	fleet   *fleet.Manager
 	disp    *dispatch.Dispatcher
+	biller  *billing.Biller
 	metrics *metrics.Registry
 	log     *slog.Logger
 }
@@ -186,10 +191,13 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 	if err != nil {
 		return nil, err
 	}
+	biller := billing.New(st, gw, billing.Prices{
+		CPUHour: cfg.PriceCPUHour, MemoryGiBHour: cfg.PriceMemoryGiBHour, DiskGiBMonth: cfg.PriceDiskGiBMonth,
+	}, log)
 	fl := fleet.New(st, gw, driver, box, fleet.Options{
 		Image: cfg.Runtime.Image, RuntimeURL: cfg.Runtime.URL, IdleSuspend: cfg.Runtime.IdleSuspend,
 		WorkspaceImage: cfg.Runtime.WorkspaceImage, WorkspaceIdleSuspend: cfg.Runtime.WorkspaceIdleSuspend,
-		Limits: limits, Metrics: reg, Log: log,
+		Limits: limits, Credit: biller, Metrics: reg, Log: log,
 	})
 	var rn *runner.Runner
 	disp := dispatch.New(st, fl, gw, box, dispatch.Options{
@@ -202,7 +210,7 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 	})
 	panel := api.New(st, gw, fl, disp, box, api.Options{
 		PublicURL: cfg.PublicURL, GatewayURL: cfg.GatewayURL, SecureCookies: cfg.SecureCookies,
-		Log: log,
+		Billing: biller, Log: log,
 	})
 
 	mux := http.NewServeMux()
@@ -211,9 +219,7 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 	mux.Handle("/auth/", apiHandler)
 	mux.Handle("/runtime/", rn.Handler())
 	mux.HandleFunc(dispatch.HookPath, disp.ServeHook)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("ok\n"))
-	})
+	mux.HandleFunc("GET /healthz", healthz)
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.Ping(r.Context()); err != nil {
 			http.Error(w, "the database does not answer", http.StatusServiceUnavailable)
@@ -223,7 +229,7 @@ func New(cfg config.Config, st *store.Store, gw *gateway.Client, driver runtime.
 	})
 	mux.Handle("GET /metrics", metricsHandler(st, reg, cfg.MetricsToken, log))
 	mux.Handle("/", webui.Handler())
-	return &App{Handler: mux, st: st, fleet: fl, disp: disp, metrics: reg, log: log}, nil
+	return &App{Handler: mux, st: st, fleet: fl, disp: disp, biller: biller, metrics: reg, log: log}, nil
 }
 
 // metricsHandler serves the Prometheus exposition to whoever holds token. With
@@ -274,18 +280,18 @@ func snapshot(g store.Gauges, now time.Time) metrics.Snapshot {
 }
 
 // leaderLock is the advisory lock the periodic work runs under, so one
-// replica at a time starts schedules, picks up cards and reads watched
-// folders.
+// replica at a time starts schedules, picks up cards, reads watched folders,
+// reconciles machines, bills them and prunes.
 const leaderLock = 0x6A6_0002
 
 // Background runs the periodic work until ctx ends. Each round takes the
 // lock, does what is due and lets go, so another replica takes over when
 // this one stops.
 func (a *App) Background(ctx context.Context) {
-	st, fl, disp, log := a.st, a.fleet, a.disp, a.log
+	st, fl, disp, biller, log := a.st, a.fleet, a.disp, a.biller, a.log
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
-	var lastReconcile, lastOwners, lastPrune time.Time
+	var lastReconcile, lastOwners, lastPrune, lastMeter time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -314,6 +320,14 @@ func (a *App) Background(ctx context.Context) {
 			if now.Sub(lastReconcile) >= 15*time.Second && step(ctx, fl.Reconcile) {
 				lastReconcile = now
 			}
+			// Metering counts the time since its last round itself, so a
+			// round that comes late loses nothing.
+			if fl.Runs() && now.Sub(lastMeter) >= time.Minute && step(ctx, func(ctx context.Context) {
+				biller.Meter(ctx, now)
+				biller.Send(ctx, now)
+			}) {
+				lastMeter = now
+			}
 			if now.Sub(lastOwners) >= 10*time.Minute && step(ctx, func(ctx context.Context) {
 				fl.CheckOwners(ctx)
 				disp.CheckAccounts(ctx)
@@ -326,8 +340,11 @@ func (a *App) Background(ctx context.Context) {
 				if err == nil {
 					err = st.PruneWrites(ctx, now.AddDate(0, 0, -7))
 				}
+				if err == nil {
+					err = st.PruneUsage(ctx, now.Add(-billing.Retention))
+				}
 				if err != nil {
-					log.Warn("could not delete old tasks", "error", err)
+					log.Warn("could not delete old rows", "error", err)
 					return
 				}
 				if n > 0 {

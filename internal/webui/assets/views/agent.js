@@ -53,10 +53,11 @@ import {
   detailTabs,
 } from "../common.js";
 import { agentForm, noRuntime } from "./agents.js";
-import { channelsTab } from "./channels.js";
+import { bindingsTab } from "./bindings.js";
 import { scheduleTable, openScheduleEditor } from "./schedules.js";
 import { taskList, giveTask } from "./tasks.js";
 import { logPane } from "./logs.js";
+import { agentCostCard } from "./billing.js";
 
 export async function agentView(ctx) {
   let agent;
@@ -87,7 +88,7 @@ export async function agentView(ctx) {
     [
       { value: "overview", label: "Overview", view: overviewTab },
       { value: "settings", label: "Settings", view: settingsTab },
-      { value: "channels", label: "Channels", count: (agent.bindings || []).length, view: channelsTab },
+      { value: "connectors", label: "Connectors", count: (agent.bindings || []).length, view: bindingsTab },
       { value: "schedules", label: "Schedules", count: (agent.schedules || []).length, view: schedulesTab },
       { value: "tasks", label: "Tasks", view: (ctx) => h("div", {}, taskList(ctx, { agentID: ctx.param })) },
       { value: "logs", label: "Logs", view: logPane },
@@ -148,7 +149,7 @@ function head(ctx, agent) {
     controls.push(
       h(
         "button",
-        { class: "btn btn-primary", title: "Ask it to do something now", onClick: () => giveTask(ctx, { agent }) },
+        { class: "btn", title: "Ask it to do something now", onClick: () => giveTask(ctx, { agent }) },
         icon(icons.send),
         "Give a task",
       ),
@@ -179,9 +180,12 @@ async function overviewTab(ctx, agent) {
   const stats = agent.stats || {};
   const since = currentRange();
   const period = rangeOf(since).long.toLowerCase();
-  const [recentRes, act] = await Promise.all([
+  // What its machine costs, for those who can change its size.
+  const showCost = ctx.state.me.billing && agent.can_edit;
+  const [recentRes, act, cost] = await Promise.all([
     api.tasks({ agent_id: agent.id, limit: 8 }).catch(() => ({ data: [] })),
     api.agentActivity(agent.id, since),
+    showCost ? api.agentCost(agent.id).catch(() => null) : null,
   ]);
   const recent = recentRes.data || [];
   const tasks = act.tasks || {};
@@ -215,32 +219,37 @@ async function overviewTab(ctx, agent) {
     h(
       "div",
       { class: "grid grid-2" },
-      card(
-        "Setup",
-        [
-          fact("Model", h("span", { class: "mono" }, agent.model)),
-          fact(
-            "Tools",
-            (agent.builtins || []).length
-              ? h(
-                  "div",
-                  { class: "wrap-chips" },
-                  agent.builtins.map((b) => pill((BUILTINS[b] || [b])[0])),
-                )
-              : h("span", { class: "faint" }, "None"),
-          ),
-          fact(
-            "Takes work from",
-            agent.access === "people"
-              ? `${ACCESS.people}: ${(agent.allowed_emails || []).join(", ")}`
-              : ACCESS[agent.access] || agent.access,
-          ),
-          fact("Budget", agent.budget_micros ? `${money(agent.budget_micros)} a month` : "None of its own"),
-          fact("Machine", machine),
-          fact("Owner", agent.owner_email),
-          fact("Created", date(agent.created_at)),
-        ],
-        { style: { alignSelf: "start" }, bodyClass: "card-body facts" },
+      h(
+        "div",
+        { class: "grid", style: { alignSelf: "start" } },
+        card(
+          "Setup",
+          [
+            fact("Model", h("span", { class: "mono" }, agent.model)),
+            fact(
+              "Tools",
+              (agent.builtins || []).length
+                ? h(
+                    "div",
+                    { class: "wrap-chips" },
+                    agent.builtins.map((b) => pill((BUILTINS[b] || [b])[0])),
+                  )
+                : h("span", { class: "faint" }, "None"),
+            ),
+            fact(
+              "Takes work from",
+              agent.access === "people"
+                ? `${ACCESS.people}: ${(agent.allowed_emails || []).join(", ")}`
+                : ACCESS[agent.access] || agent.access,
+            ),
+            fact("Budget", agent.budget_micros ? `${money(agent.budget_micros)} a month` : "None of its own"),
+            fact("Machine", machine),
+            fact("Owner", agent.owner_email),
+            fact("Created", date(agent.created_at)),
+          ],
+          { bodyClass: "card-body facts" },
+        ),
+        cost ? agentCostCard(ctx, cost) : null,
       ),
       listCard({
         title: "Recent tasks",
@@ -282,7 +291,7 @@ async function settingsTab(ctx, agent) {
   const form = await agentForm(ctx, agent);
   const enabled = checkRow(
     "Takes new tasks",
-    "When off, its machine stops and the tasks it has are cancelled. Its channels and schedules stay.",
+    "When off, its machine stops and the tasks it has are cancelled. Its connectors and schedules stay.",
     agent.enabled !== false,
   );
   const err = h("div");
@@ -344,7 +353,7 @@ async function settingsTab(ctx, agent) {
             onClick: () =>
               confirm({
                 title: `Delete ${agent.name}?`,
-                body: "Its machine, files, memory, channels and schedules go with it. This cannot be undone.",
+                body: "Its machine, files, memory, connectors and schedules go with it. This cannot be undone.",
                 confirmLabel: "Delete agent",
                 danger: true,
                 onConfirm: () => api.deleteAgent(agent.id),

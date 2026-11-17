@@ -1,13 +1,30 @@
-// One workspace: its state and controls, how to reach it, its connectors,
-// its settings and what it printed.
+// One workspace: its state and controls, how to reach it, its settings, its
+// connectors and what it printed.
 
 import { api } from "../api.js";
-import { h, pill, fact, icon, icons, busyButton, detailHead, gone, confirm, toast, card, every, ago } from "../ui.js";
+import {
+  h,
+  pill,
+  fact,
+  icon,
+  icons,
+  busyButton,
+  detailHead,
+  gone,
+  confirm,
+  toast,
+  card,
+  every,
+  ago,
+  avatarOf,
+  modal,
+} from "../ui.js";
 import { agentStatePill, isUp, workspacePath, detailTabs, EXPERIENCES, TIERS } from "../common.js";
 import { noRuntime } from "./agents.js";
-import { channelsTab } from "./channels.js";
+import { bindingsTab } from "./bindings.js";
 import { logPane } from "./logs.js";
 import { workspaceForm, connectSteps } from "./workspaces.js";
+import { agentCostCard } from "./billing.js";
 
 export async function workspaceView(ctx) {
   let w;
@@ -19,7 +36,11 @@ export async function workspaceView(ctx) {
     }
     throw err;
   }
-  ctx.setTitle(w.name, w.description || "", icon(EXPERIENCES[w.experience]?.icon || icons.workspace));
+  ctx.setTitle(
+    w.name,
+    w.description || "",
+    avatarOf(w.name, { agent: true, glyph: EXPERIENCES[w.experience]?.icon || icons.workspace, large: true }),
+  );
 
   if (w.state === "starting") {
     every(ctx, 4000, async () => {
@@ -32,8 +53,8 @@ export async function workspaceView(ctx) {
     ctx,
     [
       { value: "overview", label: "Overview", view: overviewTab },
-      { value: "connectors", label: "Connectors", count: (w.bindings || []).length, view: channelsTab },
       { value: "settings", label: "Settings", view: settingsTab },
+      { value: "connectors", label: "Connectors", count: (w.bindings || []).length, view: bindingsTab },
       { value: "logs", label: "Logs", view: logPane },
     ],
     (tab) => workspacePath(w.id, tab),
@@ -59,6 +80,28 @@ function head(ctx, w) {
           act("stop", "is stopping"),
         )
       : busyButton({ title: "Start its machine" }, [icon(icons.play), "Start"], act("start", "is starting"));
+  // Connecting wakes a suspended workspace, but not a stopped one. Only its
+  // owner gets in.
+  const awake = w.enabled !== false && (isUp(w.state) || w.state === "suspended");
+  const connect =
+    awake && w.can_connect
+      ? h(
+          "button",
+          {
+            class: "btn",
+            title: "How to get into it",
+            onClick: () =>
+              modal({
+                title: `Connect to ${w.name}`,
+                subtitle: "With the keera CLI",
+                body: connectSteps(w),
+                wide: true,
+              }),
+          },
+          icon(icons.terminal),
+          "Connect",
+        )
+      : null;
   return detailHead(
     ctx,
     ["/workspaces", "Workspaces"],
@@ -67,21 +110,17 @@ function head(ctx, w) {
       pill(EXPERIENCES[w.experience]?.name || w.experience),
       w.state_detail ? h("span", { class: "faint small", style: { alignSelf: "center" } }, w.state_detail) : null,
     ],
-    h("div", { class: "row-tight", style: { flexWrap: "wrap" } }, control),
+    h("div", { class: "row-tight", style: { flexWrap: "wrap" } }, control, connect),
   );
 }
 
-function overviewTab(_ctx, w) {
+async function overviewTab(ctx, w) {
   const cls = w.class || {};
+  // Whoever sees a workspace may see what its machine costs.
+  const cost = ctx.state.me.billing ? await api.workspaceCost(w.id).catch(() => null) : null;
   return h(
     "div",
     { class: "grid grid-2" },
-    card(
-      "Connect",
-      w.can_connect
-        ? connectSteps(w)
-        : h("div", { class: "muted" }, `Only ${w.owner_email} can get into this workspace.`),
-    ),
     card(
       "About",
       h(
@@ -100,6 +139,7 @@ function overviewTab(_ctx, w) {
         ),
       ),
     ),
+    cost ? agentCostCard(ctx, cost) : null,
   );
 }
 

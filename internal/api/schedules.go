@@ -88,7 +88,7 @@ func (s *Server) applySchedule(ctx context.Context, sc *store.Schedule, in sched
 			}
 			if b.Target == store.AnyConversation {
 				return errors.New("that chat takes every conversation, so it names none to post in; " +
-					"connect the agent to one channel and choose that")
+					"connect the agent to one chat and choose that")
 			}
 			sc.ReplyBindingID = &b.ID
 		}

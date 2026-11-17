@@ -349,11 +349,52 @@ func (r *runner) systemPrompt(boot protocol.Bootstrap) string {
 	b.WriteString("- Use your tools when they help, rather than guessing. If something fails, say so plainly.\n")
 	b.WriteString("- Never reveal credentials, keys or tokens, and do not store them in files or memory.\n")
 
+	b.WriteString(connectedSection(boot.Connected, has(protocol.BuiltinShell)))
+
 	if s := strings.TrimSpace(a.Instructions); s != "" {
 		b.WriteString("\n## Your instructions\n\n" + s + "\n")
 	}
 	if mem := r.ws.memory(); mem != "" {
 		b.WriteString("\n## Your memory (" + memoryFile + ")\n\n" + mem + "\n")
+	}
+	return b.String()
+}
+
+// connectedSection tells the model what it is connected to. The same lists
+// are in the tools' descriptions, but a model asked to clone a repository
+// rarely looks for its address in the description of a tool for issues.
+func connectedSection(list []protocol.Connected, shell bool) string {
+	if len(list) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## What you are connected to\n\nYour tools take these ids.\n\n")
+	repos := false
+	for _, c := range list {
+		// The list comes over the wire; an empty What would panic below.
+		if c.What == "" {
+			continue
+		}
+		b.WriteString("- " + strings.ToUpper(c.What[:1]) + c.What[1:] + " " + c.Name + " (" + c.Service + ")")
+		if c.ReadOnly {
+			b.WriteString(", read only")
+		}
+		b.WriteString(", id " + c.ID)
+		if c.Clone != "" && shell {
+			b.WriteString(". Clone it with: " + c.Clone)
+		}
+		b.WriteString("\n")
+		repos = repos || c.What == protocol.ConnectedRepository
+	}
+	switch {
+	case repos && shell:
+		b.WriteString("\nWork in a repository with git in your shell. Clone it with the command above, not from " +
+			"the service's website: that address adds your access for you. You may push only branches whose name " +
+			"starts with " + protocol.BranchPrefix + ". Open a pull or merge request with repo_open_change.\n")
+	case repos:
+		b.WriteString("\nYou have no shell, so you cannot clone these repositories or read their files: you can " +
+			"only work with their issues and pull or merge requests. If a task needs their code, say that the " +
+			"shell tool must be turned on in your settings.\n")
 	}
 	return b.String()
 }

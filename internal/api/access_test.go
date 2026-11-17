@@ -3,16 +3,15 @@ package api
 import (
 	"testing"
 
-	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
 var (
-	admin    = Principal{Me: gateway.Me{UserID: "usr_root", Email: "root@acme.ch", OrgID: "org_a", CanAdminOrg: true}}
-	operator = Principal{Me: gateway.Me{UserID: "usr_op", Email: "op@keera.ch", OrgID: "org_a", Role: "operator"}}
-	owner    = Principal{Me: gateway.Me{UserID: "usr_ada", Email: "ada@acme.ch", OrgID: "org_a"}}
-	member   = Principal{Me: gateway.Me{UserID: "usr_bob", Email: "bob@acme.ch", OrgID: "org_a"}}
-	outsider = Principal{Me: gateway.Me{UserID: "usr_eve", Email: "eve@bravo.ch", OrgID: "org_b", CanAdminOrg: true}}
+	admin    = Principal{UserID: "usr_root", Email: "root@acme.ch", OrgID: "org_a", CanAdminOrg: true}
+	operator = Principal{UserID: "usr_op", Email: "op@keera.ch", OrgID: "org_a", Role: "operator"}
+	owner    = Principal{UserID: "usr_ada", Email: "ada@acme.ch", OrgID: "org_a"}
+	member   = Principal{UserID: "usr_bob", Email: "bob@acme.ch", OrgID: "org_a"}
+	outsider = Principal{UserID: "usr_eve", Email: "eve@bravo.ch", OrgID: "org_b", CanAdminOrg: true}
 )
 
 func TestOnlyTheOwnerAndAdministratorsEditAnAgent(t *testing.T) {

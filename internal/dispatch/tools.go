@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/protocol"
@@ -37,11 +37,12 @@ func WorkspaceTask(a store.Agent) store.Task {
 }
 
 // Tools lists the platform tools an agent may call, described with what it
-// is bound to, so the model knows the ids to use.
-func (d *Dispatcher) Tools(ctx context.Context, a store.Agent) ([]protocol.ToolSpec, error) {
+// is bound to, so the model knows the ids to use. It also lists what the
+// agent is connected to, for its prompt.
+func (d *Dispatcher) Tools(ctx context.Context, a store.Agent) ([]protocol.ToolSpec, []protocol.Connected, error) {
 	bindings, err := d.st.AgentBindings(ctx, a.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	tools := []protocol.ToolSpec{
 		{
@@ -121,7 +122,54 @@ func (d *Dispatcher) Tools(ctx context.Context, a store.Agent) ([]protocol.ToolS
 		// A workspace has no chats: there is nowhere to send a message.
 		tools = slices.DeleteFunc(tools, func(t protocol.ToolSpec) bool { return t.Name == "send_message" })
 	}
-	return tools, nil
+	return tools, connected(bindings), nil
+}
+
+// connected lists the chats, folders, repositories and services an agent
+// is bound to, as its prompt shows them.
+func connected(bindings []store.Binding) []protocol.Connected {
+	var out []protocol.Connected
+	for _, b := range bindings {
+		c := protocol.Connected{ID: b.ID, Service: serviceName(b.Kind), Name: named(b)}
+		switch {
+		case isChannel(b):
+			c.What = protocol.ConnectedChannel
+		case isFolder(b):
+			c.What = protocol.ConnectedFolder
+		case b.Mode == store.ModeRepo:
+			c.What, c.Clone = protocol.ConnectedRepository, cloneCommand(b)
+		case isAPI(b):
+			if _, ok := connectors.APIFor(connectors.Kind(b.Kind)); !ok {
+				continue
+			}
+			c.What, c.ReadOnly = protocol.ConnectedService, b.Mode == store.ModeRead
+		default:
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// named is how the model sees a binding: its label, if any, and always what
+// it stands for, so a labelled repository still shows its owner/name.
+func named(b store.Binding) string {
+	target := b.Target
+	if target == connectors.AnyTarget {
+		target = "everything the connector reaches"
+	}
+	if b.Label != "" && b.Label != b.Target {
+		return b.Label + ", " + target
+	}
+	return target
+}
+
+// serviceName is a kind's name as people know it, such as GitHub.
+func serviceName(kind string) string {
+	if d, ok := connectors.Describe(connectors.Kind(kind)); ok && d.Label != "" {
+		return d.Label
+	}
+	return kind
 }
 
 // bindingList lists the bindings keep picks, one per line, for a tool's
@@ -132,9 +180,9 @@ func bindingList(bindings []store.Binding, header string, keep func(store.Bindin
 		if !keep(b) {
 			continue
 		}
-		line := fmt.Sprintf("- %s: %s (%s)", b.ID, cmp.Or(b.Label, b.Target), b.Kind)
+		line := fmt.Sprintf("- %s: %s (%s)", b.ID, named(b), b.Kind)
 		if b.Mode == store.ModeRepo {
-			line += ", clone with: git clone " + cloneURL(b)
+			line += ", clone with: " + cloneCommand(b)
 		}
 		lines = append(lines, line)
 	}
@@ -336,7 +384,7 @@ func (d *Dispatcher) toolSend(ctx context.Context, a store.Agent, t store.Task, 
 	if !ok || !isChannel(b) {
 		return fmt.Errorf("%s is not one of your channels", in.Channel)
 	}
-	return d.send(ctx, b.ConnectionID, channels.Target{Conversation: b.Target}, in.Text)
+	return d.send(ctx, b.ConnectionID, connectors.Target{Conversation: b.Target}, in.Text)
 }
 
 type cardView struct {
@@ -583,8 +631,8 @@ func (g *grants) has(taskID, bindingID, id string) bool {
 
 // folder returns the agent's file binding, its adapter and its connection,
 // for task t.
-func (d *Dispatcher) folder(ctx context.Context, a store.Agent, t store.Task, bindingID string) (store.Binding, channels.Files, channels.Connection, error) {
-	return bound(ctx, d, a, t, bindingID, "folders", channels.FilesFor, store.ModeWatch, store.ModeFiles)
+func (d *Dispatcher) folder(ctx context.Context, a store.Agent, t store.Task, bindingID string) (store.Binding, connectors.Files, connectors.Connection, error) {
+	return bound(ctx, d, a, t, bindingID, "folders", connectors.FilesFor, store.ModeWatch, store.ModeFiles)
 }
 
 // within resolves a subfolder the task has seen, or the bound folder.
@@ -638,8 +686,8 @@ func (d *Dispatcher) toolFilesWrite(ctx context.Context, a store.Agent, t store.
 	if in.Name == "" || strings.ContainsAny(in.Name, "/\\") {
 		return nil, errors.New("give the file a name without slashes")
 	}
-	if len(in.Content) > channels.MaxFileBytes {
-		return nil, fmt.Errorf("the file is larger than %d MiB", channels.MaxFileBytes>>20)
+	if len(in.Content) > connectors.MaxFileBytes {
+		return nil, fmt.Errorf("the file is larger than %d MiB", connectors.MaxFileBytes>>20)
 	}
 	b, adapter, conn, err := d.folder(ctx, a, t, in.Folder)
 	if err != nil {

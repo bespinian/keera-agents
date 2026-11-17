@@ -45,7 +45,7 @@ export async function auditView(ctx) {
     h(
       "div",
       { class: "muted", style: { marginBottom: "16px" } },
-      "Every change to agents, channels, schedules, boards and connectors, newest first.",
+      "Every change to agents, their connectors, schedules and boards, newest first.",
     ),
     list,
     rows.length === PAGE

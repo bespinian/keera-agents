@@ -14,7 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/billing"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/dispatch"
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
@@ -32,8 +33,9 @@ type agentView struct {
 	CanEdit       bool   `json:"can_edit"`
 	// CanGive is whether the caller may give it work.
 	CanGive bool `json:"can_give"`
-	// Channels counts the agent's chats and folders.
-	Channels int `json:"channels"`
+	// BindingCount counts what the agent is bound to: chats, folders,
+	// repositories and services.
+	BindingCount int `json:"binding_count"`
 }
 
 // canEdit: the owner and the organisation's administrators change an agent.
@@ -44,10 +46,10 @@ func canGive(p Principal, a store.Agent) bool {
 	return ok
 }
 
-func viewAgent(p Principal, a store.Agent, l store.AgentLoad, channels int) agentView {
+func viewAgent(p Principal, a store.Agent, l store.AgentLoad, bindings int) agentView {
 	return agentView{
 		Agent: a, Queued: l.Queued, RunningTaskID: l.RunningTaskID,
-		CanEdit: canEdit(p, a), CanGive: canGive(p, a), Channels: channels,
+		CanEdit: canEdit(p, a), CanGive: canGive(p, a), BindingCount: bindings,
 	}
 }
 
@@ -110,7 +112,13 @@ func agentStopped(w http.ResponseWriter, p Principal, a store.Agent) {
 	writeError(w, http.StatusConflict, "agent_stopped", a.Name+" is stopped; "+then)
 }
 
+// runtimeFailed answers a machine that would not start. Refused for credit,
+// it is 402, as the gateway answers a model call then.
 func runtimeFailed(w http.ResponseWriter, err error) {
+	if e, ok := errors.AsType[*billing.Refused](err); ok {
+		writeError(w, http.StatusPaymentRequired, e.Code, e.Message)
+		return
+	}
 	writeError(w, http.StatusBadGateway, "runtime_error", err.Error())
 }
 
@@ -125,14 +133,14 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, p Principal)
 		s.fail(w, err)
 		return
 	}
-	channels, err := s.st.AgentBindingCounts(r.Context(), p.OrgID)
+	counts, err := s.st.AgentBindingCounts(r.Context(), p.OrgID)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	out := make([]agentView, 0, len(agents))
 	for _, a := range agents {
-		out = append(out, viewAgent(p, a, loads[a.ID], channels[a.ID]))
+		out = append(out, viewAgent(p, a, loads[a.ID], counts[a.ID]))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
@@ -371,7 +379,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	s.record(r.Context(), p, "agent.create", out.ID, map[string]any{"name": out.Name, "model": out.Model})
 	s.startLater(out)
-	// A new agent has no tasks and no channels yet.
+	// A new agent has no tasks and no bindings yet.
 	writeJSON(w, http.StatusCreated, viewAgent(p, out, store.AgentLoad{}, 0))
 }
 
@@ -637,14 +645,14 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 	if !ok {
 		return
 	}
-	desc, _ := channels.Describe(channels.Kind(c.Kind))
+	desc, _ := connectors.Describe(connectors.Kind(c.Kind))
 	in.Target = strings.TrimSpace(in.Target)
 	apiMode := in.Mode == store.ModeRead || in.Mode == store.ModeWrite
 	// "*" is every chat a bot is in, or all an API connector reaches.
 	anyAllowed := in.Mode == store.ModeChat || apiMode && (desc.AnyTarget || desc.TargetLabel == "")
 	// An API kind with nothing to narrow to reaches everything.
 	if desc.API && desc.TargetLabel == "" {
-		in.Target = channels.AnyTarget
+		in.Target = connectors.AnyTarget
 	}
 	switch {
 	case !slices.Contains([]string{
@@ -741,13 +749,13 @@ func heldByOther(holders []store.Binding, a store.Agent) (store.Binding, bool) {
 
 func (s *Server) deleteBinding(w http.ResponseWriter, r *http.Request, p Principal) {
 	b, err := s.st.Binding(r.Context(), r.PathValue("id"))
-	if !s.found(w, err, b.OrgID == p.OrgID, "channel") {
+	if !s.found(w, err, b.OrgID == p.OrgID, "binding") {
 		return
 	}
 	// Another's workspace is not found, as on its own routes; another's
 	// agent is only forbidden.
 	a, err := s.st.Agent(r.Context(), b.AgentID)
-	if !s.found(w, err, a.OrgID == p.OrgID && (a.Kind == store.KindAgent || canEdit(p, a)), "channel") {
+	if !s.found(w, err, a.OrgID == p.OrgID && (a.Kind == store.KindAgent || canEdit(p, a)), "binding") {
 		return
 	}
 	if !canEdit(p, a) {

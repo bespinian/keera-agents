@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -270,7 +270,7 @@ func TestReceiveLabelsADirectMessage(t *testing.T) {
 }
 
 // chatConn returns the fake chat adapter and c as it takes it.
-func (e *testEnv) chatConn(t *testing.T, c store.Connection) (channels.Chat, channels.Connection) {
+func (e *testEnv) chatConn(t *testing.T, c store.Connection) (connectors.Chat, connectors.Connection) {
 	t.Helper()
 	conn, err := e.d.Conn(c)
 	if err != nil {

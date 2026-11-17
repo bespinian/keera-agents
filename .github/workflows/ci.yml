@@ -46,9 +46,13 @@ jobs:
         with:
           version: v2.15
 
-      # Catches a platform-specific file that does not compile.
+      # The other systems compile the files for systems other than Linux,
+      # which nothing else here builds.
       - name: Build
-        run: make build
+        run: |
+          make build
+          GOOS=darwin go build ./...
+          GOOS=windows go build ./...
 
       - uses: actions/setup-node@v7
         with:

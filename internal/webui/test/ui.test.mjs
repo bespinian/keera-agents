@@ -22,7 +22,7 @@ import {
   agentPath,
   taskPath,
 } from "../assets/common.js";
-import { modesFor } from "../assets/views/channels.js";
+import { modesFor } from "../assets/views/bindings.js";
 import { setupText } from "../assets/views/connectors.js";
 import { trimLog } from "../assets/views/logs.js";
 
@@ -102,7 +102,7 @@ test("took measures a task, or how long it has run", () => {
   assert.ok(isLive("queued") && isLive("running") && !isLive("failed"));
 });
 
-test("a channel offers the modes its kind supports", () => {
+test("a binding offers the modes its kind supports", () => {
   assert.deepEqual(modesFor({ chat: true, files: false }), ["chat"]);
   assert.deepEqual(modesFor({ chat: false, files: true }), ["watch", "files"]);
   assert.deepEqual(modesFor({ code: true }), ["repo"]);
@@ -122,17 +122,17 @@ test("a channel offers the modes its kind supports", () => {
 
 test("set-up text names the webhook before it exists", () => {
   assert.equal(
-    setupText("Paste {webhook} in the app.", "https://x/hooks/1"),
-    "Paste https://x/hooks/1 in the app.",
+    setupText("Paste {webhook} in the app.", true),
+    "Paste the webhook URL above in the app.",
   );
   assert.match(
-    setupText("Paste {webhook} in the app.", ""),
+    setupText("Paste {webhook} in the app.", false),
     /shown once saved/,
   );
   assert.equal(
     setupText(
       "Add the redirect URI {callback}.",
-      "",
+      false,
       "https://k/auth/connector/callback",
     ),
     "Add the redirect URI `https://k/auth/connector/callback`.",

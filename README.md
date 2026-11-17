@@ -50,7 +50,7 @@ StatefulSet each.
   decides whether it takes the work. The answer is posted in the thread.
   People can also chat with their agents in Keera Chat, when the gateway has
   it connected.
-- **Schedules** in cron syntax, in a time zone, post their result to a channel.
+- **Schedules** in cron syntax, in a time zone, post their result to a chat.
 - **The board** has five columns. A card in To do assigned to an agent is
   picked up, worked on, commented on and moved to Review.
 - **Folders.** A new or changed file in a watched Drive or OneDrive folder
@@ -62,7 +62,7 @@ StatefulSet each.
 - **Services.** An agent connected to a service, such as a Jira project or an
   AWS region, gets tools for it, such as searching issues or reading costs.
   A connection may only read, or also write, and the tools stay within what it
-  names ([docs/channels.md](docs/channels.md#services)).
+  names ([docs/connectors.md](docs/connectors.md#services)).
 - **Credentials stay out of agents.** The control plane makes the calls that
   need them ([docs/agents.md](docs/agents.md#what-an-agent-holds)).
 - **Workspaces.** An engineer gets a machine of their own with a coding
@@ -91,6 +91,7 @@ organisation's first task ([docs/api.md](docs/api.md#overview)).
 - [agents.md](docs/agents.md) - how an agent runs, its keys and its lifecycle
 - [workspaces.md](docs/workspaces.md) - machines to work in, with a coding agent
 - [tasks.md](docs/tasks.md) - where tasks come from and where results go
+- [billing.md](docs/billing.md) - billing machine time through the gateway
 - [api.md](docs/api.md) - the panel's API
-- [channels.md](docs/channels.md) - setting up the chat services, folders,
+- [connectors.md](docs/connectors.md) - setting up the chat services, folders,
   repositories and service connectors

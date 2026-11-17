@@ -36,17 +36,10 @@ func viewWorkspace(p Principal, a store.Agent) workspaceView {
 	return workspaceView{Agent: a, CanEdit: canEdit(p, a), CanConnect: a.OwnerID == p.UserID}
 }
 
-// loadWorkspace finds a workspace the caller may see. Another member's is
-// not found, as another organisation's is, so ids and names say nothing.
+// workspaceRef finds a workspace the caller may see, by its id or by name
+// among the caller's own, which is how the CLI names one. Another member's
+// is not found, as another organisation's is, so ids and names say nothing.
 // Only the owner and administrators see it, so whoever does may change it.
-func (s *Server) loadWorkspace(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
-	a, err := s.st.Agent(r.Context(), id)
-	visible := a.Kind == store.KindWorkspace && a.OrgID == p.OrgID && (a.OwnerID == p.UserID || p.CanAdmin())
-	return a, s.found(w, err, visible, "workspace")
-}
-
-// workspaceRef finds a workspace by its id, or by name among the caller's
-// own, which is how the CLI names one.
 func (s *Server) workspaceRef(w http.ResponseWriter, r *http.Request, p Principal) (store.Agent, bool) {
 	ref := r.PathValue("id")
 	if !strings.HasPrefix(ref, "wks_") {
@@ -57,7 +50,9 @@ func (s *Server) workspaceRef(w http.ResponseWriter, r *http.Request, p Principa
 		}
 		ref = a.ID
 	}
-	return s.loadWorkspace(w, r, p, ref)
+	a, err := s.st.Agent(r.Context(), ref)
+	visible := a.Kind == store.KindWorkspace && a.OrgID == p.OrgID && (a.OwnerID == p.UserID || p.CanAdmin())
+	return a, s.found(w, err, visible, "workspace")
 }
 
 // listWorkspaces lists the caller's workspaces, or with ?all=true every one

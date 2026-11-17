@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -98,7 +98,7 @@ func seed(t *testing.T, ta *testApp) fixture {
 	ta.driver.mu.Lock()
 	ta.driver.idle = true
 	ta.driver.mu.Unlock()
-	channels.Register(&fakeChat{})
+	connectors.Register(&fakeChat{})
 	ada, bob := ta.as(t, "tok-ada"), ta.as(t, "tok-bob")
 	var f fixture
 	var out struct {
@@ -259,6 +259,9 @@ func permissionTable(f fixture) []check {
 		{route: "GET /api/v1/overview", other: ok, member: ok},
 		{route: "GET /api/v1/setup", other: ok, member: ok},
 		{route: "GET /api/v1/audit", other: ok, member: forbidden},
+		// Each reads their own organisation's. This deployment bills no
+		// machine time, so an administrator finds nothing.
+		{route: "GET /api/v1/billing", other: notFound, member: forbidden},
 
 		{route: "GET /api/v1/agents", other: ok, member: ok},
 		{route: "POST /api/v1/agents", body: map[string]any{"name": "Mole", "model": "keera-speed", "enabled": false}, other: created},
@@ -270,6 +273,7 @@ func permissionTable(f fixture) []check {
 		{route: "POST /api/v1/agents/{id}/restart", id: f.adaAgent, other: notFound, member: forbidden},
 		{route: "POST /api/v1/agents/{id}/take-over", id: f.adaAgent, other: notFound, member: forbidden},
 		{route: "GET /api/v1/agents/{id}/activity", id: f.adaAgent, other: notFound, member: ok},
+		{route: "GET /api/v1/agents/{id}/cost", id: f.adaAgent, other: notFound, member: forbidden},
 		{route: "GET /api/v1/agents/{id}/logs", id: f.adaAgent, other: notFound, member: forbidden},
 		{route: "POST /api/v1/agents/{id}/tasks", id: f.adaAgent, body: map[string]string{"prompt": "hi"}, other: notFound, member: forbidden},
 		{
@@ -291,6 +295,7 @@ func permissionTable(f fixture) []check {
 		{route: "POST /api/v1/workspaces/{id}/start", id: f.adaWorkspace, other: notFound, member: notFound},
 		{route: "POST /api/v1/workspaces/{id}/stop", id: f.adaWorkspace, other: notFound, member: notFound},
 		{route: "GET /api/v1/workspaces/{id}/logs", id: f.adaWorkspace, other: notFound, member: notFound},
+		{route: "GET /api/v1/workspaces/{id}/cost", id: f.adaWorkspace, other: notFound, member: notFound},
 		{
 			route: "POST /api/v1/workspaces/{id}/bindings", id: f.adaWorkspace,
 			body: map[string]string{"connection_id": f.conn, "target": "x", "mode": "files"}, other: notFound, member: notFound,
@@ -343,6 +348,7 @@ func permissionTable(f fixture) []check {
 			route: "POST /api/v1/connections", body: map[string]any{"kind": "fakechat", "secrets": map[string]string{"token": "t"}},
 			other: created, member: forbidden,
 		},
+		{route: "GET /api/v1/connections/{id}", id: f.conn, other: notFound, member: ok},
 		{route: "PATCH /api/v1/connections/{id}", id: f.conn, body: map[string]string{"name": "Mine"}, other: notFound, member: forbidden},
 		{route: "DELETE /api/v1/connections/{id}", id: f.conn, other: notFound, member: forbidden},
 		{route: "POST /api/v1/connections/{id}/check", id: f.conn, other: notFound, member: forbidden},
@@ -630,6 +636,29 @@ func TestOwnersAndAdmins(t *testing.T) {
 		must(t, ada, "POST", "/api/v1/boards", map[string]string{"name": "Scratch"}, http.StatusCreated, &board)
 		must(t, bob, "DELETE", "/api/v1/boards/"+board.ID, nil, http.StatusNoContent, nil)
 		must(t, ada, "GET", "/api/v1/boards/"+board.ID, nil, http.StatusNotFound, nil)
+	})
+
+	t.Run("a connector lists only the workspaces the reader may see", func(t *testing.T) {
+		conn := "/api/v1/connections/" + f.conn
+		var c struct {
+			Bindings int             `json:"bindings"`
+			Uses     []store.Binding `json:"uses"`
+		}
+		ids := func() []string {
+			out := []string{}
+			for _, b := range c.Uses {
+				out = append(out, b.ID)
+			}
+			return out
+		}
+		must(t, bob, "GET", conn, nil, http.StatusOK, &c)
+		if !slices.Equal(ids(), []string{f.adaBinding}) || c.Bindings != 2 {
+			t.Errorf("Bob sees %v of %d, want only Scout's", ids(), c.Bindings)
+		}
+		must(t, ada, "GET", conn, nil, http.StatusOK, &c)
+		if !slices.Equal(ids(), []string{f.adaBinding, f.wksBinding}) {
+			t.Errorf("Ada sees %v, want Scout's and her workspace's", ids())
+		}
 	})
 
 	t.Run("an administrator changes connectors", func(t *testing.T) {

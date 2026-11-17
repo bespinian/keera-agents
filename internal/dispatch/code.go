@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -18,10 +18,10 @@ import (
 // which never reaches the container, and both reach only the repositories
 // an agent is bound to.
 
-// cloneURL is where git in an agent's container clones a repository from:
+// cloneCommand clones a repository in an agent's container. It clones from
 // the runtime's local proxy, which passes it on to the control plane.
-func cloneURL(b store.Binding) string {
-	return fmt.Sprintf("%s/%s/%s.git", protocol.GitProxyURL, b.ID, path.Base(b.Target))
+func cloneCommand(b store.Binding) string {
+	return fmt.Sprintf("git clone %s/%s/%s.git", protocol.GitProxyURL, b.ID, path.Base(b.Target))
 }
 
 func codeTools(bindings []store.Binding) []protocol.ToolSpec {
@@ -73,30 +73,30 @@ func codeTools(bindings []store.Binding) []protocol.ToolSpec {
 
 // LookupRepo checks a connection reaches a repository and may push to it,
 // as userID, who is binding it, when people sign in to it.
-func (d *Dispatcher) LookupRepo(ctx context.Context, c store.Connection, target, userID string) (channels.Repo, error) {
-	adapter, ok := channels.CodeFor(channels.Kind(c.Kind))
+func (d *Dispatcher) LookupRepo(ctx context.Context, c store.Connection, target, userID string) (connectors.Repo, error) {
+	adapter, ok := connectors.CodeFor(connectors.Kind(c.Kind))
 	if !ok {
-		return channels.Repo{}, fmt.Errorf("no code host for %s", c.Kind)
+		return connectors.Repo{}, fmt.Errorf("no code host for %s", c.Kind)
 	}
 	conn, err := d.ConnFor(ctx, c, userID)
 	if err != nil {
-		return channels.Repo{}, err
+		return connectors.Repo{}, err
 	}
 	return adapter.Repo(ctx, conn, target)
 }
 
 // repo returns the agent's repository binding, its adapter and its
 // connection, for task t.
-func (d *Dispatcher) repo(ctx context.Context, a store.Agent, t store.Task, bindingID string) (store.Binding, channels.Code, channels.Connection, error) {
-	return bound(ctx, d, a, t, bindingID, "repositories", channels.CodeFor, store.ModeRepo)
+func (d *Dispatcher) repo(ctx context.Context, a store.Agent, t store.Task, bindingID string) (store.Binding, connectors.Code, connectors.Connection, error) {
+	return bound(ctx, d, a, t, bindingID, "repositories", connectors.CodeFor, store.ModeRepo)
 }
 
 // GitRemote is where the git proxy sends an agent's request for one of its
 // repositories, during task t, with the credentials to add.
-func (d *Dispatcher) GitRemote(ctx context.Context, a store.Agent, t store.Task, bindingID string) (channels.Remote, error) {
+func (d *Dispatcher) GitRemote(ctx context.Context, a store.Agent, t store.Task, bindingID string) (connectors.Remote, error) {
 	b, adapter, conn, err := d.repo(ctx, a, t, bindingID)
 	if err != nil {
-		return channels.Remote{}, err
+		return connectors.Remote{}, err
 	}
 	return adapter.Remote(ctx, conn, b.Target)
 }
@@ -173,7 +173,7 @@ func (d *Dispatcher) toolRepoComment(ctx context.Context, a store.Agent, t store
 }
 
 func (d *Dispatcher) toolRepoOpenChange(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
-	c := channels.Change{
+	c := connectors.Change{
 		Branch: in.Branch, Base: in.Base, Title: value(in.Title), Body: value(in.Body), Draft: in.Draft,
 	}
 	if !strings.HasPrefix(c.Branch, protocol.BranchPrefix) {

@@ -2685,12 +2685,6 @@ a.mini-row:hover {
   color: var(--bad);
 }
 
-/* secretField's compact form, such as a connector's webhook URL on its tile. */
-.secret-compact .input {
-  padding: 5px 8px;
-  font: 11.5px var(--mono);
-}
-
 @media (max-width: 616px) {
   /* One column and a bit of the next, so it is clear the board scrolls. */
   .kanban {

@@ -127,7 +127,7 @@ func (rn *Runner) bootstrap(w http.ResponseWriter, r *http.Request, a store.Agen
 
 // build makes the agent's bootstrap, without its key, and its version.
 func (rn *Runner) build(ctx context.Context, a store.Agent) (protocol.Bootstrap, error) {
-	tools, err := rn.disp.Tools(ctx, a)
+	tools, conn, err := rn.disp.Tools(ctx, a)
 	if err != nil {
 		return protocol.Bootstrap{}, err
 	}
@@ -137,8 +137,9 @@ func (rn *Runner) build(ctx context.Context, a store.Agent) (protocol.Bootstrap,
 			Builtins: a.Builtins, MaxSteps: a.MaxSteps,
 			Owner: protocol.Person{Email: a.OwnerEmail},
 		},
-		Gateway: protocol.GatewayInfo{BaseURL: rn.opts.GatewayURL + "/api/v1"},
-		Tools:   tools,
+		Gateway:   protocol.GatewayInfo{BaseURL: rn.opts.GatewayURL + "/api/v1"},
+		Tools:     tools,
+		Connected: conn,
 	}
 	if cat, err := rn.gw.Catalog(ctx, a.OrgID, a.ProjectID); err == nil {
 		for _, m := range cat.MCPServers {

@@ -9,6 +9,11 @@ export function agentPath(id, tab) {
   return `/agents/${encodeURIComponent(id)}` + (tab ? `/${tab}` : "");
 }
 
+/** connectorPath is a connector's screen. */
+export function connectorPath(id) {
+  return `/connectors/${encodeURIComponent(id)}`;
+}
+
 /** workspacePath is a workspace's screen, or one of its tabs. */
 export function workspacePath(id, tab) {
   return `/workspaces/${encodeURIComponent(id)}` + (tab ? `/${tab}` : "");
@@ -161,7 +166,7 @@ export const ACCESS = {
   people: "Only the people listed",
 };
 
-/** MODES are what an agent does with a channel. */
+/** MODES are what an agent does with a connector. */
 export const MODES = {
   chat: ["Chat", "Answers messages in the chat."],
   watch: ["Watch", "Each new file in the folder is a task."],
@@ -181,9 +186,9 @@ export function gives(kind) {
 
 /** TIERS name the isolation tiers a deployment may offer. */
 export const TIERS = {
-  standard: "Standard: a container",
-  isolated: "Isolated: a container in a sandbox",
-  vm: "VM: its own virtual machine",
+  standard: "Standard container",
+  isolated: "gVisor isolated container",
+  vm: "microVM",
 };
 
 /** machineFold is the Machine section of an agent's or a workspace's form.
@@ -194,13 +199,14 @@ export function machineFold(me, cls, hints) {
   // Tiers come weakest first. A new machine gets the strongest, as the server
   // gives it, since an agent runs code a model wrote.
   const chosen = cls.isolation || tiers[tiers.length - 1];
+  // A tier taken away since keeps showing, so saving does not change it
+  // unasked.
+  const stale = cls.isolation && !tiers.includes(cls.isolation);
   const isolation = h(
     "select",
     { class: "select" },
     tiers.map((t) => h("option", { value: t, selected: t === chosen }, TIERS[t] || t)),
-    // A tier taken away since keeps showing, so saving does not change it
-    // unasked.
-    cls.isolation && !tiers.includes(cls.isolation)
+    stale
       ? h(
           "option",
           { value: cls.isolation, selected: true },
@@ -211,9 +217,12 @@ export function machineFold(me, cls, hints) {
   const cpu = h("input", { class: "input", value: cls.cpu || "", placeholder: "1", inputmode: "decimal" });
   const memory = h("input", { class: "input", value: cls.memory || "", placeholder: "2Gi" });
   const disk = h("input", { class: "input", value: cls.disk || "", placeholder: hints.diskSize });
+  // With nothing to choose, the field only takes room. Its value still goes.
+  const isolationField = field("Isolation", isolation, "How strongly its machine is kept apart from others.");
+  isolationField.hidden = tiers.length === 1 && !stale;
   const el = fold(
     "Machine",
-    field("Isolation", isolation, "How strongly its machine is kept apart from others."),
+    isolationField,
     h("div", { class: "field-row" }, field("CPU cores", cpu), field("Memory", memory, hints.memory)),
     field("Disk", disk, hints.disk),
     h("div", { class: "hint" }, "Leave a size empty for the deployment's default."),

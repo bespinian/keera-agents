@@ -6,11 +6,12 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -37,10 +38,10 @@ func accountName(connectionID, userID string) string {
 
 // perUser returns the adapter and connection of a connector people sign in
 // to.
-func (d *Dispatcher) perUser(c store.Connection) (channels.PerUser, channels.Connection, error) {
-	p, ok := channels.PerUserFor(channels.Kind(c.Kind))
+func (d *Dispatcher) perUser(c store.Connection) (connectors.PerUser, connectors.Connection, error) {
+	p, ok := connectors.PerUserFor(connectors.Kind(c.Kind))
 	if !ok || !c.PerUser {
-		return nil, channels.Connection{}, fmt.Errorf("%s does not let people sign in with their own accounts", c.Name)
+		return nil, connectors.Connection{}, fmt.Errorf("%s does not let people sign in with their own accounts", c.Name)
 	}
 	conn, err := d.Conn(c)
 	return p, conn, err
@@ -86,7 +87,7 @@ func (d *Dispatcher) Disconnect(ctx context.Context, connectionID, userID string
 // asPerson gives a connection people sign in to the access token of the
 // person a call is for. who names them in errors. Any other connection is
 // returned as it is.
-func (d *Dispatcher) asPerson(ctx context.Context, conn channels.Connection, name, userID, who string) (channels.Connection, error) {
+func (d *Dispatcher) asPerson(ctx context.Context, conn connectors.Connection, name, userID, who string) (connectors.Connection, error) {
 	if !conn.PerUser {
 		return conn, nil
 	}
@@ -94,7 +95,7 @@ func (d *Dispatcher) asPerson(ctx context.Context, conn channels.Connection, nam
 		return conn, fmt.Errorf("%s acts as the person who asked, and nobody asked for this task", name)
 	}
 	who = cmp.Or(who, "the person who asked")
-	p, ok := channels.PerUserFor(conn.Kind)
+	p, ok := connectors.PerUserFor(conn.Kind)
 	if !ok {
 		return conn, fmt.Errorf("%s does not let people sign in with their own accounts", name)
 	}
@@ -111,10 +112,10 @@ func (d *Dispatcher) asPerson(ctx context.Context, conn channels.Connection, nam
 	if err != nil {
 		return conn, errors.New(again)
 	}
-	access, err := d.tokens.get(ctx, conn.ID, userID, string(refresh), func(ctx context.Context) (channels.Grant, error) {
+	access, err := d.tokens.get(ctx, conn.ID, userID, string(refresh), func(ctx context.Context) (connectors.Grant, error) {
 		// Read again under a lock: another replica may have rotated the
 		// token since.
-		var g channels.Grant
+		var g connectors.Grant
 		err := d.st.RotateAccountToken(ctx, conn.ID, userID, func(sealed []byte) ([]byte, error) {
 			current, err := d.box.Open(accountName(conn.ID, userID), sealed)
 			if err != nil {
@@ -144,7 +145,7 @@ func (d *Dispatcher) asPerson(ctx context.Context, conn channels.Connection, nam
 // ConnFor turns a stored connection into what an adapter takes, as userID
 // when people sign in to it, for something they do in the panel, such as
 // binding the connector or browsing its folders.
-func (d *Dispatcher) ConnFor(ctx context.Context, c store.Connection, userID string) (channels.Connection, error) {
+func (d *Dispatcher) ConnFor(ctx context.Context, c store.Connection, userID string) (connectors.Connection, error) {
 	conn, err := d.Conn(c)
 	if err != nil {
 		return conn, err
@@ -177,7 +178,7 @@ func (d *Dispatcher) CheckAccounts(ctx context.Context) {
 		}
 		d.log.Info("forgot the sign-ins of someone who left", "org", h.OrgID, "user", h.UserID, "count", n)
 		_ = d.st.Audit(ctx, h.OrgID, "keera-agents", "account.user_left", h.UserID,
-			map[string]string{"count": fmt.Sprint(n)})
+			map[string]string{"count": strconv.FormatInt(n, 10)})
 	}
 }
 
@@ -225,7 +226,7 @@ func (t *tokens) held(connectionID, userID string) *heldToken {
 
 // get returns the access token got from refresh, or fetches a new one.
 func (t *tokens) get(ctx context.Context, connectionID, userID, refresh string,
-	fetch func(context.Context) (channels.Grant, error),
+	fetch func(context.Context) (connectors.Grant, error),
 ) (string, error) {
 	h := t.held(connectionID, userID)
 	h.mu.Lock()
@@ -248,7 +249,7 @@ func (t *tokens) get(ctx context.Context, connectionID, userID, refresh string,
 }
 
 // set keeps the access token a sign-in gave.
-func (t *tokens) set(connectionID, userID string, g channels.Grant) {
+func (t *tokens) set(connectionID, userID string, g connectors.Grant) {
 	h := t.held(connectionID, userID)
 	h.mu.Lock()
 	defer h.mu.Unlock()

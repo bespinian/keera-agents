@@ -33,7 +33,7 @@ PG_CONTAINER ?= keera-agents-test-pg
 PG_PORT ?= 55433
 PG_DSN ?= postgres://keera:keera@127.0.0.1:$(PG_PORT)/keera_agents_test?sslmode=disable
 INTEGRATION_TESTS = $(GO) test -race -count=1 -p 1 ./internal/store/... ./internal/server/... ./internal/fleet/... \
-	./internal/dispatch/... ./internal/runner/... ./internal/channels/postgres/...
+	./internal/dispatch/... ./internal/runner/... ./internal/connectors/postgres/...
 
 .PHONY: test-integration
 test-integration:

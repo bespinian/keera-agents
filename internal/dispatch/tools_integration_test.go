@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
@@ -20,9 +20,9 @@ import (
 // fakeFiles is a file store held in memory.
 type fakeFiles struct {
 	mu      sync.Mutex
-	folders map[string][]channels.File
+	folders map[string][]connectors.File
 	content map[string]string
-	changes []channels.File
+	changes []connectors.File
 	failing error
 	written []string
 }
@@ -30,29 +30,29 @@ type fakeFiles struct {
 const filesKind = "dispatchfiles"
 
 func newFakeFiles() *fakeFiles {
-	return &fakeFiles{folders: map[string][]channels.File{}, content: map[string]string{}}
+	return &fakeFiles{folders: map[string][]connectors.File{}, content: map[string]string{}}
 }
 
-func (f *fakeFiles) Descriptor() channels.Descriptor {
-	return channels.Descriptor{Kind: filesKind, Label: "Test Drive"}
+func (f *fakeFiles) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{Kind: filesKind, Label: "Test Drive"}
 }
 
-func (f *fakeFiles) Check(context.Context, channels.Connection) error { return nil }
+func (f *fakeFiles) Check(context.Context, connectors.Connection) error { return nil }
 
-func (f *fakeFiles) put(folder string, file channels.File, content string) {
+func (f *fakeFiles) put(folder string, file connectors.File, content string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.folders[folder] = append(f.folders[folder], file)
 	f.content[file.ID] = content
 }
 
-func (f *fakeFiles) List(_ context.Context, _ channels.Connection, folder string) ([]channels.File, error) {
+func (f *fakeFiles) List(_ context.Context, _ connectors.Connection, folder string) ([]connectors.File, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.folders[folder]), nil
 }
 
-func (f *fakeFiles) Read(_ context.Context, _ channels.Connection, fileID string) (channels.File, []byte, error) {
+func (f *fakeFiles) Read(_ context.Context, _ connectors.Connection, fileID string) (connectors.File, []byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, files := range f.folders {
@@ -62,14 +62,14 @@ func (f *fakeFiles) Read(_ context.Context, _ channels.Connection, fileID string
 			}
 		}
 	}
-	return channels.File{}, nil, errors.New("no such file")
+	return connectors.File{}, nil, errors.New("no such file")
 }
 
-func (f *fakeFiles) Write(_ context.Context, _ channels.Connection, folder, name, mime string, content []byte) (channels.File, error) {
+func (f *fakeFiles) Write(_ context.Context, _ connectors.Connection, folder, name, mime string, content []byte) (connectors.File, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.written = append(f.written, folder+"/"+name)
-	file := channels.File{
+	file := connectors.File{
 		ID: "w_" + name, Name: name, MimeType: mime, Modified: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 	}
 	f.content[file.ID] = string(content)
@@ -77,7 +77,7 @@ func (f *fakeFiles) Write(_ context.Context, _ channels.Connection, folder, name
 }
 
 // Changes starts a cursor at c, and then lists f.changes on every call.
-func (f *fakeFiles) Changes(_ context.Context, _ channels.Connection, _, cursor string) ([]channels.File, string, error) {
+func (f *fakeFiles) Changes(_ context.Context, _ connectors.Connection, _, cursor string) ([]connectors.File, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failing != nil {
@@ -97,21 +97,21 @@ type fakeTools struct {
 
 const apiKind = "dispatchapi"
 
-func (f *fakeTools) Descriptor() channels.Descriptor {
-	return channels.Descriptor{Kind: apiKind, Label: "Test API", TargetLabel: "Project"}
+func (f *fakeTools) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{Kind: apiKind, Label: "Test API", TargetLabel: "Project"}
 }
 
-func (f *fakeTools) Check(context.Context, channels.Connection) error { return nil }
+func (f *fakeTools) Check(context.Context, connectors.Connection) error { return nil }
 
-func (f *fakeTools) Tools() []channels.Tool {
-	return []channels.Tool{{Name: "find"}, {Name: "change", Write: true}}
+func (f *fakeTools) Tools() []connectors.Tool {
+	return []connectors.Tool{{Name: "find"}, {Name: "change", Write: true}}
 }
 
-func (f *fakeTools) Target(_ context.Context, _ channels.Connection, t string) (string, error) {
+func (f *fakeTools) Target(_ context.Context, _ connectors.Connection, t string) (string, error) {
 	return t, nil
 }
 
-func (f *fakeTools) Call(_ context.Context, _ channels.Connection, target, tool string, args json.RawMessage) (any, error) {
+func (f *fakeTools) Call(_ context.Context, _ connectors.Connection, target, tool string, args json.RawMessage) (any, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, target+" "+tool+" "+string(args))
@@ -128,42 +128,42 @@ func (f *fakeTools) made() []string {
 // default branch.
 type fakeCode struct {
 	mu      sync.Mutex
-	changes []channels.Change
+	changes []connectors.Change
 }
 
 const codeKind = "dispatchcode"
 
-func (f *fakeCode) Descriptor() channels.Descriptor {
-	return channels.Descriptor{Kind: codeKind, Label: "Test Code"}
+func (f *fakeCode) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{Kind: codeKind, Label: "Test Code"}
 }
 
-func (f *fakeCode) Check(context.Context, channels.Connection) error { return nil }
+func (f *fakeCode) Check(context.Context, connectors.Connection) error { return nil }
 
-func (f *fakeCode) Repo(_ context.Context, _ channels.Connection, path string) (channels.Repo, error) {
-	return channels.Repo{Path: path, DefaultBranch: "main"}, nil
+func (f *fakeCode) Repo(_ context.Context, _ connectors.Connection, path string) (connectors.Repo, error) {
+	return connectors.Repo{Path: path, DefaultBranch: "main"}, nil
 }
 
-func (f *fakeCode) Remote(_ context.Context, _ channels.Connection, path string) (channels.Remote, error) {
-	return channels.Remote{URL: "https://code.example.ch/" + path + ".git"}, nil
+func (f *fakeCode) Remote(_ context.Context, _ connectors.Connection, path string) (connectors.Remote, error) {
+	return connectors.Remote{URL: "https://code.example.ch/" + path + ".git"}, nil
 }
 
-func (f *fakeCode) Issues(context.Context, channels.Connection, string, string, bool) ([]channels.Issue, error) {
-	return []channels.Issue{{Number: 1, Title: "Bug"}}, nil
+func (f *fakeCode) Issues(context.Context, connectors.Connection, string, string, bool) ([]connectors.Issue, error) {
+	return []connectors.Issue{{Number: 1, Title: "Bug"}}, nil
 }
 
-func (f *fakeCode) Issue(_ context.Context, _ channels.Connection, _ string, n int, _ bool) (channels.Issue, error) {
-	return channels.Issue{Number: n, Title: "Bug"}, nil
+func (f *fakeCode) Issue(_ context.Context, _ connectors.Connection, _ string, n int, _ bool) (connectors.Issue, error) {
+	return connectors.Issue{Number: n, Title: "Bug"}, nil
 }
 
-func (f *fakeCode) Comment(context.Context, channels.Connection, string, int, bool, string) error {
+func (f *fakeCode) Comment(context.Context, connectors.Connection, string, int, bool, string) error {
 	return nil
 }
 
-func (f *fakeCode) OpenChange(_ context.Context, _ channels.Connection, _ string, c channels.Change) (channels.Issue, error) {
+func (f *fakeCode) OpenChange(_ context.Context, _ connectors.Connection, _ string, c connectors.Change) (connectors.Issue, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.changes = append(f.changes, c)
-	return channels.Issue{Number: 7, Change: true, Branch: c.Branch}, nil
+	return connectors.Issue{Number: 7, Change: true, Branch: c.Branch}, nil
 }
 
 // call runs a platform tool as a for task, and fails the test when the
@@ -198,7 +198,7 @@ func TestSendMessageGoesOnlyToTheAgentsChannels(t *testing.T) {
 	sales := e.bind(t, scout, c, "sales", store.ModeChat)
 	every := e.bind(t, scout, c, store.AnyConversation, store.ModeChat)
 	otherSales := e.bind(t, other, c, "board-room", store.ModeChat)
-	channels.Register(newFakeFiles())
+	connectors.Register(newFakeFiles())
 	folder := e.bind(t, scout, e.conn(t, "org_a", filesKind, nil), "root", store.ModeFiles)
 
 	task := taskFor(scout, "usr_ada", "ada@example.ch")
@@ -326,17 +326,17 @@ func TestBoardToolsApplyTheOtherAgentsAccess(t *testing.T) {
 func TestFileToolsReachOnlyWhatTheTaskHasSeen(t *testing.T) {
 	e := setup(t)
 	files := newFakeFiles()
-	channels.Register(files)
+	connectors.Register(files)
 	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
 	other := e.agent(t, "org_a", "Other", store.AccessOrg)
 	fc := e.conn(t, "org_a", filesKind, nil)
 	mine := e.bind(t, scout, fc, "root", store.ModeFiles)
 	theirs := e.bind(t, other, fc, "their-root", store.ModeFiles)
 	chat := e.bind(t, scout, e.conn(t, "org_a", chatKind, map[string]string{"token": "x"}), "sales", store.ModeChat)
-	files.put("root", channels.File{ID: "doc1", Name: "a.txt", MimeType: "text/plain"}, "alpha")
-	files.put("root", channels.File{ID: "sub", Name: "sub", Folder: true}, "")
-	files.put("sub", channels.File{ID: "doc2", Name: "b.txt"}, "beta")
-	files.put("their-root", channels.File{ID: "secret", Name: "s.txt"}, "hush")
+	files.put("root", connectors.File{ID: "doc1", Name: "a.txt", MimeType: "text/plain"}, "alpha")
+	files.put("root", connectors.File{ID: "sub", Name: "sub", Folder: true}, "")
+	files.put("sub", connectors.File{ID: "doc2", Name: "b.txt"}, "beta")
+	files.put("their-root", connectors.File{ID: "secret", Name: "s.txt"}, "hush")
 
 	task := taskFor(scout, "usr_ada", "ada@example.ch")
 	read := func(task store.Task, folder, file, want string) {
@@ -387,13 +387,13 @@ func TestFileToolsReachOnlyWhatTheTaskHasSeen(t *testing.T) {
 		t.Fatalf("Wrote = %v, %v", own, err)
 	}
 	// And the task may read back what it wrote.
-	files.put("root", channels.File{ID: "w_notes.txt", Name: "notes.txt"}, "x")
+	files.put("root", connectors.File{ID: "w_notes.txt", Name: "notes.txt"}, "x")
 	read(task, mine.ID, "w_notes.txt", "ok")
 }
 
 func TestFileToolsOfAConnectorPeopleSignInTo(t *testing.T) {
 	e := setup(t)
-	channels.Register(newFakeFiles())
+	connectors.Register(newFakeFiles())
 	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
 	perUser, err := e.st.CreateConnection(e.ctx, store.Connection{
 		ID: id.New("con"), OrgID: "org_a", Kind: filesKind, Name: "Their drive", PerUser: true,
@@ -409,8 +409,8 @@ func TestFileToolsOfAConnectorPeopleSignInTo(t *testing.T) {
 func TestAPIToolsCheckTheBinding(t *testing.T) {
 	e := setup(t)
 	api := &fakeTools{}
-	channels.Register(api)
-	channels.Register(fakeAPI{})
+	connectors.Register(api)
+	connectors.Register(fakeAPI{})
 	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
 	other := e.agent(t, "org_a", "Other", store.AccessOrg)
 	ac := e.conn(t, "org_a", apiKind, nil)
@@ -440,7 +440,7 @@ func TestAPIToolsCheckTheBinding(t *testing.T) {
 func TestRepoToolsCheckTheBinding(t *testing.T) {
 	e := setup(t)
 	code := &fakeCode{}
-	channels.Register(code)
+	connectors.Register(code)
 	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
 	other := e.agent(t, "org_a", "Other", store.AccessOrg)
 	cc := e.conn(t, "org_a", codeKind, nil)
@@ -483,12 +483,12 @@ func TestCallToolRefusesWhatItDoesNotKnow(t *testing.T) {
 
 func TestToolsListWhatTheAgentIsBoundTo(t *testing.T) {
 	e := setup(t)
-	channels.Register(newFakeFiles())
-	channels.Register(&fakeCode{})
+	connectors.Register(newFakeFiles())
+	connectors.Register(&fakeCode{})
 	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
 	names := func(a store.Agent) []string {
 		t.Helper()
-		specs, err := e.d.Tools(e.ctx, a)
+		specs, _, err := e.d.Tools(e.ctx, a)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -508,7 +508,7 @@ func TestToolsListWhatTheAgentIsBoundTo(t *testing.T) {
 	if !slices.Contains(got, "files_list") || !slices.Contains(got, "repo_open_change") {
 		t.Fatalf("bound: %v", got)
 	}
-	specs, _ := e.d.Tools(e.ctx, scout)
+	specs, _, _ := e.d.Tools(e.ctx, scout)
 	i := slices.IndexFunc(specs, func(s protocol.ToolSpec) bool { return s.Name == "files_list" })
 	if !strings.Contains(specs[i].Description, b.ID) {
 		t.Fatalf("files_list does not name the folder: %s", specs[i].Description)

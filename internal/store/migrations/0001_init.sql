@@ -280,3 +280,31 @@ CREATE TABLE ssh_keys (
     created_at  timestamptz NOT NULL DEFAULT now(),
     UNIQUE (org_id, user_id, fingerprint)
 );
+
+-- Machine time, for billing: what each agent's and workspace's machine used
+-- in one hour. CPU and memory count while the machine runs, disk while it
+-- exists. Kept while billing is on (see docs/billing.md). The gateway's bill
+-- is the record; these rows say which machine used what.
+CREATE TABLE machine_usage (
+    agent_id           text NOT NULL,
+    org_id             text NOT NULL,
+    -- The hour the time was metered in, in UTC.
+    hour               timestamptz NOT NULL,
+    -- Millicores, and MiB, times the seconds they ran or existed.
+    cpu_milli_seconds  bigint NOT NULL DEFAULT 0,
+    memory_mib_seconds bigint NOT NULL DEFAULT 0,
+    disk_mib_seconds   bigint NOT NULL DEFAULT 0,
+    -- When the hour went to the gateway's bill. Null until then.
+    billed_at          timestamptz,
+    PRIMARY KEY (agent_id, hour)
+);
+CREATE INDEX machine_usage_unbilled_idx ON machine_usage (hour) WHERE billed_at IS NULL;
+CREATE INDEX machine_usage_org_hour_idx ON machine_usage (org_id, hour);
+
+-- How far machine time has been metered. One row. Each round meters the time
+-- since then, so a round that runs late, or on another replica, neither
+-- skips time nor counts it twice.
+CREATE TABLE metering (
+    id            boolean PRIMARY KEY DEFAULT true CHECK (id),
+    metered_until timestamptz NOT NULL
+);

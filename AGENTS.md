@@ -11,34 +11,35 @@ calls its control API and never imports its code.
 
 ## Layout
 
-| Path                    | What it is                                                                 |
-| ----------------------- | -------------------------------------------------------------------------- |
-| `cmd/keera-agents`      | The binary: serve, `agent`, `workspace`, `health`, `version`.              |
-| `internal/server`       | Wiring, lifecycle and the periodic work.                                   |
-| `internal/config`       | Every setting, read from the environment.                                  |
-| `internal/api`          | The panel's JSON API and sign-in through the gateway.                      |
-| `internal/gateway`      | Client for the gateway's control API: sign-in and service routes.          |
-| `internal/store`        | Postgres schema and queries.                                               |
-| `internal/fleet`        | Keeps each agent's container in the state it should be in; its keys.       |
-| `internal/runtime`      | The drivers: podman and Kubernetes (StatefulSets).                         |
-| `internal/runner`       | The runtime API agents' containers call.                                   |
-| `internal/protocol`     | The types of that API, shared by both ends.                                |
-| `internal/agent`        | The runtimes: agent loop, builtin tools, MCP client; a workspace's bridge. |
-| `internal/stream`       | Connections passed through HTTP, to a port inside a workspace.             |
-| `internal/dispatch`     | Tasks from chats, schedules, cards and folders; delivery; tools.           |
-| `internal/schedule`     | Cron expressions.                                                          |
-| `internal/channels`     | The adapters, one package per service; see `docs/channels.md`.             |
-| `internal/channels/all` | Registers every adapter.                                                   |
-| `internal/webui`        | The panel, embedded. Same design as the gateway's.                         |
-| `internal/metrics`      | The Prometheus exposition on `/metrics`.                                   |
-| `internal/secret`       | Sealing for cookies, agents' keys and connector credentials.               |
-| `internal/egress`       | Where connectors may connect: not loopback, nor inside unless allowed.     |
-| `internal/id`           | Prefixed identifiers, sortable by creation time.                           |
-| `internal/version`      | The version the binary was built as.                                       |
-| `Containerfile`         | The images: the control plane, the agent's, and the workspace's.           |
-| `scripts`               | The licence notices the images ship.                                       |
-| `.github`               | CI, and the release: images signed with SLSA Build L3 provenance.          |
-| `compose`               | The database for the development loop, and the panel in a container.       |
+| Path                      | What it is                                                                 |
+| ------------------------- | -------------------------------------------------------------------------- |
+| `cmd/keera-agents`        | The binary: serve, `agent`, `workspace`, `health`, `version`.              |
+| `internal/server`         | Wiring, lifecycle and the periodic work.                                   |
+| `internal/config`         | Every setting, read from the environment.                                  |
+| `internal/api`            | The panel's JSON API and sign-in through the gateway.                      |
+| `internal/gateway`        | Client for the gateway's control API: sign-in and service routes.          |
+| `internal/store`          | Postgres schema and queries.                                               |
+| `internal/fleet`          | Keeps each agent's container in the state it should be in; its keys.       |
+| `internal/billing`        | Meters machine time, bills it to the gateway, asks it about credit.        |
+| `internal/runtime`        | The drivers: podman and Kubernetes (StatefulSets).                         |
+| `internal/runner`         | The runtime API agents' containers call.                                   |
+| `internal/protocol`       | The types of that API, shared by both ends.                                |
+| `internal/agent`          | The runtimes: agent loop, builtin tools, MCP client; a workspace's bridge. |
+| `internal/stream`         | Connections passed through HTTP, to a port inside a workspace.             |
+| `internal/dispatch`       | Tasks from chats, schedules, cards and folders; delivery; tools.           |
+| `internal/schedule`       | Cron expressions.                                                          |
+| `internal/connectors`     | The adapters, one package per service; see `docs/connectors.md`.           |
+| `internal/connectors/all` | Registers every adapter.                                                   |
+| `internal/webui`          | The panel, embedded. Same design as the gateway's.                         |
+| `internal/metrics`        | The Prometheus exposition on `/metrics`.                                   |
+| `internal/secret`         | Sealing for cookies, agents' keys and connector credentials.               |
+| `internal/egress`         | Where connectors may connect: not loopback, nor inside unless allowed.     |
+| `internal/id`             | Prefixed identifiers, sortable by creation time.                           |
+| `internal/version`        | The version the binary was built as.                                       |
+| `Containerfile`           | The images: the control plane, the agent's, and the workspace's.           |
+| `scripts`                 | The licence notices the images ship.                                       |
+| `.github`                 | CI, and the release: images signed with SLSA Build L3 provenance.          |
+| `compose`                 | The database for the development loop, and the panel in a container.       |
 
 ## Commands
 

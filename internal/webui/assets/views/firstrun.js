@@ -34,7 +34,7 @@ export function firstRun(ctx, setup, agents) {
       body:
         "An agent is an assistant with its own machine. Give it " +
         "instructions, a model and the tools it may use. Then connect it " +
-        "to chats and folders on its Channels tab.",
+        "to chats and folders on its Connectors tab.",
       action: { label: "New agent", run: () => openNewAgent(ctx) },
     },
     {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +20,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/runtime"
 	"github.com/bespinian/keera-agents/internal/secret"
 	"github.com/bespinian/keera-agents/internal/store"
+	"github.com/bespinian/keera-agents/internal/store/storetest"
 )
 
 // fixture is a manager on a real store, with a fake driver and gateway.
@@ -36,27 +36,13 @@ type fixture struct {
 // or skips.
 func newFixture(t *testing.T, opts Options) *fixture {
 	t.Helper()
-	dsn := os.Getenv("KEERA_AGENTS_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("KEERA_AGENTS_TEST_DATABASE_URL is not set")
-	}
+	st, dsn := storetest.Open(t)
 	ctx := context.Background()
 	db, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close(context.Background()) })
-	if _, err := db.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(st.Close)
-	if _, err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
 	gw := &fakeGateway{}
 	srv := httptest.NewServer(gw)
 	t.Cleanup(srv.Close)
@@ -792,5 +778,78 @@ func TestAStartAppliesTheLatestSettings(t *testing.T) {
 	f.driver.mu.Unlock()
 	if made {
 		t.Fatal("started an agent stopped meanwhile")
+	}
+}
+
+// noCredit refuses every organisation, as the gateway does once its credit
+// runs out.
+type noCredit struct{}
+
+func (noCredit) MayRun(context.Context, string) error {
+	return errors.New("your organisation has used up its credit")
+}
+
+func TestWithoutCreditNoMachineStartsAndItsTasksFail(t *testing.T) {
+	f := newFixture(t, Options{Credit: noCredit{}})
+	ctx := context.Background()
+	gone := f.agent(t)
+	suspended := f.agent(t)
+	f.driver.set(suspended.ID, runtime.Status{State: runtime.Suspended})
+	f.setState(t, suspended.ID, store.AgentSuspended)
+	tasks := []store.Task{f.queue(t, gone.ID), f.queue(t, suspended.ID)}
+
+	f.m.Reconcile(ctx)
+	if len(f.driver.calls) != 0 {
+		t.Fatalf("calls = %v, want none", f.driver.calls)
+	}
+	for _, task := range tasks {
+		if state, reason := f.taskState(t, task.ID); state != store.TaskFailed ||
+			!strings.Contains(reason, "used up its credit") {
+			t.Errorf("task = %s, %q; want failed for credit", state, reason)
+		}
+	}
+	if got := f.load(t, suspended.ID); got.State != store.AgentSuspended {
+		t.Errorf("state = %q; a machine refused for credit is not failed", got.State)
+	}
+	if err := f.m.Wake(ctx, suspended.ID); err == nil || f.driver.count("resume "+suspended.ID) != 0 {
+		t.Errorf("Wake = %v, calls = %v; want refused", err, f.driver.calls)
+	}
+}
+
+func TestWithoutCreditARunningMachineFinishesItsTaskAndIsSuspended(t *testing.T) {
+	f := newFixture(t, Options{Credit: noCredit{}})
+	working := f.agent(t)
+	waiting := f.agent(t)
+	idle := f.agent(t, workspace)
+	for _, a := range []store.Agent{working, waiting, idle} {
+		f.driver.set(a.ID, runtime.Status{State: runtime.Running})
+		f.setState(t, a.ID, store.AgentRunning)
+		f.exec(t, `UPDATE agents SET last_active_at = now() - interval '1 second' WHERE id = $1`, a.ID)
+	}
+	underWay := f.queue(t, working.ID)
+	f.exec(t, `UPDATE tasks SET state = 'running' WHERE id = $1`, underWay.ID)
+	next := f.queue(t, working.ID)
+	queued := f.queue(t, waiting.ID)
+
+	f.m.Reconcile(context.Background())
+	if f.driver.count("suspend "+working.ID) != 0 {
+		t.Error("an agent with a task under way was suspended; it finishes first")
+	}
+	if state, _ := f.taskState(t, underWay.ID); state != store.TaskRunning {
+		t.Errorf("the task under way is %s", state)
+	}
+	for _, task := range []store.Task{next, queued} {
+		if state, reason := f.taskState(t, task.ID); state != store.TaskFailed ||
+			!strings.Contains(reason, "used up its credit") {
+			t.Errorf("a waiting task = %s, %q; want failed for credit", state, reason)
+		}
+	}
+	for _, a := range []store.Agent{waiting, idle} {
+		if f.driver.count("suspend "+a.ID) != 1 {
+			t.Errorf("%s: calls = %v; want it suspended", a.Kind, f.driver.calls)
+		}
+		if got := f.load(t, a.ID); got.State != store.AgentSuspended {
+			t.Errorf("%s: state = %q", a.Kind, got.State)
+		}
 	}
 }

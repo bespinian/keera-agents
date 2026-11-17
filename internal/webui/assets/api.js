@@ -92,6 +92,8 @@ export const api = {
   agents: () => get(V1 + "/agents"),
   agent: (id) => get(V1 + path`/agents/${id}`),
   agentActivity: (id, since) => get(V1 + path`/agents/${id}/activity` + query({ since })),
+  agentCost: (id) => get(V1 + path`/agents/${id}/cost`),
+  workspaceCost: (id) => get(V1 + path`/workspaces/${id}/cost`),
   createAgent: (body) => post(V1 + "/agents", body),
   updateAgent: (id, body) => patch(V1 + path`/agents/${id}`, body),
   deleteAgent: (id) => del(V1 + path`/agents/${id}`),
@@ -134,6 +136,7 @@ export const api = {
 
   connectionKinds: () => get(V1 + "/connection-kinds"),
   connections: () => get(V1 + "/connections"),
+  connection: (id) => get(V1 + path`/connections/${id}`),
   createConnection: (body) => post(V1 + "/connections", body),
   updateConnection: (id, body) => patch(V1 + path`/connections/${id}`, body),
   deleteConnection: (id) => del(V1 + path`/connections/${id}`),
@@ -144,6 +147,8 @@ export const api = {
   disconnectAccount: (id) => del(V1 + path`/connections/${id}/account`),
 
   audit: (before) => get(V1 + "/audit" + query({ limit: 100, before })),
+  // month is YYYY-MM; empty is this one.
+  billing: (month) => get(V1 + "/billing" + query({ month })),
 
   // all lists every workspace in the organisation, for an administrator.
   workspaces: (all) => get(V1 + "/workspaces" + query({ all: all ? "true" : "" })),

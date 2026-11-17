@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -23,7 +24,7 @@ const DefaultAddr = ":8070"
 // container reads its own few variables: see internal/protocol, and
 // KEERA_AGENT_LOG_LEVEL in cmd/keera-agents.
 type Config struct {
-	// Addr serves the panel at /, its API at /api, sign-in at /auth, channel
+	// Addr serves the panel at /, its API at /api, sign-in at /auth, connector
 	// webhooks at /hooks and the agents' runtime API at /runtime.
 	Addr string
 
@@ -67,6 +68,12 @@ type Config struct {
 	// cloud metadata service, and inside the network only to the hosts
 	// named. See docs/install.md.
 	Egress egress.Policy
+
+	// Prices of machine time, in micro-CHF, billed to the gateway. All zero
+	// is no billing. See docs/billing.md.
+	PriceCPUHour       int64
+	PriceMemoryGiBHour int64
+	PriceDiskGiBMonth  int64
 
 	LogLevel  string
 	LogFormat string
@@ -278,6 +285,19 @@ func load(getenv func(string) string) (Config, error) {
 		return c, fmt.Errorf("KEERA_AGENTS_UPSTREAM_PRIVATE: %w", err)
 	}
 
+	for _, p := range []struct {
+		key string
+		to  *int64
+	}{
+		{"KEERA_AGENTS_PRICE_CPU_HOUR", &c.PriceCPUHour},
+		{"KEERA_AGENTS_PRICE_MEMORY_GIB_HOUR", &c.PriceMemoryGiBHour},
+		{"KEERA_AGENTS_PRICE_DISK_GIB_MONTH", &c.PriceDiskGiBMonth},
+	} {
+		if *p.to, err = price(p.key, env(p.key, "")); err != nil {
+			return c, err
+		}
+	}
+
 	if !slices.Contains([]string{"", "podman", "kubernetes"}, c.Runtime.Driver) {
 		return c, fmt.Errorf("KEERA_AGENTS_DRIVER must be podman, kubernetes or empty, not %q", c.Runtime.Driver)
 	}
@@ -288,6 +308,22 @@ func load(getenv func(string) string) (Config, error) {
 		return c, fmt.Errorf("KEERA_AGENTS_LOG_FORMAT must be text or json, not %q", c.LogFormat)
 	}
 	return c, nil
+}
+
+// maxPrice bounds a price, in CHF, so a slip such as a price in centimes
+// stops the start instead of billing a hundred times too much.
+const maxPrice = 1000
+
+// price reads a price in CHF, such as 0.05, as micro-CHF. Empty is 0, free.
+func price(key, raw string) (int64, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(v) || v < 0 || v > maxPrice {
+		return 0, fmt.Errorf("%s must be a price in CHF from 0 to %d, such as 0.05, not %q", key, maxPrice, raw)
+	}
+	return int64(math.Round(v * 1e6)), nil
 }
 
 // origin returns raw as a bare http(s) origin. Paths are refused: both

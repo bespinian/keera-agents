@@ -46,6 +46,9 @@ func TestRefusals(t *testing.T) {
 		"bad deny":      func(m map[string]string) { m["KEERA_AGENTS_UPSTREAM_DENY"] = "localhost" },
 		"bad private":   func(m map[string]string) { m["KEERA_AGENTS_UPSTREAM_PRIVATE"] = "https://git.corp" },
 		"short metrics": func(m map[string]string) { m["KEERA_AGENTS_METRICS_TOKEN"] = "short" },
+		"bad price":     func(m map[string]string) { m["KEERA_AGENTS_PRICE_CPU_HOUR"] = "CHF 1" },
+		"negative":      func(m map[string]string) { m["KEERA_AGENTS_PRICE_DISK_GIB_MONTH"] = "-1" },
+		"huge price":    func(m map[string]string) { m["KEERA_AGENTS_PRICE_MEMORY_GIB_HOUR"] = "5000" },
 		"metrics is service key": func(m map[string]string) {
 			m["KEERA_AGENTS_METRICS_TOKEN"] = m["KEERA_AGENTS_SERVICE_KEY"]
 		},
@@ -111,5 +114,22 @@ func TestMetricsToken(t *testing.T) {
 	m["KEERA_AGENTS_METRICS_TOKEN"] = strings.Repeat("m", 32)
 	if c, err := loadWith(m); err != nil || c.MetricsToken != m["KEERA_AGENTS_METRICS_TOKEN"] {
 		t.Fatalf("token: %q, %v", c.MetricsToken, err)
+	}
+}
+
+func TestPrices(t *testing.T) {
+	c, err := loadWith(base())
+	if err != nil || c.PriceCPUHour != 0 || c.PriceMemoryGiBHour != 0 || c.PriceDiskGiBMonth != 0 {
+		t.Fatalf("free by default: %v, %+v", err, c)
+	}
+	m := base()
+	m["KEERA_AGENTS_PRICE_CPU_HOUR"] = "0.05"
+	m["KEERA_AGENTS_PRICE_MEMORY_GIB_HOUR"] = "0.006"
+	m["KEERA_AGENTS_PRICE_DISK_GIB_MONTH"] = "0.12"
+	if c, err = loadWith(m); err != nil {
+		t.Fatal(err)
+	}
+	if c.PriceCPUHour != 50_000 || c.PriceMemoryGiBHour != 6_000 || c.PriceDiskGiBMonth != 120_000 {
+		t.Fatalf("prices in micro-CHF: %d, %d, %d", c.PriceCPUHour, c.PriceMemoryGiBHour, c.PriceDiskGiBMonth)
 	}
 }

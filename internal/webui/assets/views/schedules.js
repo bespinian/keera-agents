@@ -605,7 +605,7 @@ export function openScheduleEditor(ctx, { schedule = null, agent = null, agents 
   tz.addEventListener("change", check);
   runPreview();
 
-  // The reply goes to one of the agent's chat channels, or nowhere.
+  // The reply goes to one of the agent's chats, or nowhere.
   async function loadReplies() {
     const id = agent ? agent.id : schedule ? schedule.agent_id : agentSelect.value;
     let bindings = agent ? agent.bindings : null;
@@ -646,7 +646,7 @@ export function openScheduleEditor(ctx, { schedule = null, agent = null, agents 
       field("Time zone", tz, "The times are read in this zone, summer time included."),
       h("div", { class: "field" }, preview),
       field("Task", prompt, "What the agent is asked each time."),
-      field("Send the result to", reply, "One of the agent's chat channels. Add one under the agent's Channels tab."),
+      field("Send the result to", reply, "One of the agent's chats. Add one on the agent's Connectors tab."),
       h("div", { class: "field" }, enabled.el),
     ),
     submitLabel: schedule ? "Save" : "Create schedule",

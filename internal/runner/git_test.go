@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/egress"
 )
 
@@ -102,7 +102,7 @@ func TestGitThroughTheProxy(t *testing.T) {
 		}).ServeHTTP(w, r)
 	}))
 	defer host.Close()
-	remote := channels.Remote{URL: host.URL + "/web.git", User: "x-access-token", Password: "host-token"}
+	remote := connectors.Remote{URL: host.URL + "/web.git", User: "x-access-token", Password: "host-token"}
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, rest, _ := strings.Cut(r.URL.Path, ".git/")
 		forwardGit(w, r, gitClient(egress.Policy{}), slog.New(slog.DiscardHandler), rest, remote)

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bespinian/keera-agents/internal/billing"
 	"github.com/bespinian/keera-agents/internal/dispatch"
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
@@ -28,7 +29,10 @@ type Options struct {
 	PublicURL     string
 	GatewayURL    string
 	SecureCookies bool
-	Log           *slog.Logger
+	// Billing meters machines and asks the gateway about credit. Nil, or
+	// without prices, is no billing.
+	Billing *billing.Biller
+	Log     *slog.Logger
 }
 
 type Server struct {
@@ -94,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/overview", s.overview)
 	route("GET /api/v1/setup", s.setup)
 	route("GET /api/v1/audit", s.audit)
+	route("GET /api/v1/billing", s.billing)
 
 	route("GET /api/v1/agents", s.listAgents)
 	route("POST /api/v1/agents", s.createAgent)
@@ -105,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/agents/{id}/restart", s.setEnabled(true, true))
 	route("POST /api/v1/agents/{id}/take-over", s.takeOverAgent)
 	route("GET /api/v1/agents/{id}/activity", s.agentActivity)
+	route("GET /api/v1/agents/{id}/cost", s.agentCost)
 	route("GET /api/v1/agents/{id}/logs", s.agentLogs)
 	route("POST /api/v1/agents/{id}/tasks", s.giveTask)
 	route("POST /api/v1/agents/{id}/bindings", s.createBinding)
@@ -119,6 +125,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/workspaces/{id}/start", s.setWorkspaceEnabled(true))
 	route("POST /api/v1/workspaces/{id}/stop", s.setWorkspaceEnabled(false))
 	route("GET /api/v1/workspaces/{id}/logs", s.workspaceLogs)
+	route("GET /api/v1/workspaces/{id}/cost", s.workspaceCost)
 	route("POST /api/v1/workspaces/{id}/bindings", s.createWorkspaceBinding)
 	route("POST /api/v1/workspaces/{id}/connect", s.connectWorkspace)
 
@@ -156,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/connection-kinds", s.connectionKinds)
 	route("GET /api/v1/connections", s.listConnections)
 	route("POST /api/v1/connections", s.createConnection)
+	route("GET /api/v1/connections/{id}", s.getConnection)
 	route("PATCH /api/v1/connections/{id}", s.updateConnection)
 	route("DELETE /api/v1/connections/{id}", s.deleteConnection)
 	route("POST /api/v1/connections/{id}/check", s.checkConnection)
@@ -267,6 +275,14 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	}
 	if len(orgs) > 1 {
 		out["orgs"] = orgs
+	}
+	if b := s.opts.Billing; b.On() {
+		out["billing"] = true
+		// Every screen says why no machine starts. Everyone sees it, since
+		// it stops everyone's.
+		if c, ok := b.Credit(r.Context(), p.OrgID); ok && c.Refusal != nil {
+			out["credit_refusal"] = c.Refusal
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -403,7 +419,7 @@ func (s *Server) taskActivity(w http.ResponseWriter, r *http.Request, orgID, age
 	ctx := r.Context()
 	window, err := time.ParseDuration(cmp.Or(r.URL.Query().Get("since"), "168h"))
 	if err != nil || window < time.Hour || window > 90*24*time.Hour {
-		writeError(w, http.StatusBadRequest, "invalid_request", "since is a duration from 1h to 2160h, such as 168h")
+		badRequest(w, "since is a duration from 1h to 2160h, such as 168h")
 		return activity{}, false
 	}
 	since := time.Now().Add(-window)
@@ -429,7 +445,7 @@ func (s *Server) taskActivity(w http.ResponseWriter, r *http.Request, orgID, age
 
 func (s *Server) audit(w http.ResponseWriter, r *http.Request, p Principal) {
 	if !p.CanAdmin() {
-		writeError(w, http.StatusForbidden, "forbidden", "only an administrator can read the audit log")
+		forbid(w, "only an administrator can read the audit log")
 		return
 	}
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
@@ -460,7 +476,7 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "the request is too large")
 			return false
 		}
-		writeError(w, http.StatusBadRequest, "invalid_request", "the request is not valid: "+err.Error())
+		badRequest(w, "the request is not valid: "+err.Error())
 		return false
 	}
 	return true

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/dispatch"
 	"github.com/bespinian/keera-agents/internal/egress"
 	"github.com/bespinian/keera-agents/internal/protocol"
@@ -37,7 +37,7 @@ func gitClient(p egress.Policy) *http.Client {
 			ResponseHeaderTimeout: 2 * time.Minute,
 			IdleConnTimeout:       time.Minute,
 		},
-		CheckRedirect: channels.SameServer,
+		CheckRedirect: connectors.SameServer,
 	}
 }
 
@@ -79,7 +79,7 @@ func (rn *Runner) git(w http.ResponseWriter, r *http.Request, a store.Agent) {
 
 // forwardGit passes one request on to remote, checking a push first.
 func forwardGit(w http.ResponseWriter, r *http.Request, hc *http.Client, log *slog.Logger, rest string,
-	remote channels.Remote,
+	remote connectors.Remote,
 ) {
 	ctx := r.Context()
 	// A clone or push may take longer than the server allows other requests.

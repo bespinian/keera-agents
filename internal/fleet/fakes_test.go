@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -204,12 +205,7 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (g *fakeGateway) wasRevoked(org, key string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	for _, k := range g.revoked {
-		if k == org+"/"+key {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(g.revoked, org+"/"+key)
 }
 
 func (g *fakeGateway) counts() (mints, lookups int) {

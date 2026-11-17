@@ -31,8 +31,9 @@ import { tasksView, taskView } from "./views/tasks.js";
 import { schedulesView } from "./views/schedules.js";
 import { workspacesView } from "./views/workspaces.js";
 import { workspaceView } from "./views/workspace.js";
-import { connectorsView, catalogueView } from "./views/connectors.js";
+import { connectorsView, connectorView, catalogueView } from "./views/connectors.js";
 import { auditView } from "./views/audit.js";
+import { billingView, gatewayBilling } from "./views/billing.js";
 import { firstRunDue } from "./views/firstrun.js";
 
 const root = document.getElementById("root");
@@ -85,6 +86,7 @@ const routes = [
     label: "Connectors",
     icon: "connections",
     view: connectorsView,
+    detail: { label: "Connector", view: connectorView },
   },
   // Every kind of connector. It opens from Connectors.
   {
@@ -103,6 +105,16 @@ const routes = [
     view: auditView,
     admin: true,
   },
+  // Only on a deployment that bills machine time.
+  {
+    path: "/billing",
+    group: "Organisation",
+    label: "Billing",
+    icon: "billing",
+    view: billingView,
+    admin: true,
+    needs: "billing",
+  },
 ];
 
 /** navGroups leaves out a group with nothing visible, so it has no empty
@@ -118,7 +130,7 @@ function navGroups(items) {
 }
 
 function visibleRoutes() {
-  return routes.filter((r) => !r.admin || isAdmin(shellCtx));
+  return routes.filter((r) => (!r.admin || isAdmin(shellCtx)) && (!r.needs || state.me[r.needs]));
 }
 
 /** matchRoute finds the screen for a path, or the first one the reader may
@@ -409,6 +421,20 @@ function tearDown() {
   }
 }
 
+/** creditNotice says, on every screen, that no machine starts because the
+ *  organisation has no credit, or a charge is due. An administrator gets a
+ *  link to where they pay. */
+function creditNotice() {
+  const refusal = state.me.credit_refusal;
+  if (!refusal) return null;
+  return banner(
+    "bad",
+    { style: { marginBottom: "16px" } },
+    `No agent or workspace starts: ${refusal.message}`,
+    isAdmin(shellCtx) ? gatewayBilling(state.me, "Open Billing in Keera Gateway", { marginLeft: "8px" }) : null,
+  );
+}
+
 /** renderRoute shows the screen for the current path. moved is a move to
  *  another screen, not a reload of this one: focus then goes to its title,
  *  as it would on a new page. */
@@ -463,7 +489,7 @@ async function renderRoute({ moved = false } = {}) {
   try {
     const view = await route.view(ctx);
     if (gen !== rendering) return;
-    replace(outlet, view);
+    replace(outlet, creditNotice(), view);
     adoptListActions();
   } catch (err) {
     if (gen !== rendering) return;

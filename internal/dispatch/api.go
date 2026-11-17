@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -37,7 +37,7 @@ func apiTools(bindings []store.Binding) []protocol.ToolSpec {
 	}
 	var out []protocol.ToolSpec
 	for _, kind := range kinds {
-		api, ok := channels.APIFor(channels.Kind(kind))
+		api, ok := connectors.APIFor(connectors.Kind(kind))
 		if !ok {
 			continue
 		}
@@ -60,23 +60,14 @@ func apiTools(bindings []store.Binding) []protocol.ToolSpec {
 // connectorParam is the schema of the connector argument: the bindings a
 // tool may use, each with what it reaches.
 func connectorParam(kind string, bs []store.Binding, write bool) map[string]any {
-	label := kind
-	if d, ok := channels.Describe(channels.Kind(kind)); ok {
-		label = d.Label
-	}
+	label := serviceName(kind)
 	var ids, lines []string
 	for _, b := range bs {
 		if write && b.Mode != store.ModeWrite {
 			continue
 		}
 		ids = append(ids, b.ID)
-		reach := b.Target
-		if reach == channels.AnyTarget {
-			reach = "everything the connector reaches"
-		}
-		if b.Label != "" && b.Label != b.Target {
-			reach = b.Label + ", " + reach
-		}
+		reach := named(b)
 		if b.Mode == store.ModeRead {
 			reach += ", read only"
 		}
@@ -110,13 +101,13 @@ func withConnector(params json.RawMessage, connector map[string]any) (json.RawMe
 }
 
 // apiKindOf returns the API kind a tool's name starts with, if any.
-func apiKindOf(name string) (channels.Kind, bool) {
+func apiKindOf(name string) (connectors.Kind, bool) {
 	kind, _, ok := strings.Cut(name, "_")
 	if !ok {
 		return "", false
 	}
-	_, ok = channels.APIFor(channels.Kind(kind))
-	return channels.Kind(kind), ok
+	_, ok = connectors.APIFor(connectors.Kind(kind))
+	return connectors.Kind(kind), ok
 }
 
 // toolAPI runs an API connector's tool for the agent's task.
@@ -136,7 +127,7 @@ func (d *Dispatcher) toolAPI(ctx context.Context, a store.Agent, t store.Task, n
 	if connector == "" {
 		return nil, errors.New("give the connector to use, from the tool's list")
 	}
-	b, api, conn, err := bound(ctx, d, a, t, connector, "connectors", channels.APIFor, store.ModeRead, store.ModeWrite)
+	b, api, conn, err := bound(ctx, d, a, t, connector, "connectors", connectors.APIFor, store.ModeRead, store.ModeWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +135,7 @@ func (d *Dispatcher) toolAPI(ctx context.Context, a store.Agent, t store.Task, n
 	if !ok {
 		return nil, fmt.Errorf("%s is a %s connector; it has no tool called %s", connector, b.Kind, name)
 	}
-	i := slices.IndexFunc(api.Tools(), func(t channels.Tool) bool { return t.Name == tool })
+	i := slices.IndexFunc(api.Tools(), func(t connectors.Tool) bool { return t.Name == tool })
 	if i < 0 {
 		return nil, fmt.Errorf("there is no tool called %s", name)
 	}
@@ -162,7 +153,7 @@ func (d *Dispatcher) toolAPI(ctx context.Context, a store.Agent, t store.Task, n
 // returns the target as it should be stored. A connector people sign in to
 // checks it as userID, who is binding it.
 func (d *Dispatcher) LookupTarget(ctx context.Context, c store.Connection, target, userID string) (string, error) {
-	api, ok := channels.APIFor(channels.Kind(c.Kind))
+	api, ok := connectors.APIFor(connectors.Kind(c.Kind))
 	if !ok {
 		return "", fmt.Errorf("%s has no tools", c.Kind)
 	}

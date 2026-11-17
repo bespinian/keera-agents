@@ -54,6 +54,11 @@ type Options struct {
 	WorkspaceIdleSuspend time.Duration
 	// Limits bound the classes agents may run with.
 	Limits runtime.Limits
+	// Credit says whether an organisation may start a machine, as the
+	// gateway, which holds its credit, decides. Nil lets every one start.
+	Credit interface {
+		MayRun(ctx context.Context, orgID string) error
+	}
 	// Metrics counts container starts. Nil counts nothing.
 	Metrics *metrics.Registry
 	Log     *slog.Logger
@@ -277,6 +282,11 @@ func (m *Manager) start(ctx context.Context, a store.Agent) (err error) {
 		_ = m.st.SetAgentState(ctx, a.ID, store.AgentFailed, err.Error())
 		return err
 	}
+	// Refused for credit, the machine stays as it is: not failed, since
+	// nothing is wrong with it.
+	if err := m.mayRun(ctx, a); err != nil {
+		return err
+	}
 	if err := m.ensureKey(ctx, &a); err != nil {
 		_ = m.st.SetAgentState(ctx, a.ID, store.AgentFailed, err.Error())
 		return err
@@ -373,6 +383,9 @@ func (m *Manager) Wake(ctx context.Context, agentID string) error {
 	case runtime.Gone, runtime.Failed:
 		return m.start(ctx, a)
 	case runtime.Suspended:
+		if err := m.mayRun(ctx, a); err != nil {
+			return err
+		}
 		if err := m.driver.Resume(ctx, a.ID); err != nil {
 			return err
 		}
@@ -380,6 +393,24 @@ func (m *Manager) Wake(ctx context.Context, agentID string) error {
 		return m.st.SetAgentState(ctx, a.ID, store.AgentStarting, "")
 	}
 	return nil
+}
+
+// failQueued fails the agent's tasks queued before the time with why, so
+// whoever asked hears it. It returns how many it failed.
+func (m *Manager) failQueued(ctx context.Context, a store.Agent, before time.Time, why string) int64 {
+	n, err := m.st.FailQueuedTasks(ctx, a.ID, before, why)
+	if err != nil {
+		m.log.Warn("could not fail an agent's waiting tasks", "agent", a.ID, "error", err)
+	}
+	return n
+}
+
+// mayRun says whether the agent's organisation may start a machine now.
+func (m *Manager) mayRun(ctx context.Context, a store.Agent) error {
+	if m.opts.Credit == nil {
+		return nil
+	}
+	return m.opts.Credit.MayRun(ctx, a.OrgID)
 }
 
 // Stop cancels the agent's unfinished tasks with reason, and suspends its
@@ -481,13 +512,40 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 		m.retryMu.Unlock()
 	}
 
+	// Only a running machine needs asking: one that is not running asks
+	// when it would start.
+	var refused error
+	if a.Enabled && st.State == runtime.Running {
+		refused = m.mayRun(ctx, a)
+	}
+
 	switch {
+	case refused != nil:
+		// Its organisation may not run machines. What waits fails now, and
+		// a task under way finishes first. A workspace has no tasks, so it
+		// is suspended at once.
+		if busy {
+			m.failQueued(ctx, a, time.Now(), refused.Error())
+			if busy, err = m.st.Busy(ctx, a.ID); err != nil || busy {
+				return
+			}
+		}
+		if !m.suspendIdle(ctx, a, time.Now(), "suspended a machine whose organisation may not run one") {
+			return
+		}
+		st.State = runtime.Suspended
 	case !a.Enabled && (st.State == runtime.Running || st.State == runtime.Pending):
 		if err := m.driver.Suspend(ctx, a.ID); err != nil {
 			m.log.Warn("could not suspend a stopped agent", "agent", a.ID, "error", err)
 		}
 		st.State = runtime.Suspended
 	case a.Enabled && busy && st.State != runtime.Running && st.State != runtime.Pending:
+		// A task is waiting and its organisation may not start a machine:
+		// the task fails now, so the person who asked hears why.
+		if err := m.mayRun(ctx, a); err != nil {
+			m.failQueued(ctx, a, time.Now(), err.Error())
+			return
+		}
 		// A task is waiting and nothing is running it. A failed start is
 		// tried again, less and less often, so a short outage does not
 		// leave the task waiting until someone notices.
@@ -509,7 +567,7 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 		return
 	case a.Enabled && !busy && st.State == runtime.Running && m.idleLimit(a) > 0 &&
 		a.LastActiveAt != nil && time.Since(*a.LastActiveAt) > m.idleLimit(a):
-		if !m.suspendIdle(ctx, a) {
+		if !m.suspendIdle(ctx, a, time.Now().Add(-m.idleLimit(a)), "suspended an idle agent") {
 			return
 		}
 		st.State = runtime.Suspended
@@ -528,16 +586,16 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 	}
 }
 
-// suspendIdle suspends an agent that is still idle. The list Reconcile went
-// by may be old, and a task may have come in since, so the store checks
-// again and holds off claims until the container has stopped. It reports
-// whether the agent stayed suspended.
-func (m *Manager) suspendIdle(ctx context.Context, a store.Agent) bool {
+// suspendIdle suspends an agent that has been idle since idleSince and still
+// is, and logs msg. The list Reconcile went by may be old, and a task may
+// have come in since, so the store checks again and holds off claims until
+// the container has stopped. It reports whether the agent stayed suspended.
+func (m *Manager) suspendIdle(ctx context.Context, a store.Agent, idleSince time.Time, msg string) bool {
 	unlock, err := m.lock(ctx, a.ID)
 	if err != nil {
 		return false
 	}
-	suspended, err := m.st.SuspendIdle(ctx, a.ID, time.Now().Add(-m.idleLimit(a)), func() error {
+	suspended, err := m.st.SuspendIdle(ctx, a.ID, idleSince, func() error {
 		return m.driver.Suspend(ctx, a.ID)
 	})
 	unlock()
@@ -548,7 +606,7 @@ func (m *Manager) suspendIdle(ctx context.Context, a store.Agent) bool {
 	if !suspended {
 		return false
 	}
-	m.log.Info("suspended an idle agent", "agent", a.ID, "name", a.Name)
+	m.log.Info(msg, "agent", a.ID, "name", a.Name)
 	// A task queued while the container stopped found it still running, so
 	// nothing woke it.
 	if busy, err := m.st.Busy(ctx, a.ID); err == nil && busy {
@@ -606,12 +664,8 @@ func (m *Manager) stuck(agentID string, pending bool, now time.Time) bool {
 // giveUp fails the tasks that waited too long for an agent that cannot
 // start. It reports whether it failed any.
 func (m *Manager) giveUp(ctx context.Context, a store.Agent) bool {
-	n, err := m.st.FailQueuedTasks(ctx, a.ID, time.Now().Add(-maxStartWait),
+	n := m.failQueued(ctx, a, time.Now().Add(-maxStartWait),
 		"the agent could not start, so this task did not run; its owner sees why in the panel")
-	if err != nil {
-		m.log.Warn("could not fail an agent's waiting tasks", "agent", a.ID, "error", err)
-		return false
-	}
 	if n > 0 {
 		m.log.Info("failed tasks of an agent that could not start", "agent", a.ID, "count", n)
 	}

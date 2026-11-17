@@ -193,6 +193,7 @@ export const icons = {
     "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" +
     "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
   audit: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4",
+  billing: "M6 2h12v20l-3-2-3 2-3-2-3 2zM9 7h6M9 11h6M9 15h4",
   orgs: "M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01",
   // The Keera Gateway, as its own panel draws a route.
   gateway: "M3 12h4c3.5 0 4.5-7 9-7h5M3 12h4c3.5 0 4.5 7 9 7h5M18 2l3 3-3 3M18 16l3 3-3 3",
@@ -203,6 +204,9 @@ export const icons = {
   tiles: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
   passkey:
     "M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4zM16.5 7.5h.01",
+  eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+  eyeOff:
+    "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24M1 1l22 22",
   copy: "M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
   close: "M18 6L6 18M6 6l12 12",
   menu: "M3 6h18M3 12h18M3 18h18",
@@ -235,6 +239,7 @@ export const icons = {
   move: "M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20",
   collapse: "M11 17l-5-5 5-5M18 17l-5-5 5-5",
   back: "M19 12H5M12 19l-7-7 7-7",
+  forward: "M5 12h14M12 5l7 7-7 7",
   up: "M12 19V5M5 12l7-7 7 7",
   down: "M12 5v14M19 12l-7 7-7-7",
   right: "M9 18l6-6-6-6",
@@ -262,8 +267,9 @@ function drawMark(mark) {
  *  internal/webui/marks/NOTICE says why the panel may show them. */
 const idpMarks = {
   google: googleMark,
+  // Padded, as the logo fills its square and Google's mark does not.
   microsoft: {
-    viewBox: "0 0 23 23",
+    viewBox: "-2 -2 27 27",
     path: "M0 0h11v11H0zM12 0h11v11H12zM0 12h11v11H0zM12 12h11v11H12z",
   },
   github: {
@@ -288,12 +294,14 @@ export function idpMark(name) {
   return drawMark(idpMarks[idpAliases[key] || key]);
 }
 
-// A plain hash, not Slack's logo: enough to tell its connectors apart.
-const slackGlyph = {
-  viewBox: "0 0 24 24",
+// Padded, as the logo fills its square and Google's mark does not.
+const slackMark = {
+  viewBox: "-42 -42 596 596",
   path:
-    "M8 3.5a1.3 1.3 0 0 1 2.6 0v17a1.3 1.3 0 0 1-2.6 0zM13.4 3.5a1.3 1.3 0 0 1 2.6 0v17a1.3 1.3 0 0 1-2.6 0z" +
-    "M3.5 8h17a1.3 1.3 0 0 1 0 2.6h-17a1.3 1.3 0 0 1 0-2.6zM3.5 13.4h17a1.3 1.3 0 0 1 0 2.6h-17a1.3 1.3 0 0 1 0-2.6z",
+    "M107.9 323.6c0 29.7-24 53.8-53.8 53.8S.3 353.4.3 323.6c0-29.7 24-53.8 53.8-53.8h53.8zm26.9 0c0-29.7 24-53.8 53.8-53.8s53.8 24 53.8 53.8V458c0 29.7-24 53.8-53.8 53.8s-53.8-24-53.8-53.8z" +
+    "M188.6 107.7c-29.7 0-53.8-24-53.8-53.8S158.8.1 188.6.1s53.8 24 53.8 53.8v53.8zm0 27.3c29.7 0 53.8 24 53.8 53.8s-24 53.8-53.8 53.8H53.8C24 242.6 0 218.5 0 188.8S24 135 53.8 135z" +
+    "M404.1 188.8c0-29.7 24-53.8 53.8-53.8s53.8 24 53.8 53.8-24 53.8-53.8 53.8h-53.8zm-26.9 0c0 29.7-24 53.8-53.8 53.8-29.7 0-53.8-24-53.8-53.8V54c0-29.7 24-53.8 53.8-53.8s53.8 24 53.8 53.8z" +
+    "M323.4 404.3c29.7 0 53.8 24 53.8 53.8 0 29.7-24 53.8-53.8 53.8-29.7 0-53.8-24-53.8-53.8v-53.8zm0-26.9c-29.7 0-53.8-24-53.8-53.8s24-53.8 53.8-53.8h134.8c29.7 0 53.8 24 53.8 53.8 0 29.7-24 53.8-53.8 53.8z",
 };
 
 // A plain fork, not GitLab's logo: enough to tell its connectors apart.
@@ -310,7 +318,7 @@ const serviceMarks = {
   onedrive: idpMarks.microsoft,
   googlechat: googleMark,
   gdrive: googleMark,
-  slack: slackGlyph,
+  slack: slackMark,
   github: idpMarks.github,
   gitlab: gitlabGlyph,
   gdocs: googleMark,
@@ -708,7 +716,8 @@ function toggleBox(t, checked, onChange) {
  *    emptyTitle / emptyBody
  *    tile         (row) => node - the row as a tile. Passing it adds a switch
  *                 between the table and a grid of tiles. Tiles show until
- *                 someone chooses the table.
+ *                 someone chooses the table. Pass sortBy with it: the tiles'
+ *                 sort dropdown has no "unsorted" choice.
  *
  *  A column with a sortKey gets a header that sorts by it, first in its
  *  sortDir. Sorting happens here, so a paged list has no sortKeys: sorting
@@ -886,7 +895,6 @@ export function table(columns, rows, opts = {}) {
               draw();
             },
           },
-          view.sort ? null : h("option", { value: "-1" }, "As listed"),
           sortCols.map((c, i) => h("option", { value: String(i) }, `Sort by ${c.label.toLowerCase()}`)),
         )
       : null;
@@ -1351,26 +1359,47 @@ export async function copyText(text) {
   }
 }
 
-/** secretField shows a value that is handed over once, with a Copy button.
- *  compact makes it small enough for a tile, with the button an icon. */
-export function secretField(value, ariaLabel, { compact = false } = {}) {
-  const copy = () => copyText(value);
+/** secretField shows a value with a Copy button. hidden masks it until
+ *  someone presses Show, so it is not on screen for anyone looking on. Copy
+ *  works either way. */
+export function secretField(value, ariaLabel, { hidden = false } = {}) {
+  const input = h("input", {
+    class: "input key-value mono",
+    type: hidden ? "password" : "text",
+    autocomplete: "off",
+    readonly: true,
+    value,
+    "aria-label": ariaLabel,
+    // Selecting on focus helps copy by hand: plain http on anything but
+    // localhost has no clipboard.
+    onFocus: (e) => e.target.select(),
+    onClick: (e) => e.target.select(),
+  });
+  let reveal = null;
+  if (hidden) {
+    const draw = () => {
+      const shown = input.type === "text";
+      reveal.setAttribute("aria-pressed", String(shown));
+      replace(reveal, icon(shown ? icons.eyeOff : icons.eye), shown ? "Hide" : "Show");
+    };
+    reveal = h("button", {
+      type: "button",
+      class: "btn",
+      "aria-label": `Show ${ariaLabel}`,
+      onClick: () => {
+        input.type = input.type === "text" ? "password" : "text";
+        draw();
+      },
+    });
+    draw();
+  }
   return h(
     "div",
-    { class: compact ? "row-tight secret-compact" : "row-tight" },
-    h("input", {
-      class: compact ? "input" : "input key-value mono",
-      readonly: true,
-      value,
-      "aria-label": ariaLabel,
-      // Selecting on focus helps copy by hand: plain http on anything but
-      // localhost has no clipboard.
-      onFocus: (e) => e.target.select(),
-      onClick: (e) => e.target.select(),
-    }),
-    compact
-      ? iconButton(icons.copy, "Copy", copy, { label: `Copy ${ariaLabel}` })
-      : h("button", { class: "btn", onClick: copy }, icon(icons.copy), "Copy"),
+    { class: "row-tight" },
+    input,
+    reveal,
+    // A button, not a submit, since it often sits in a form.
+    h("button", { type: "button", class: "btn", onClick: () => copyText(value) }, icon(icons.copy), "Copy"),
   );
 }
 
@@ -1715,8 +1744,8 @@ export function agentIconPath(name) {
 }
 
 /** avatarOf is a small round mark with someone's initials, or with an
- *  agent's icon. */
-export function avatarOf(name, { agent = false, icon: agentIcon = "", large = false } = {}) {
+ *  agent's icon. glyph is another icon's path, such as a workspace's. */
+export function avatarOf(name, { agent = false, icon: agentIcon = "", glyph = "", large = false } = {}) {
   return h(
     "span",
     {
@@ -1724,7 +1753,7 @@ export function avatarOf(name, { agent = false, icon: agentIcon = "", large = fa
       "aria-hidden": "true",
       title: name || null,
     },
-    agent ? icon(agentIconPath(agentIcon)) : initials(name, name),
+    glyph ? icon(glyph) : agent ? icon(agentIconPath(agentIcon)) : initials(name, name),
   );
 }
 

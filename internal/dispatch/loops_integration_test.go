@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
@@ -495,7 +495,7 @@ func TestDeliverPostsAScheduleToItsChannel(t *testing.T) {
 func TestAWatchMakesOneTaskPerChangedFile(t *testing.T) {
 	e := setup(t)
 	files := newFakeFiles()
-	channels.Register(files)
+	connectors.Register(files)
 	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
 	fc := e.conn(t, "org_a", filesKind, nil)
 	w := e.bind(t, a, fc, "inbox", store.ModeWatch)
@@ -510,7 +510,7 @@ func TestAWatchMakesOneTaskPerChangedFile(t *testing.T) {
 	if err := e.st.RecordWrite(e.ctx, a.ID, fc.ID, "own", t1); err != nil {
 		t.Fatal(err)
 	}
-	files.changes = []channels.File{
+	files.changes = []connectors.File{
 		{ID: "f1", Name: "a.txt", Modified: t1},
 		{ID: "f2", Name: "b.txt", Modified: t1},
 		{ID: "f1", Name: "a.txt", Modified: t1.Add(time.Minute)},
@@ -540,7 +540,7 @@ func TestAWatchMakesOneTaskPerChangedFile(t *testing.T) {
 func TestAWatchThatFailsKeepsItsCursor(t *testing.T) {
 	e := setup(t)
 	files := newFakeFiles()
-	channels.Register(files)
+	connectors.Register(files)
 	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
 	w := e.bind(t, a, e.conn(t, "org_a", filesKind, nil), "inbox", store.ModeWatch)
 	e.d.CheckWatches(e.ctx, time.Now().Add(2*time.Minute))
@@ -552,7 +552,7 @@ func TestAWatchThatFailsKeepsItsCursor(t *testing.T) {
 	}
 	// It waits a full interval before asking again.
 	files.failing = nil
-	files.changes = []channels.File{{ID: "f1", Name: "a.txt", Modified: time.Now()}}
+	files.changes = []connectors.File{{ID: "f1", Name: "a.txt", Modified: time.Now()}}
 	e.d.CheckWatches(e.ctx, b.CheckedAt.Add(30*time.Second))
 	if n := len(e.tasks(t, a)); n != 0 {
 		t.Fatalf("checked again within the interval: %d tasks", n)

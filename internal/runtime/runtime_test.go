@@ -18,6 +18,22 @@ func TestClassWithDefaults(t *testing.T) {
 	}
 }
 
+func TestClassSize(t *testing.T) {
+	for _, tc := range []struct {
+		class          Class
+		cpu, mem, disk int64
+	}{
+		{Class{}, 1000, 2048, 5120},
+		{Class{CPU: "500m", Memory: "512Mi", Disk: "1Gi"}, 500, 512, 1024},
+		{Class{CPU: "2.5", Memory: "1G", Disk: "100Gi"}, 2500, 954, 102400},
+	} {
+		cpu, mem, disk := tc.class.Size()
+		if cpu != tc.cpu || mem != tc.mem || disk != tc.disk {
+			t.Errorf("%+v.Size() = %d, %d, %d; want %d, %d, %d", tc.class, cpu, mem, disk, tc.cpu, tc.mem, tc.disk)
+		}
+	}
+}
+
 func TestClassValidate(t *testing.T) {
 	if err := DefaultClass.Validate(); err != nil {
 		t.Errorf("the default class: %v", err)

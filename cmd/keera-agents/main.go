@@ -1,5 +1,5 @@
 // Command keera-agents runs Keera's agent platform. With no arguments it
-// serves the control plane: the panel, its API, channel webhooks and the
+// serves the control plane: the panel, its API, connector webhooks and the
 // runtime API. `keera-agents agent` is the runtime inside each agent's
 // container, and `keera-agents workspace` the runtime in a workspace's. One
 // binary does all three, so the image an agent runs is built from

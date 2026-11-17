@@ -20,12 +20,12 @@ names, and handlers check the rest themselves. Another organisation's things
 answer 404.
 
 - An agent's owner and administrators change, delete, start, stop or restart
-  it, read its logs, and add or remove its channels and schedules.
+  it, read its logs, and add or remove its connectors and schedules.
 - Whoever the agent's `access` lets gives it work: a task, a chat message, or
   a card assigned to it (see [tasks.md](tasks.md#the-board)).
 - A task is seen by whoever asked, the agent's owner and administrators.
-- Only administrators manage connectors, read the audit log, take an agent
-  over, and choose an agent's project or image.
+- Only administrators manage connectors, read the audit log and what
+  machines cost, take an agent over, and choose an agent's project or image.
 - Everyone connects and disconnects their own account to a connector people
   sign in to, and only their own.
 - A workspace is its owner's. Administrators also see, change, stop and
@@ -42,7 +42,8 @@ answer 404.
 - `GET /api/v1/me` →
   `{user_id,email,name,role:"operator"|"admin"|"member",org_id,org_name,can_admin:bool,csrf,gateway_url,chat_url,
 orgs:[{id,name}] (only when >1), runtime:{driver:"podman"|"kubernetes"|"", tiers:["standard","isolated","vm"]},
-builtins:["memory","files","shell","web"], timezone_default:"Europe/Zurich"}`
+builtins:["memory","files","shell","web"], timezone_default:"Europe/Zurich",
+billing:true (only when machines are billed), credit_refusal:{code,message} (only when no machine may start)}`
 - `POST /api/v1/me/org {org_id}` → switches organisation; reload after.
 - `GET /api/v1/catalog?project_id=` → `{project_id, projects:[{id,name}], models:[{alias,kind:"model"|"router"}], mcp_servers:[{alias}]}`
   What an agent in that project may use. `projects` is only filled for admins (members get the default project).
@@ -77,7 +78,7 @@ Agent:
  allowed_emails:[...],budget_micros,class:{isolation,cpu,memory,disk},image,
  state:"stopped"|"starting"|"running"|"suspended"|"failed",state_detail,enabled,
  owner_id,owner_email,project_id,last_active_at,created_at,updated_at,
- queued:int,running_task_id:string, can_edit:bool, can_give:bool, channels:int}
+ queued:int,running_task_id:string, can_edit:bool, can_give:bool, binding_count:int}
 ```
 
 `icon` names one of the panel's agent icons, such as `code`; empty is the
@@ -98,7 +99,7 @@ default robot. A name the panel does not know shows the default.
 Binding:
 
 ```
-{id,agent_id,agent_name,connection_id,connection_name,kind,target,label,mode:"chat"|"watch"|"files"|"repo"|"read"|"write",prompt,checked_at,created_by,created_at}
+{id,agent_id,agent_name,agent_kind:"agent"|"workspace",connection_id,connection_name,kind,target,label,mode:"chat"|"watch"|"files"|"repo"|"read"|"write",prompt,checked_at,created_by,created_at}
 ```
 
 - `POST /api/v1/agents/{id}/bindings {connection_id,target,label,mode,prompt}` → 201 Binding
@@ -193,7 +194,7 @@ Kind descriptor (`GET /api/v1/connection-kinds` → `{data:[Descriptor],callback
  sign_in:{fields,setup} (kinds people may sign in to; setup has a "{callback}" placeholder)}
 ```
 
-The kinds are listed in [channels.md](channels.md).
+The kinds are listed in [connectors.md](connectors.md).
 
 Connection:
 
@@ -204,11 +205,12 @@ Connection:
 ```
 
 `per_user` connectors act as each person, who signs in with their own account
-(see [channels.md](channels.md#each-persons-own-account)). It is set when the
+(see [connectors.md](connectors.md#each-persons-own-account)). It is set when the
 connector is created, from `sign_in.fields` instead of `fields`, and kept.
 
 - `GET /api/v1/connections` → `{data:[Connection], sign_in_result?:{connection_id,error}}` (how the caller's last sign-in went, shown once)
 - `POST /api/v1/connections {kind,name,config:{},secrets:{},per_user}` → 201 Connection (checked with the service first; 400 with the service's reason)
+- `GET /api/v1/connections/{id}` → Connection + `uses:[Binding]`: where agents use it. Other people's workspaces are left out for a member; `bindings` still counts them.
 - `PATCH /api/v1/connections/{id} {name,config,secrets}` (a secret left out or empty keeps its value, unless an `endpoint` field changes; then 400 until it is sent again)
 - `DELETE /api/v1/connections/{id}` → 204
 - `POST /api/v1/connections/{id}/check` → `{ok:true}` or 400
@@ -246,3 +248,20 @@ Each person's own, in their current organisation.
 ## Audit (admins)
 
 - `GET /api/v1/audit?limit=100&before=<id>` → `{data:[{id,at,actor,action,target,detail}]}`
+
+## Billing
+
+Only on a deployment that bills machine time; otherwise 404 `billing_off`. See [billing.md](billing.md).
+
+- `GET /api/v1/billing?month=YYYY-MM` →
+  `{month, from, to, prices:{cpu_hour_micros,memory_gib_hour_micros,disk_gib_month_micros},
+machines:[{id,name,kind,owner_email,deleted,cpu_milli_seconds,memory_mib_seconds,disk_mib_seconds,
+cpu_hours,memory_gib_hours,disk_gib_months,cost_micros}], total_micros,
+credit:{payments,balance_micros,refusal:{code,message}|null}|null}`
+  Months are UTC, like the gateway's bill. Costs are at today's prices. Admins only.
+- `GET /api/v1/agents/{id}/cost` →
+  `{month, month_micros, hour_micros}`
+  What one agent's machine cost this month, and an hour of it running. Its owner and admins.
+- `GET /api/v1/workspaces/{id}/cost` → the same, for a workspace.
+- Starting an agent or workspace, or connecting to one, answers 402 with `credit_exhausted`, `charge_due` or
+  `org_limited` when its organisation may not run machines.

@@ -91,9 +91,11 @@ const (
 const AnyConversation = "*"
 
 type Binding struct {
-	ID             string     `json:"id"`
-	AgentID        string     `json:"agent_id"`
-	AgentName      string     `json:"agent_name"`
+	ID        string `json:"id"`
+	AgentID   string `json:"agent_id"`
+	AgentName string `json:"agent_name"`
+	// AgentKind is agent or workspace: a workspace is its owner's alone.
+	AgentKind      string     `json:"agent_kind"`
 	ConnectionID   string     `json:"connection_id"`
 	ConnectionName string     `json:"connection_name"`
 	Kind           string     `json:"kind"`
@@ -113,7 +115,7 @@ type Binding struct {
 
 const bindingSelect = `SELECT b.id, b.agent_id, a.name, b.connection_id, c.name, c.kind, b.target,
 	b.label, b.mode, b.prompt, b.cursor, b.checked_at, b.created_by, b.created_by_id,
-	b.created_at, c.org_id, a.owner_id
+	b.created_at, c.org_id, a.owner_id, a.kind
 	FROM bindings b JOIN connections c ON c.id = b.connection_id
 	JOIN agents a ON a.id = b.agent_id AND a.deleted_at IS NULL`
 
@@ -121,7 +123,7 @@ func scanBinding(row pgx.Row) (Binding, error) {
 	var b Binding
 	err := row.Scan(&b.ID, &b.AgentID, &b.AgentName, &b.ConnectionID, &b.ConnectionName, &b.Kind, &b.Target,
 		&b.Label, &b.Mode, &b.Prompt, &b.Cursor, &b.CheckedAt, &b.CreatedBy, &b.CreatedByID,
-		&b.CreatedAt, &b.OrgID, &b.AgentOwnerID)
+		&b.CreatedAt, &b.OrgID, &b.AgentOwnerID, &b.AgentKind)
 	return b, notFound(err)
 }
 
@@ -146,6 +148,11 @@ func (s *Store) Binding(ctx context.Context, id string) (Binding, error) {
 
 func (s *Store) AgentBindings(ctx context.Context, agentID string) ([]Binding, error) {
 	return s.queryBindings(ctx, `b.agent_id = $1`, agentID)
+}
+
+// ConnectionBindings are every agent's and workspace's uses of a connection.
+func (s *Store) ConnectionBindings(ctx context.Context, connectionID string) ([]Binding, error) {
+	return s.queryBindings(ctx, `b.connection_id = $1`, connectionID)
 }
 
 // ChatBindings are the agents listening on a connection.
@@ -173,7 +180,7 @@ func (s *Store) BindingCounts(ctx context.Context, orgID string) (map[string]int
 		WHERE c.org_id = $1 GROUP BY b.connection_id`, orgID)
 }
 
-// AgentBindingCounts counts each agent's connections, for the agent list.
+// AgentBindingCounts counts each agent's bindings, for the agent list.
 func (s *Store) AgentBindingCounts(ctx context.Context, orgID string) (map[string]int, error) {
 	return s.countBy(ctx, `SELECT b.agent_id, count(*) FROM bindings b
 		JOIN agents a ON a.id = b.agent_id AND a.deleted_at IS NULL

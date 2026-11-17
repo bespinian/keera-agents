@@ -52,14 +52,15 @@ function workspaceTable(ctx, workspaces, all) {
         cell: (w) =>
           h(
             "div",
-            { class: "stack" },
+            { class: "row" },
+            h("span", { class: "tile-mark tile-mark-sm" }, icon(EXPERIENCES[w.experience]?.icon || icons.workspace)),
             h(
-              "span",
-              { class: "who" },
-              icon(EXPERIENCES[w.experience]?.icon || icons.workspace),
+              "div",
+              { class: "stack" },
               rowLink(ctx, workspacePath(w.id), w.name),
+              h("span", { class: "faint small" }, w.model),
+              w.description ? h("div", { class: "faint small clamp-2" }, w.description) : null,
             ),
-            w.description ? h("div", { class: "faint small clamp-2" }, w.description) : null,
           ),
         sortKey: (w) => w.name,
       },

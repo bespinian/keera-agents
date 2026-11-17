@@ -12,7 +12,6 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -20,15 +19,15 @@ import (
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/agent"
-	"github.com/bespinian/keera-agents/internal/channels"
 	"github.com/bespinian/keera-agents/internal/config"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/runtime"
 	"github.com/bespinian/keera-agents/internal/secret"
 	"github.com/bespinian/keera-agents/internal/store"
-	"github.com/jackc/pgx/v5"
+	"github.com/bespinian/keera-agents/internal/store/storetest"
 )
 
 // This test runs the control plane against a real Postgres, a stand-in
@@ -134,28 +133,28 @@ type fakeChat struct {
 	sent []string
 }
 
-func (c *fakeChat) Descriptor() channels.Descriptor {
-	return channels.Descriptor{
+func (c *fakeChat) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{
 		Kind: "fakechat", Label: "Fake Chat", Chat: true, TargetLabel: "Channel",
-		Fields: []channels.Field{{Name: "token", Label: "Token", Secret: true, Required: true}},
+		Fields: []connectors.Field{{Name: "token", Label: "Token", Secret: true, Required: true}},
 	}
 }
 
-func (c *fakeChat) Check(_ context.Context, conn channels.Connection) error { return nil }
+func (c *fakeChat) Check(_ context.Context, conn connectors.Connection) error { return nil }
 
-func (c *fakeChat) Receive(_ context.Context, conn channels.Connection, r *http.Request, body []byte) (channels.Receipt, error) {
+func (c *fakeChat) Receive(_ context.Context, conn connectors.Connection, r *http.Request, body []byte) (connectors.Receipt, error) {
 	if r.Header.Get("X-Token") != conn.Secrets["token"] {
-		return channels.Receipt{}, channels.ErrUnverified
+		return connectors.Receipt{}, connectors.ErrUnverified
 	}
 	var in struct{ ID, Text, Email, Channel string }
 	_ = json.Unmarshal(body, &in)
-	return channels.Receipt{Messages: []channels.Inbound{{
-		Target: channels.Target{Conversation: in.Channel, Thread: in.ID}, Sender: channels.Person{Email: in.Email},
+	return connectors.Receipt{Messages: []connectors.Inbound{{
+		Target: connectors.Target{Conversation: in.Channel, Thread: in.ID}, Sender: connectors.Person{Email: in.Email},
 		Text: in.Text, MessageID: in.ID, ConversationLabel: "#" + in.Channel,
 	}}}, nil
 }
 
-func (c *fakeChat) Send(_ context.Context, _ channels.Connection, to channels.Target, text string) (string, error) {
+func (c *fakeChat) Send(_ context.Context, _ connectors.Connection, to connectors.Target, text string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent = append(c.sent, to.Conversation+"/"+to.Thread+": "+text)
@@ -252,28 +251,8 @@ type testApp struct {
 // on an empty schema, or skips.
 func startApp(t *testing.T) *testApp {
 	t.Helper()
-	dsn := os.Getenv("KEERA_AGENTS_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("KEERA_AGENTS_TEST_DATABASE_URL is not set")
-	}
+	st, _ := storetest.Open(t)
 	ctx := context.Background()
-	db, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`)
-	_ = db.Close(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(st.Close)
-	if _, err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
 
 	gw := &fakeGateway{}
 	gwSrv := httptest.NewServer(gw)
@@ -356,7 +335,7 @@ func TestEndToEnd(t *testing.T) {
 	ctx, st, app, srv, gw, driver := ta.ctx, ta.st, ta.app, ta.srv, ta.gw, ta.driver
 	cookie, call, chatCall, waitFor := ta.cookie, ta.call, ta.chatCall, ta.waitFor
 	chat := &fakeChat{}
-	channels.Register(chat)
+	connectors.Register(chat)
 
 	var me map[string]any
 	if call("GET", "/api/v1/me", nil, &me) != 200 || me["org_id"] != "org_a" || me["can_admin"] != true ||

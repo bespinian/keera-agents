@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/channels"
+	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/secret"
 	"github.com/bespinian/keera-agents/internal/store"
@@ -26,32 +26,32 @@ type rotating struct {
 
 const rotatingKind = "dispatchrotating"
 
-func (*rotating) Descriptor() channels.Descriptor {
-	return channels.Descriptor{Kind: rotatingKind, Label: "Rotating"}
+func (*rotating) Descriptor() connectors.Descriptor {
+	return connectors.Descriptor{Kind: rotatingKind, Label: "Rotating"}
 }
 
-func (*rotating) Check(context.Context, channels.Connection) error       { return nil }
-func (*rotating) CheckClient(context.Context, channels.Connection) error { return nil }
-func (*rotating) SignIn() channels.SignIn                                { return channels.SignIn{} }
+func (*rotating) Check(context.Context, connectors.Connection) error       { return nil }
+func (*rotating) CheckClient(context.Context, connectors.Connection) error { return nil }
+func (*rotating) SignIn() connectors.SignIn                                { return connectors.SignIn{} }
 
-func (*rotating) SignInURL(channels.Connection, string, string, string) (string, error) {
+func (*rotating) SignInURL(connectors.Connection, string, string, string) (string, error) {
 	return "", errors.New("not here")
 }
 
-func (*rotating) Exchange(context.Context, channels.Connection, string, string, string) (channels.Grant, error) {
-	return channels.Grant{}, errors.New("not here")
+func (*rotating) Exchange(context.Context, connectors.Connection, string, string, string) (connectors.Grant, error) {
+	return connectors.Grant{}, errors.New("not here")
 }
 
-func (r *rotating) Refresh(_ context.Context, _ channels.Connection, refresh string) (channels.Grant, error) {
+func (r *rotating) Refresh(_ context.Context, _ connectors.Connection, refresh string) (connectors.Grant, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if refresh != r.current {
-		return channels.Grant{}, fmt.Errorf("%s was replaced, so the sign-in is revoked", refresh)
+		return connectors.Grant{}, fmt.Errorf("%s was replaced, so the sign-in is revoked", refresh)
 	}
 	r.n++
 	r.current = fmt.Sprintf("r%d", r.n)
 	// Short-lived, so every call refreshes.
-	return channels.Grant{Refresh: r.current, Access: "a-" + r.current, Expiry: time.Now().Add(time.Minute)}, nil
+	return connectors.Grant{Refresh: r.current, Access: "a-" + r.current, Expiry: time.Now().Add(time.Minute)}, nil
 }
 
 // Two replicas refreshing one person's token at once must not use the same
@@ -59,7 +59,7 @@ func (r *rotating) Refresh(_ context.Context, _ channels.Connection, refresh str
 func TestReplicasRefreshingAtOnceTakeTurns(t *testing.T) {
 	e := setup(t)
 	svc := &rotating{current: "r0"}
-	channels.Register(svc)
+	connectors.Register(svc)
 	c, err := e.st.CreateConnection(e.ctx, store.Connection{
 		ID: id.New("con"), OrgID: "org_a", Kind: rotatingKind, Name: "Theirs", PerUser: true,
 		CreatedBy: "ada@example.ch",
