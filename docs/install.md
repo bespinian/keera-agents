@@ -56,7 +56,7 @@ entered again, and agents get new keys at their next start.
 | `KEERA_AGENTS_MAX_CPU`                | `8`                                 | The most CPU one agent may ask for                                  |
 | `KEERA_AGENTS_MAX_MEMORY`             | `32Gi`                              | The most memory one agent may ask for                               |
 | `KEERA_AGENTS_MAX_DISK`               | `100Gi`                             | The largest workspace one agent may ask for                         |
-| `KEERA_AGENTS_NAMESPACE`              | keera-agents' own                   | Kubernetes: where agents run. Give them their own                   |
+| `KEERA_AGENTS_NAMESPACE`              | required for Kubernetes             | Kubernetes: where agents run. Give them their own                   |
 | `KEERA_AGENTS_STORAGE_CLASS`          | the cluster's                       | Kubernetes: what workspaces are provisioned from                    |
 | `KEERA_AGENTS_SERVICE_ACCOUNT`        | the namespace's                     | Kubernetes: what agents run as; its token is never mounted          |
 | `KEERA_AGENTS_IMAGE_PULL_SECRETS`     | -                                   | Kubernetes: comma-separated                                         |

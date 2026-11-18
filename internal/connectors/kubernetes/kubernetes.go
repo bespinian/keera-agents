@@ -85,7 +85,7 @@ var (
 		Help: "The cluster's API server, such as https://k8s.example.com:6443.",
 	}
 	caField = connectors.Field{
-		Name: "ca_cert", Label: "CA certificate", Multiline: true,
+		Name: "ca_cert", Label: "CA certificate", Multiline: true, Endpoint: true,
 		Help: "The cluster's CA certificate in PEM. Leave empty if the API server has a certificate from a public CA.",
 	}
 )
@@ -104,7 +104,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 				Help: "The token of a service account, from a Secret of type kubernetes.io/service-account-token.",
 			},
 			{
-				Name: "ca_cert", Label: "CA certificate", Multiline: true,
+				Name: "ca_cert", Label: "CA certificate", Multiline: true, Endpoint: true,
 				Help: "The cluster's CA certificate in PEM, the ca.crt of the same Secret. Leave empty if the API server " +
 					"has a certificate from a public CA.",
 			},

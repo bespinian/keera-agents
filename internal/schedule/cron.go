@@ -120,7 +120,8 @@ func (f field) parsePart(s string) (uint64, error) {
 	step := 1
 	if hasStep {
 		n, err := strconv.Atoi(stepPart)
-		if err != nil || n < 1 {
+		// A step past the field's end would overflow the loop below.
+		if err != nil || n < 1 || n > f.max {
 			return 0, bad
 		}
 		step = n

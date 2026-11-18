@@ -84,7 +84,9 @@ type Card struct {
 	OrgID         string    `json:"-"`
 }
 
-const cardSelect = `SELECT c.id, c.board_id, c.title, c.body, c.status, c.position, c.agent_id,
+// cardSelect reads a deleted agent's card as unassigned: agents are only
+// marked deleted, so the card's agent_id outlives them.
+const cardSelect = `SELECT c.id, c.board_id, c.title, c.body, c.status, c.position, a.id,
 	coalesce(a.name, ''), c.labels, c.due_at, c.task_id, coalesce(t.state, ''), c.created_by,
 	c.requested_by, c.requested_by_id, c.created_at, c.updated_at,
 	(SELECT count(*) FROM card_comments cc WHERE cc.card_id = c.id), b.org_id
@@ -182,15 +184,25 @@ type Comment struct {
 	AgentID   *string   `json:"agent_id"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
+	// RequestedBy, when set, is who the comment gives the card's agent work
+	// for: the card's task then runs for them, as after an edit.
+	RequestedBy   string `json:"-"`
+	RequestedByID string `json:"-"`
 }
 
 func (s *Store) AddComment(ctx context.Context, c Comment) (Comment, error) {
-	err := s.pool.QueryRow(ctx, `INSERT INTO card_comments (id, card_id, author, agent_id, body)
-		VALUES ($1,$2,$3,$4,$5) RETURNING created_at`, c.ID, c.CardID, c.Author, c.AgentID, c.Body).
-		Scan(&c.CreatedAt)
-	if err == nil {
-		_, _ = s.pool.Exec(ctx, `UPDATE cards SET updated_at = now() WHERE id = $1`, c.CardID)
-	}
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `INSERT INTO card_comments (id, card_id, author, agent_id, body)
+			VALUES ($1,$2,$3,$4,$5) RETURNING created_at`, c.ID, c.CardID, c.Author, c.AgentID, c.Body).
+			Scan(&c.CreatedAt); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `UPDATE cards SET updated_at = now(),
+			requested_by = CASE WHEN $2 <> '' THEN $2 ELSE requested_by END,
+			requested_by_id = CASE WHEN $2 <> '' THEN $3 ELSE requested_by_id END
+			WHERE id = $1`, c.CardID, c.RequestedBy, c.RequestedByID)
+		return err
+	})
 	return c, err
 }
 

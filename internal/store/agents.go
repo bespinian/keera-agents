@@ -193,10 +193,29 @@ func (s *Store) SetAgentState(ctx context.Context, id, state, detail string) err
 		WHERE id = $1 AND deleted_at IS NULL`, id, state, detail))
 }
 
-// SetAgentKey records a newly minted gateway key, sealed.
-func (s *Store) SetAgentKey(ctx context.Context, id, keyID string, sealed []byte) error {
-	return one(s.pool.Exec(ctx, `UPDATE agents SET gateway_key_id = $2, gateway_key = $3
-		WHERE id = $1 AND deleted_at IS NULL`, id, keyID, sealed))
+// ReplaceAgentKey records a gateway key, sealed, in place of the key old,
+// or of none when old is empty. It is ErrNotFound when the agent holds
+// another key by now: another replica replaced it meanwhile, and that key
+// stands. An empty keyID clears the key.
+func (s *Store) ReplaceAgentKey(ctx context.Context, id, old, keyID string, sealed []byte) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET gateway_key_id = $3, gateway_key = $4
+		WHERE id = $1 AND gateway_key_id = $2 AND deleted_at IS NULL`, id, old, keyID, sealed))
+}
+
+// DeletedKeys are deleted agents whose key is not revoked yet, with only
+// ID, OrgID and GatewayKeyID set.
+func (s *Store) DeletedKeys(ctx context.Context) ([]Agent, error) {
+	return queryAll(ctx, s, func(row pgx.Row) (Agent, error) {
+		var a Agent
+		return a, row.Scan(&a.ID, &a.OrgID, &a.GatewayKeyID)
+	}, `SELECT id, org_id, gateway_key_id FROM agents
+		WHERE deleted_at IS NOT NULL AND gateway_key_id <> '' ORDER BY id LIMIT 100`)
+}
+
+// KeyRevoked records that a deleted agent's key is revoked.
+func (s *Store) KeyRevoked(ctx context.Context, id, keyID string) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET gateway_key_id = ''
+		WHERE id = $1 AND gateway_key_id = $2 AND deleted_at IS NOT NULL`, id, keyID))
 }
 
 func (s *Store) SetRuntimeToken(ctx context.Context, id string, hash []byte) error {
@@ -241,7 +260,8 @@ func (s *Store) SuspendIdle(ctx context.Context, id string, idleSince time.Time,
 }
 
 // DeleteAgent keeps the row, marked, so tasks and audit entries still name
-// it, and frees its name and runtime token.
+// it, and frees its name and runtime token. The key's id stays until the
+// gateway has revoked it (DeletedKeys).
 func (s *Store) DeleteAgent(ctx context.Context, id string) error {
 	return one(s.pool.Exec(ctx, `UPDATE agents SET deleted_at = now(), enabled = false,
 		state = 'stopped', runtime_token_hash = NULL, gateway_key = NULL

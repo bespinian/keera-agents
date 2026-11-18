@@ -161,7 +161,10 @@ func TestNever(t *testing.T) {
 }
 
 func TestParseRefuses(t *testing.T) {
-	for _, expr := range []string{"", "* * * *", "60 * * * *", "* 24 * * *", "5-1 * * * *", "*/0 * * * *", "x * * * *"} {
+	for _, expr := range []string{
+		"", "* * * *", "60 * * * *", "* 24 * * *", "5-1 * * * *", "*/0 * * * *", "x * * * *",
+		"1/9223372036854775807 * * * *", "*/60 * * * *",
+	} {
 		if _, err := Parse(expr); err == nil {
 			t.Errorf("%q: accepted", expr)
 		}

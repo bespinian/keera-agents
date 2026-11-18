@@ -295,6 +295,11 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal)
 		badRequest(w, "a comment is 1 character to 16 KiB")
 		return
 	}
+	author := p.Name
+	if author == "" {
+		author = p.Email
+	}
+	cm := store.Comment{ID: id.New("cmt"), CardID: c.ID, Author: author, Body: in.Body}
 	if dispatch.CommentGivesWork(c) {
 		a, err := s.st.Agent(r.Context(), *c.AgentID)
 		if err != nil {
@@ -305,12 +310,11 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal)
 			forbid(w, why)
 			return
 		}
+		// The comment goes into the task, so the task runs for whoever
+		// wrote it, never with the earlier giver's rights.
+		cm.RequestedBy, cm.RequestedByID = p.Email, p.UserID
 	}
-	author := p.Name
-	if author == "" {
-		author = p.Email
-	}
-	out, err := s.st.AddComment(r.Context(), store.Comment{ID: id.New("cmt"), CardID: c.ID, Author: author, Body: in.Body})
+	out, err := s.st.AddComment(r.Context(), cm)
 	if err != nil {
 		s.fail(w, err)
 		return

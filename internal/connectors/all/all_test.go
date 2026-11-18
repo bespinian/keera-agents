@@ -71,6 +71,10 @@ func TestRegister(t *testing.T) {
 				t.Errorf("%s: bad field %+v", d.Kind, f)
 			}
 			names[f.Name] = true
+			// Weakening TLS would let an editor read a saved secret on the way.
+			if (f.Name == "ca_cert" || f.Name == "sslmode") && !f.Endpoint {
+				t.Errorf("%s: %s must be an endpoint field", d.Kind, f.Name)
+			}
 		}
 		if _, ok := connectors.AdapterFor(d.Kind); !ok {
 			t.Errorf("no adapter for %s", d.Kind)

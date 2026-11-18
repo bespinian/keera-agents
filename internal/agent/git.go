@@ -52,13 +52,26 @@ func serve(ctx context.Context, addr string, h http.Handler) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: notFromBrowsers(h), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
 	}()
 	_ = srv.Serve(ln)
 	return nil
+}
+
+// notFromBrowsers refuses requests a browser sent. Git, pi and Cline send
+// neither header; a web page that reaches the loopback somehow, such as
+// through a proxy in the workspace, sends at least one.
+func notFromBrowsers(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" {
+			http.Error(w, "not for browsers", http.StatusForbidden)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // forward points a proxied request at path under base, with token as its

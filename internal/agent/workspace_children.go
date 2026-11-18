@@ -43,12 +43,19 @@ func experienceCommand(experience, workspace string) child {
 			"--bind-addr", "127.0.0.1:" + strconv.Itoa(vscodePort),
 			// The front lets only the owner in, through keera-agents.
 			"--auth", "none",
+			// Its /proxy/<port>/ would let any web page the owner visits
+			// reach the bridge and the git proxy. keera workspace forward
+			// does the same job safely.
+			"--disable-proxy",
 			"--disable-telemetry", "--disable-update-check",
 			workspace,
 		}, prepare: func() error { return installExtensions(workspace) }}
 	}
 	return child{name: "ttyd", path: "ttyd", args: []string{
 		"--interface", "127.0.0.1", "--port", strconv.Itoa(terminalPort), "--writable",
+		// Without it, any page open in the owner's browser could reach the
+		// shell through the port `keera workspace open` listens on.
+		"--check-origin",
 		"tmux", "new-session", "-A", "-s", "pi", "-c", workspace, "pi; exec bash -l",
 	}}
 }

@@ -684,6 +684,65 @@ func TestRekeyReplacesAndRevokesTheKey(t *testing.T) {
 	}
 }
 
+func TestRekeyReplacesTheKeyHeldNow(t *testing.T) {
+	f := newFixture(t, Options{})
+	ctx := context.Background()
+	a := f.agent(t)
+	if err := f.m.Start(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	stale := f.load(t, a.ID)
+	// Two edits in turn, each with the agent as it was read before both.
+	for range 2 {
+		if err := f.m.Rekey(ctx, stale); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := f.load(t, a.ID)
+	for _, key := range []string{"key_1", "key_2"} {
+		if !f.gw.wasRevoked("org_a", key) {
+			t.Errorf("%s still works; revoked %v, held %q", key, f.gw.revoked, got.GatewayKeyID)
+		}
+	}
+	if got.GatewayKeyID != "key_3" {
+		t.Errorf("held %q", got.GatewayKeyID)
+	}
+
+	// A key the gateway would not revoke stays, and so does the change.
+	f.gw.failRevokes(true)
+	if err := f.m.Rekey(ctx, got); err == nil {
+		t.Fatal("Rekey succeeded although the old key works")
+	}
+	if after := f.load(t, a.ID); after.GatewayKeyID != "key_3" {
+		t.Fatalf("held %q after a failed rekey", after.GatewayKeyID)
+	}
+}
+
+func TestADeletedAgentsKeyIsRevokedLater(t *testing.T) {
+	f := newFixture(t, Options{})
+	ctx := context.Background()
+	a := f.agent(t)
+	if err := f.m.Start(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	a = f.load(t, a.ID)
+	f.gw.failRevokes(true)
+	if err := f.m.Delete(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if f.gw.wasRevoked("org_a", a.GatewayKeyID) {
+		t.Fatal("revoked while the gateway refused")
+	}
+	f.gw.failRevokes(false)
+	f.m.RevokeDeletedKeys(ctx)
+	if !f.gw.wasRevoked("org_a", a.GatewayKeyID) {
+		t.Fatal("the key of a deleted agent was not revoked later")
+	}
+	if left, _ := f.st.DeletedKeys(ctx); len(left) != 0 {
+		t.Fatalf("still to revoke: %v", left)
+	}
+}
+
 func TestRecoverKeyMintsOneKeyForCallsAtOnce(t *testing.T) {
 	f := newFixture(t, Options{})
 	ctx := context.Background()

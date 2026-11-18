@@ -541,7 +541,11 @@ func TestEndToEnd(t *testing.T) {
 
 	// An agent whose key was revoked, as when its owner left and came back,
 	// gets a new one at its next bootstrap.
-	if err := st.SetAgentKey(ctx, a.ID, "", nil); err != nil {
+	keyed, err := st.Agent(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceAgentKey(ctx, a.ID, keyed.GatewayKeyID, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetRuntimeToken(ctx, a.ID, fleet.TokenHash("kat_test")); err != nil {

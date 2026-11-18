@@ -124,6 +124,9 @@ func (f *fake) request(token string, act map[string]any) (*http.Request, []byte)
 	if _, ok := act["serviceUrl"]; !ok {
 		act["serviceUrl"] = f.srv.URL + "/"
 	}
+	if _, ok := act["channelId"]; !ok {
+		act["channelId"] = "msteams"
+	}
 	body, _ := json.Marshal(act)
 	r := httptest.NewRequest(http.MethodPost, "/hook", bytes.NewReader(body))
 	if token != "" {
@@ -248,6 +251,11 @@ func TestReceiveRejects(t *testing.T) {
 		"no tenant": func() (*http.Request, []byte) {
 			act := personal("x")
 			delete(act["conversation"].(map[string]any), "tenantId")
+			return f.request(f.token(t, nil), act)
+		},
+		"web chat": func() (*http.Request, []byte) {
+			act := personal("x")
+			act["channelId"] = "webchat"
 			return f.request(f.token(t, nil), act)
 		},
 		"service URL not Microsoft": func() (*http.Request, []byte) {

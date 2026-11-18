@@ -90,9 +90,10 @@ type Field struct {
 	Required bool   `json:"required,omitempty"`
 	// Multiline is for keys and JSON files pasted whole.
 	Multiline bool `json:"multiline,omitempty"`
-	// Endpoint is a setting that says where the secrets are sent. Changing
-	// it needs the secrets entered again, so whoever edits a connector
-	// cannot send its saved token to a server of their own.
+	// Endpoint is a setting that says where the secrets are sent, or how
+	// TLS protects them on the way. Changing it needs the secrets entered
+	// again, so whoever edits a connector cannot send its saved token to a
+	// server of their own.
 	Endpoint bool `json:"endpoint,omitempty"`
 }
 
@@ -128,6 +129,10 @@ type Descriptor struct {
 	// AnyTarget is an API kind whose binding may be AnyTarget: everything
 	// the connection reaches.
 	AnyTarget bool `json:"any_target,omitempty"`
+	// Mailbox is an API kind whose binding names a person's mailbox. On a
+	// shared connector it acts as that person, so only an administrator
+	// may name a mailbox other than their own.
+	Mailbox bool `json:"mailbox,omitempty"`
 	// SignIn is set for a kind whose connectors may let each person sign
 	// in with their own account. Register sets it from the PerUser
 	// interface.

@@ -464,7 +464,12 @@ func (d *Dispatcher) mayGive(ctx context.Context, a store.Agent, orgID, userID s
 	var u gateway.User
 	if userID != "" {
 		var err error
-		if u, err = d.gw.UserByID(ctx, orgID, userID); err != nil {
+		u, err = d.gw.UserByID(ctx, orgID, userID)
+		if gateway.IsNotFound(err) {
+			// They left the organisation, so they give no work any more.
+			return false, "they are no longer in the organisation", nil
+		}
+		if err != nil {
 			return false, "", err
 		}
 	}
@@ -581,15 +586,17 @@ func (d *Dispatcher) toolComment(ctx context.Context, a store.Agent, t store.Tas
 	if err != nil {
 		return nil, err
 	}
+	agentID := a.ID
+	cm := store.Comment{ID: id.New("cmt"), CardID: c.ID, Author: a.Name, AgentID: &agentID, Body: body}
 	if CommentGivesWork(c) {
 		if err := d.mayGiveFor(ctx, t, *c.AgentID); err != nil {
 			return nil, err
 		}
+		// As for an edit: the card's task then runs for the person this
+		// one is for.
+		cm.RequestedBy, cm.RequestedByID = cmp.Or(t.RequestedBy, a.Name), t.RequestedByID
 	}
-	agentID := a.ID
-	if _, err := d.st.AddComment(ctx, store.Comment{
-		ID: id.New("cmt"), CardID: c.ID, Author: a.Name, AgentID: &agentID, Body: body,
-	}); err != nil {
+	if _, err := d.st.AddComment(ctx, cm); err != nil {
 		return nil, err
 	}
 	return "commented", nil

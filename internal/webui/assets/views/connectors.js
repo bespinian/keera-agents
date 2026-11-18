@@ -368,7 +368,7 @@ export async function catalogueView(ctx) {
   const kinds = kindsRes.data || [];
   callbackURL = kindsRes.callback_url || "";
   const connections = conns.data || [];
-  // Alphabetical first, so each category lists its services by name.
+  // Alphabetical first, so sorting by another column keeps names in order.
   const rows = kinds
     .map((k) => ({ k, mine: connections.filter((c) => c.kind === k.kind) }))
     .sort((a, b) => a.k.label.localeCompare(b.k.label));
@@ -378,7 +378,7 @@ export async function catalogueView(ctx) {
   const list = table(
     [
       {
-        label: "Service",
+        label: "Name",
         sortKey: (r) => r.k.label,
         cell: (r) =>
           h(
@@ -413,7 +413,7 @@ export async function catalogueView(ctx) {
       search: (r) =>
         [r.k.label, r.k.kind, r.k.vendor, r.k.category, r.k.summary, ...(r.k.tools || []).map((t) => t.name)].join(" "),
       searchLabel: "services",
-      sortBy: "Category",
+      sortBy: "Name",
       tile: (r) => catalogueTile(r, kinds),
       choices: [
         {

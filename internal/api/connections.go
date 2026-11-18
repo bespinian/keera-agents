@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,22 +137,29 @@ type connectionInput struct {
 	PerUser *bool `json:"per_user"`
 }
 
-// fill splits a form into settings and secrets by the kind's fields, keeps
-// secrets left empty, and checks the required ones. A saved secret is kept
-// only while its endpoint stays the same.
-func fill(d connectors.Descriptor, config, secrets, in map[string]string, inSecrets map[string]string) error {
+// movedEndpoint returns the label of an endpoint field the form changes,
+// such as a server's address, or "" if none.
+func movedEndpoint(fields []connectors.Field, config, in map[string]string) string {
 	moved := ""
-	for _, f := range d.Fields {
+	for _, f := range fields {
 		if v, ok := in[f.Name]; ok && f.Endpoint && strings.TrimSpace(v) != config[f.Name] {
 			moved = f.Label
 		}
 	}
+	return moved
+}
+
+// fill splits a form into settings and secrets by the kind's fields, keeps
+// secrets left empty, and checks the required ones. A saved secret is kept
+// only while its endpoint stays the same.
+func fill(d connectors.Descriptor, config, secrets, in map[string]string, inSecrets map[string]string) error {
+	moved := movedEndpoint(d.Fields, config, in)
 	for _, f := range d.Fields {
 		if f.Secret {
 			if v := strings.TrimSpace(inSecrets[f.Name]); v != "" {
 				secrets[f.Name] = v
 			} else if moved != "" && secrets[f.Name] != "" {
-				return errors.New("enter the " + strings.ToLower(f.Label) + " again: it is sent to the new " + moved)
+				return errors.New("enter the " + strings.ToLower(f.Label) + " again: the " + moved + " changed")
 			}
 			if f.Required && secrets[f.Name] == "" {
 				return errors.New(f.Label + " is required")
@@ -287,9 +295,26 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Prin
 		// Unreadable secrets, as after a changed secret key, are replaced.
 		secrets = map[string]string{}
 	}
+	fields := d.Fields
+	if c.PerUser && d.SignIn != nil {
+		fields = d.SignIn.Fields
+	}
+	moved := movedEndpoint(fields, c.Config, in.Config)
 	if err := s.prepare(r.Context(), d, &c, secrets, in); err != nil {
 		badRequest(w, err.Error())
 		return
+	}
+	// People's tokens were given for the old server. Forgotten before the
+	// new one is saved, so no call sends them there meanwhile.
+	if c.PerUser && moved != "" {
+		n, err := s.disp.ForgetSignIns(r.Context(), c.ID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		s.record(r.Context(), p, "connection.sign_ins_forgotten", c.ID, map[string]string{
+			"name": c.Name, "count": strconv.FormatInt(n, 10),
+		})
 	}
 	out, err := s.st.UpdateConnection(r.Context(), c)
 	if err != nil {

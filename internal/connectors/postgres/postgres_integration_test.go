@@ -109,6 +109,15 @@ func TestDatabase(t *testing.T) {
 		`"rows":[["1","12.50",null],["2","99.00","rush"]],"more":true,"command":"SELECT 3"}` {
 		t.Errorf("query = %s, %v", out, err)
 	}
+	// A result stops at its size, however many rows were asked for.
+	out, err = call(t, a, conn, "query", `{"sql":"SELECT repeat('x', 5000) a, repeat('y', 5000) b FROM generate_series(1, 1000)","limit":1000}`)
+	if err != nil || !strings.Contains(out, `"more":true`) || len(out) > 2*maxResult {
+		t.Errorf("a large result: %d bytes, %v", len(out), err)
+	}
+	if _, err := call(t, a, conn, "query", `{"sql":"SELECT repeat('x', 10000000)"}`); err == nil ||
+		!strings.Contains(err.Error(), "larger than") {
+		t.Errorf("a row past the message limit: %v", err)
+	}
 	// A query only reads, even one that tries to write or to end its
 	// transaction first.
 	for _, sql := range []string{

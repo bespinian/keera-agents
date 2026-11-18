@@ -38,8 +38,9 @@ panel shows the same setup steps next to the form.
 **Credentials are sealed** with `KEERA_AGENTS_SECRET_KEY` and opened only to
 make a call. The panel never shows them again; leaving a secret field empty
 when editing keeps it, unless the server it is sent to changes, as with a new
-GitHub or GitLab URL: then it must be entered again, so nobody can send a saved
-token to a server of their own. A connector is checked with the service before it is
+GitHub or GitLab URL, or its TLS settings change: then it must be entered
+again, so nobody can send a saved token to a server of their own. On a connector people sign in to, such a
+change also signs everyone out, and they sign in again. A connector is checked with the service before it is
 saved, so a typo fails at once with the service's own reason.
 
 **The webhook address** of a chat connector is
@@ -515,6 +516,7 @@ Agents get these tools:
 **A binding names one mailbox**, by its address, and every call goes to that
 mailbox alone. There is no `*`: the app's permissions reach every mailbox it
 is allowed, so an agent gets only its own.
+A member may bind only their own mailbox; an administrator may bind any.
 
 ## Gmail
 
@@ -530,8 +532,9 @@ Settings: `service_account_json`.
 A service account has no mailbox of its own, so **a binding names one
 mailbox** by its address, and the connector acts as it through domain-wide
 delegation. Delegation lets the service account act as any mailbox in the
-domain, so keep its key in the connector only. A mailbox is checked when an
-agent is bound to it. `gmail.modify` reads, sends, drafts and labels mail, but
+domain, so keep its key in the connector only, and only an administrator may
+bind a mailbox other than their own. A mailbox is checked when an agent is
+bound to it. `gmail.modify` reads, sends, drafts and labels mail, but
 never deletes it for good.
 
 Agents get these tools:

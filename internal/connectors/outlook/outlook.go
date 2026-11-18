@@ -83,6 +83,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		TargetLabel: "Mailbox",
 		TargetHelp: "The mailbox's email address, such as assistant@example.com. On a connector people sign in to, " +
 			"me is the mailbox of whoever gives the agent work.",
+		Mailbox: true,
 	}
 }
 

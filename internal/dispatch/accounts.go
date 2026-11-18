@@ -84,6 +84,16 @@ func (d *Dispatcher) Disconnect(ctx context.Context, connectionID, userID string
 	return d.st.DeleteAccount(ctx, connectionID, userID)
 }
 
+// ForgetSignIns forgets everyone's sign-in to a connector, as when it moves
+// to another server: their tokens must not be sent there. It returns how
+// many there were. Other replicas read the account before each use, so
+// deleting it stops them too.
+func (d *Dispatcher) ForgetSignIns(ctx context.Context, connectionID string) (int64, error) {
+	n, err := d.st.DeleteConnectionAccounts(ctx, connectionID)
+	d.tokens.forgetConnection(connectionID)
+	return n, err
+}
+
 // asPerson gives a connection people sign in to the access token of the
 // person a call is for. who names them in errors. Any other connection is
 // returned as it is.
@@ -261,6 +271,16 @@ func (t *tokens) forget(connectionID, userID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.m, tokenKey(connectionID, userID))
+}
+
+func (t *tokens) forgetConnection(connectionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for key := range t.m {
+		if strings.HasPrefix(key, connectionID+"|") {
+			delete(t.m, key)
+		}
+	}
 }
 
 func (t *tokens) forgetUser(userID string) {

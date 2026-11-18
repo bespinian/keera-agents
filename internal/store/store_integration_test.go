@@ -461,8 +461,18 @@ func TestCardPickup(t *testing.T) {
 	if _, err := st.AddComment(ctx, Comment{ID: id.New("cmt"), CardID: c1.ID, Author: "ada", Body: "hi"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.Card(ctx, c1.ID); got.Comments != 1 {
-		t.Fatalf("comments = %d", got.Comments)
+	if got, _ := st.Card(ctx, c1.ID); got.Comments != 1 || got.RequestedByID != "" {
+		t.Fatalf("after a comment that gives no work: %+v", got)
+	}
+	// A comment that gives work makes its writer the one the task runs for.
+	if _, err := st.AddComment(ctx, Comment{
+		ID: id.New("cmt"), CardID: c1.ID, Author: "Cy", Body: "also this",
+		RequestedBy: "cy@example.ch", RequestedByID: "usr_cy",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Card(ctx, c1.ID); got.Comments != 2 || got.RequestedByID != "usr_cy" {
+		t.Fatalf("after a comment that gives work: %+v", got)
 	}
 	// Whoever last gave the work is kept apart from who created the card.
 	got.RequestedBy, got.RequestedByID = "bob@example.ch", "usr_bob"
@@ -475,6 +485,13 @@ func TestCardPickup(t *testing.T) {
 	cards, err := st.BoardCards(ctx, b.ID)
 	if err != nil || len(cards) != 2 || cards[0].ID != c2.ID {
 		t.Fatalf("board order: %v, %v", cards, err)
+	}
+	// A deleted agent's card reads as unassigned, so it can be edited.
+	if err := st.DeleteAgent(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Card(ctx, c1.ID); got.AgentID != nil || got.AgentName != "" {
+		t.Fatalf("a deleted agent's card: %+v", got)
 	}
 }
 

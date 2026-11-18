@@ -32,6 +32,8 @@ ssh api.keera                         # ssh, scp, VS Code Remote-SSH, JetBrains
 
 `open` and `forward` listen on the loopback of the person's machine, as
 `kubectl port-forward` does, and pass each connection through keera-agents.
+VS Code's own port proxy, `/proxy/<port>/`, is off: any web page the person
+visits could reach it. Use `forward` instead.
 `ssh-config` makes `~/.ssh/keera_ed25519` if there is none, adds its public
 half to the person's keys, and adds a `Host *.keera` entry whose
 `ProxyCommand` is `keera workspace ssh-proxy`. SSH then runs end to end, from
@@ -80,6 +82,15 @@ connection to a port on the loopback, where everything else listens:
 | 8080 | code-server, the VS Code experience                  |
 | 7417 | the git proxy, as for an agent                       |
 | 7418 | the bridge, below                                    |
+
+**The browser's address is checked.** ttyd and code-server let in whoever
+reaches them, and `open` listens on the person's loopback, where any web page
+they visit can try to connect. So for `web`, the front lets a connection
+through only if its first request names the loopback (`127.0.0.1`,
+`localhost`), which a page that points its own name there cannot fake. ttyd
+also refuses WebSockets from another origin, and code-server does the same
+itself. keera-agents follows no redirect from the front, since the owner
+chooses the image that answers there.
 
 ## What a workspace holds
 

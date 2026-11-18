@@ -301,6 +301,12 @@ func load(getenv func(string) string) (Config, error) {
 	if !slices.Contains([]string{"", "podman", "kubernetes"}, c.Runtime.Driver) {
 		return c, fmt.Errorf("KEERA_AGENTS_DRIVER must be podman, kubernetes or empty, not %q", c.Runtime.Driver)
 	}
+	// In keera-agents' own namespace, an agent's shell could reach the
+	// database, and anyone who reads pods there reads agents' tokens.
+	if c.Runtime.Driver == "kubernetes" && c.Runtime.Namespace == "" {
+		return c, errors.New("KEERA_AGENTS_NAMESPACE must name where agents run: " +
+			"a namespace of their own, with the NetworkPolicy in docs/agents.md#hardening")
+	}
 	if !slices.Contains([]string{"debug", "info", "warn", "error"}, c.LogLevel) {
 		return c, fmt.Errorf("KEERA_AGENTS_LOG_LEVEL must be debug, info, warn or error, not %q", c.LogLevel)
 	}

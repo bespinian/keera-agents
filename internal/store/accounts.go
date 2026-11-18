@@ -87,6 +87,13 @@ func (s *Store) DeleteAccount(ctx context.Context, connectionID, userID string) 
 		connectionID, userID))
 }
 
+// DeleteConnectionAccounts forgets everyone's sign-in to a connector and
+// returns how many there were.
+func (s *Store) DeleteConnectionAccounts(ctx context.Context, connectionID string) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM accounts WHERE connection_id = $1`, connectionID)
+	return tag.RowsAffected(), err
+}
+
 // DeleteUserAccounts forgets every sign-in of a person in an organisation,
 // as when they leave it, and returns how many there were.
 func (s *Store) DeleteUserAccounts(ctx context.Context, orgID, userID string) (int64, error) {

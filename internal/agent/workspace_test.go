@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -231,5 +233,67 @@ func TestMergeJSONKeepsWhatTheOwnerWrote(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(path); string(raw) != "not json" {
 		t.Errorf("the owner's file is now %q", raw)
+	}
+}
+
+func TestFromLoopback(t *testing.T) {
+	try := func(host string) (string, bool) {
+		t.Helper()
+		browser, front := net.Pipe()
+		defer func() { _ = browser.Close() }()
+		request := "GET /ws HTTP/1.1\r\nHost: " + host + "\r\n\r\n"
+		answer := make(chan string, 1)
+		go func() {
+			_, _ = browser.Write([]byte(request))
+			b, _ := io.ReadAll(browser)
+			answer <- string(b)
+		}()
+		conn, ok := fromLoopback(front)
+		if !ok {
+			return <-answer, false
+		}
+		defer func() { _ = conn.Close() }()
+		// What was read to check it still reaches the inside.
+		got := make([]byte, len(request))
+		if _, err := io.ReadFull(conn, got); err != nil {
+			t.Fatal(err)
+		}
+		return string(got), true
+	}
+
+	for _, host := range []string{"127.0.0.1:41234", "localhost:41234", "[::1]:41234", "app.localhost"} {
+		if got, ok := try(host); !ok || !strings.Contains(got, "Host: "+host) {
+			t.Errorf("%s was refused or changed: %q", host, got)
+		}
+	}
+	for _, host := range []string{"evil.example:41234", "127.0.0.1.evil.example", "10.0.0.1"} {
+		if got, ok := try(host); ok || !strings.HasPrefix(got, "HTTP/1.1 421") {
+			t.Errorf("%s was let in: %q", host, got)
+		}
+	}
+}
+
+func TestBridgeRefusesBrowsers(t *testing.T) {
+	h := notFromBrowsers(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	for name, tc := range map[string]struct {
+		header, value string
+		want          int
+	}{
+		"a coding agent":   {want: http.StatusOK},
+		"a web page":       {header: "Origin", value: "https://evil.example", want: http.StatusForbidden},
+		"a page's no-cors": {header: "Sec-Fetch-Site", value: "cross-site", want: http.StatusForbidden},
+	} {
+		r := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("{}"))
+		if tc.header != "" {
+			r.Header.Set(tc.header, tc.value)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.want {
+			t.Errorf("%s: %d, want %d", name, w.Code, tc.want)
+		}
+	}
+	if !slices.Contains(experienceCommand("vscode", "/w").args, "--disable-proxy") {
+		t.Error("code-server's proxy would let web pages reach the bridge")
 	}
 }

@@ -29,6 +29,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 
 	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/connectors/internal/apitool"
@@ -41,6 +42,12 @@ const (
 	// maxCell bounds one value in a result, in bytes, so one large
 	// JSON document does not fill the model's context.
 	maxCell = 2000
+	// maxResult bounds a result's cells together. Cut cells alone are not
+	// enough: a query can return hundreds of wide columns, a thousand times.
+	maxResult = 1 << 20
+	// maxMessage bounds one message from the server, such as a row, before
+	// it is cut. Without it a single huge value is read whole.
+	maxMessage = 8 << 20
 )
 
 type Adapter struct {
@@ -74,12 +81,12 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 			{Name: "user", Label: "User", Required: true, Help: "A role made for your agents."},
 			{Name: "password", Label: "Password", Secret: true, Required: true},
 			{
-				Name: "sslmode", Label: "TLS",
+				Name: "sslmode", Label: "TLS", Endpoint: true,
 				Help: "Empty or verify-full to require TLS and check the server's certificate, " +
 					"or disable for a server inside your network without TLS.",
 			},
 			{
-				Name: "ca_cert", Label: "CA certificate", Multiline: true,
+				Name: "ca_cert", Label: "CA certificate", Multiline: true, Endpoint: true,
 				Help: "The CA of the server's certificate in PEM, if it is not from a public CA.",
 			},
 		},
@@ -139,6 +146,7 @@ func (a *Adapter) config(conn connectors.Connection, readOnly bool) (*pgx.ConnCo
 		}
 	}
 	cfg.ConnectTimeout = timeout
+	cfg.MaxProtocolMessageBodyLen = maxMessage
 	// The egress guard checks the name before DNS, so it gets the name.
 	cfg.LookupFunc = func(_ context.Context, host string) ([]string, error) { return []string{host}, nil }
 	cfg.DialFunc = a.dial
@@ -207,6 +215,9 @@ func sqlError(err error) error {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("the statement took longer than %s; ask for less", timeout)
+	}
+	if _, ok := errors.AsType[*pgproto3.ExceededMaxBodyLenErr](err); ok {
+		return fmt.Errorf("a row is larger than %d MiB; select fewer or shorter columns", maxMessage>>20)
 	}
 	return err
 }
@@ -286,6 +297,7 @@ func read(ctx context.Context, tx pgx.Tx, sql string, limit int, args []any) (Re
 	}
 	defer rows.Close()
 	var res Result
+	size := 0
 	for _, f := range rows.FieldDescriptions() {
 		typ := "oid " + strconv.FormatUint(uint64(f.DataTypeOID), 10)
 		if t, ok := tx.Conn().TypeMap().TypeForOID(f.DataTypeOID); ok {
@@ -294,14 +306,16 @@ func read(ctx context.Context, tx pgx.Tx, sql string, limit int, args []any) (Re
 		res.Columns = append(res.Columns, Column{Name: f.Name, Type: typ})
 	}
 	for rows.Next() {
-		if len(res.Rows) == limit {
+		if len(res.Rows) == limit || size > maxResult {
 			res.More = true
 			break
 		}
 		row := make([]any, len(res.Columns))
 		for i, v := range rows.RawValues() {
 			if v != nil {
-				row[i] = web.Cut(string(v), maxCell, "…")
+				cell := web.Cut(string(v[:min(len(v), maxCell+1)]), maxCell, "…")
+				size += len(cell)
+				row[i] = cell
 			}
 		}
 		res.Rows = append(res.Rows, row)

@@ -716,6 +716,10 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 			return
 		}
 		in.Target = target
+		if err := mayNameMailbox(p, desc, c, target); err != nil {
+			forbid(w, err.Error())
+			return
+		}
 	case c.PerUser:
 		if _, err := s.disp.ConnFor(r.Context(), c, p.UserID); err != nil {
 			badRequest(w, err.Error())
@@ -734,6 +738,16 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 		"agent": a.Name, "connection": c.Name, "target": b.Target, "mode": b.Mode,
 	})
 	writeJSON(w, http.StatusCreated, b)
+}
+
+// mayNameMailbox stops a member from binding someone else's mailbox. A
+// shared mail connector acts as any mailbox in the domain, so without this
+// a member's agent could read and send the mail of anyone there.
+func mayNameMailbox(p Principal, desc connectors.Descriptor, c store.Connection, target string) error {
+	if !desc.Mailbox || c.PerUser || p.CanAdmin() || strings.EqualFold(target, p.Email) {
+		return nil
+	}
+	return errors.New("only an administrator can connect an agent to a mailbox other than your own")
 }
 
 // heldByOther returns a chat binding of an agent someone other than a's

@@ -108,6 +108,7 @@ type account struct {
 type activity struct {
 	Type         string  `json:"type"`
 	ID           string  `json:"id"`
+	ChannelID    string  `json:"channelId"`
 	ServiceURL   string  `json:"serviceUrl"`
 	Text         string  `json:"text"`
 	From         account `json:"from"`
@@ -157,6 +158,12 @@ func (a *Adapter) Receive(ctx context.Context, conn connectors.Connection, r *ht
 	}
 	if act.Type != "message" {
 		return connectors.Receipt{}, nil
+	}
+	// The bot's other channels, such as Web Chat and Direct Line, sign their
+	// activities too, but their clients say themselves who sends them and
+	// from which tenant.
+	if act.ChannelID != "msteams" {
+		return connectors.Receipt{}, fmt.Errorf("%w: the message does not come from Microsoft Teams", connectors.ErrUnverified)
 	}
 	if !a.allowed(act.ServiceURL) {
 		return connectors.Receipt{}, fmt.Errorf("%w: the service URL is not a Microsoft address", connectors.ErrUnverified)

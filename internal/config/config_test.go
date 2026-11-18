@@ -40,6 +40,7 @@ func TestRefusals(t *testing.T) {
 		"short service": func(m map[string]string) { m["KEERA_AGENTS_SERVICE_KEY"] = "short" },
 		"no database":   func(m map[string]string) { delete(m, "KEERA_AGENTS_DATABASE_URL") },
 		"bad driver":    func(m map[string]string) { m["KEERA_AGENTS_DRIVER"] = "docker" },
+		"no namespace":  func(m map[string]string) { m["KEERA_AGENTS_DRIVER"] = "kubernetes" },
 		"tiny idle":     func(m map[string]string) { m["KEERA_AGENTS_IDLE_SUSPEND"] = "5s" },
 		"no timeout":    func(m map[string]string) { m["KEERA_AGENTS_TASK_TIMEOUT"] = "0" },
 		"bad userns":    func(m map[string]string) { m["KEERA_AGENTS_USER_NAMESPACES"] = "maybe" },

@@ -52,6 +52,7 @@ func (personal) SignIn() connectors.SignIn {
 	return connectors.SignIn{Setup: "Register {callback}.", Fields: []connectors.Field{
 		{Name: "client_id", Label: "Client ID", Required: true},
 		{Name: "client_secret", Label: "Client secret", Secret: true, Required: true},
+		{Name: "server", Label: "Server", Endpoint: true},
 	}}
 }
 
@@ -318,6 +319,26 @@ func TestAccounts(t *testing.T) {
 	if _, err := st.Account(ctx, conn.ID, "usr_ada"); err != nil {
 		t.Errorf("a member was signed out: %v", err)
 	}
+
+	// Moving the connector to another server forgets everyone's sign-in,
+	// so their tokens are never sent there. Other changes keep them.
+	if code := call("PATCH", "/api/v1/connections/"+conn.ID, map[string]any{
+		"config": map[string]string{"client_id": "cid"},
+	}, nil); code != http.StatusOK {
+		t.Fatalf("an edit: %d", code)
+	}
+	if _, err := st.Account(ctx, conn.ID, "usr_ada"); err != nil {
+		t.Fatalf("an edit signed Ada out: %v", err)
+	}
+	if code := call("PATCH", "/api/v1/connections/"+conn.ID, map[string]any{
+		"config": map[string]string{"server": "https://elsewhere.example"}, "secrets": map[string]string{"client_secret": "pw"},
+	}, nil); code != http.StatusOK {
+		t.Fatalf("a move: %d", code)
+	}
+	if out, failed := tool("usr_ada", "ada@example.ch"); !failed || !strings.Contains(out, "has not connected") {
+		t.Errorf("after a move: %q", out)
+	}
+	listWith(signIn("good"))
 
 	if code := call("DELETE", "/api/v1/connections/"+conn.ID+"/account", nil, nil); code != http.StatusNoContent {
 		t.Fatalf("disconnect: %d", code)

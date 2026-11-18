@@ -329,6 +329,7 @@ func (a *App) Background(ctx context.Context) {
 				lastMeter = now
 			}
 			if now.Sub(lastOwners) >= 10*time.Minute && step(ctx, func(ctx context.Context) {
+				fl.RevokeDeletedKeys(ctx)
 				fl.CheckOwners(ctx)
 				disp.CheckAccounts(ctx)
 			}) {

@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,5 +83,26 @@ func TestOnlyTheOwnerChangesAWorkspaceImage(t *testing.T) {
 	if err := s.applyWorkspace(context.Background(), owner, &a, image("registry/workspace:2")); err != nil ||
 		a.Image != "registry/workspace:2" {
 		t.Fatalf("the owner could not change it: %v, %q", err, a.Image)
+	}
+}
+
+func TestDialFrontFollowsNoRedirect(t *testing.T) {
+	var reached atomic.Bool
+	inside := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached.Store(true)
+		_, _ = io.WriteString(w, "secret")
+	}))
+	defer inside.Close()
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, inside.URL, http.StatusFound)
+	}))
+	defer front.Close()
+
+	_, err := (&Server{}).dialFront(t.Context(), strings.TrimPrefix(front.URL, "http://"), "s", "7681")
+	if err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("err = %v", err)
+	}
+	if reached.Load() {
+		t.Error("the redirect was followed")
 	}
 }

@@ -152,7 +152,9 @@ type fakeGateway struct {
 	mu        sync.Mutex
 	mints     int
 	mintFails bool
-	lookups   int
+	// revokeFails makes revoking a key fail, as when the gateway is down.
+	revokeFails bool
+	lookups     int
 	// revoked holds "org/key".
 	revoked []string
 }
@@ -181,6 +183,10 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.mints++
 		reply(http.StatusCreated, gateway.Key{ID: fmt.Sprintf("key_%d", g.mints), Secret: fmt.Sprintf("sk-%d", g.mints)})
 	case strings.HasPrefix(r.URL.Path, "/control/v1/service/keys/") && r.Method == http.MethodDelete:
+		if g.revokeFails {
+			refuse(http.StatusServiceUnavailable, "unavailable", "the gateway is busy")
+			return
+		}
 		g.revoked = append(g.revoked, r.URL.Query().Get("org_id")+"/"+strings.TrimPrefix(r.URL.Path, "/control/v1/service/keys/"))
 		w.WriteHeader(http.StatusNoContent)
 	case r.URL.Path == "/control/v1/service/users":
@@ -206,6 +212,12 @@ func (g *fakeGateway) wasRevoked(org, key string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return slices.Contains(g.revoked, org+"/"+key)
+}
+
+func (g *fakeGateway) failRevokes(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.revokeFails = fail
 }
 
 func (g *fakeGateway) counts() (mints, lookups int) {

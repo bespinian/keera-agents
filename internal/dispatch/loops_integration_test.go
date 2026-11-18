@@ -241,6 +241,29 @@ func TestPickUpChecksWhoGaveTheWork(t *testing.T) {
 	}
 }
 
+func TestACardFromSomeoneWhoLeftGoesToBacklog(t *testing.T) {
+	e := setup(t)
+	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	board, err := e.d.EnsureBoard(e.ctx, "org_a", "ada@example.ch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := e.st.CreateCard(e.ctx, store.Card{
+		ID: id.New("card"), BoardID: board.ID, Title: "Write the report", Status: store.CardTodo,
+		AgentID: &a.ID, RequestedBy: "gone@example.ch", RequestedByID: "usr_gone",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.d.PickUpCards(e.ctx)
+	if n := len(e.tasks(t, a)); n != 0 {
+		t.Fatalf("the card made %d tasks", n)
+	}
+	if got, _ := e.st.Card(e.ctx, c.ID); got.Status != store.CardBacklog {
+		t.Fatalf("card in %s, not Backlog", got.Status)
+	}
+}
+
 // pickUp picks up a card and returns its task.
 func (e *testEnv) pickUp(t *testing.T, a store.Agent, c store.Card) store.Task {
 	t.Helper()

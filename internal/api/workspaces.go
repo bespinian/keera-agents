@@ -314,11 +314,17 @@ func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Prin
 // that was just started may not listen yet, so a failed connection is tried
 // again for a while. An answer from the front is final.
 func (s *Server) dialFront(ctx context.Context, addr, secret, port string) (io.ReadWriteCloser, error) {
-	hc := &http.Client{Transport: &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
-		ResponseHeaderTimeout: 20 * time.Second,
-		DisableKeepAlives:     true,
-	}}
+	hc := &http.Client{
+		Transport: &http.Transport{
+			DialContext:           (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+			ResponseHeaderTimeout: 20 * time.Second,
+			DisableKeepAlives:     true,
+		},
+		// The owner chooses the workspace's image, so its front may answer
+		// with a redirect to anywhere inside. Following it would fetch that
+		// for them, and the answer's body comes back in the error.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 	deadline := time.Now().Add(frontDial)
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost,

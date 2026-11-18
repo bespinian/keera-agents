@@ -3,6 +3,7 @@ package runtime
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -66,11 +67,7 @@ func NewKubernetes(ctx context.Context, opts KubernetesOptions) (*Kubernetes, er
 		opts.Log = slog.Default()
 	}
 	if opts.Namespace == "" {
-		// Allowed so an install without it still starts, but warned about.
-		opts.Namespace = inClusterNamespace()
-		opts.Log.Warn("KEERA_AGENTS_NAMESPACE is not set, so agents run in keera-agents' own "+
-			"namespace, where anyone who can read pods can read their runtime tokens; "+
-			"give them a namespace of their own", "namespace", opts.Namespace)
+		return nil, errors.New("kubernetes: name the namespace agents run in")
 	}
 	c, err := newKubeClient(opts.Kube)
 	if err != nil {

@@ -100,16 +100,6 @@ func kubeTLS(cfg KubeConfig) (*tls.Config, error) {
 	return tlsCfg, nil
 }
 
-// inClusterNamespace is this pod's namespace, or "default" outside a cluster.
-func inClusterNamespace() string {
-	if raw, err := os.ReadFile(serviceAccountDir + "/namespace"); err == nil {
-		if ns := strings.TrimSpace(string(raw)); ns != "" {
-			return ns
-		}
-	}
-	return "default"
-}
-
 func (c *kubeClient) readToken() error {
 	raw, err := os.ReadFile(c.tokenPath)
 	if err != nil {

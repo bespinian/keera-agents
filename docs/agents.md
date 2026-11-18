@@ -153,6 +153,7 @@ would round down to no limit at all on podman.
 
 **Kubernetes.** keera-agents must run in the cluster, and agents in a
 namespace of their own, since whoever reads pods there reads runtime tokens.
+`KEERA_AGENTS_NAMESPACE` names it; keera-agents does not start without it.
 Nothing needs to be installed on the cluster. The service account needs the
 Role in [Hardening](#hardening), in that namespace only. A changed spec patches the
 StatefulSet's pod template, and the StatefulSet replaces the pod on the same

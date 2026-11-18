@@ -1,10 +1,14 @@
 package agent
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/subtle"
+	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -60,7 +64,52 @@ func (r *runner) front(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	stream.Join(conn, inside)
+	var outside io.ReadWriteCloser = conn
+	if req.URL.Query().Get("port") == protocol.PortWeb {
+		if outside, ok = fromLoopback(conn); !ok {
+			_ = inside.Close()
+			return
+		}
+	}
+	stream.Join(outside, inside)
+}
+
+// maxHead bounds the first request's line and headers.
+const maxHead = 64 << 10
+
+// fromLoopback lets a browser's connection through only if its first request
+// names the loopback, where `keera workspace open` listens. The terminal and
+// VS Code let in whoever reaches them, so a web page that points its own name
+// at 127.0.0.1 (DNS rebinding) must not. One connection carries one host, so
+// the first request is enough.
+func fromLoopback(conn net.Conn) (io.ReadWriteCloser, bool) {
+	var head bytes.Buffer
+	req, err := http.ReadRequest(bufio.NewReader(io.TeeReader(io.LimitReader(conn, maxHead), &head)))
+	if err != nil || !loopbackHost(req.Host) {
+		_, _ = io.WriteString(conn, "HTTP/1.1 421 Misdirected Request\r\n"+
+			"Content-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n"+
+			"Open the workspace at the address keera workspace open prints.\n")
+		_ = conn.Close()
+		return nil, false
+	}
+	return struct {
+		io.Reader
+		io.Writer
+		io.Closer
+	}{io.MultiReader(&head, conn), conn, conn}, true
+}
+
+// loopbackHost reports whether a Host header names this machine.
+func loopbackHost(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	return err == nil && ip.Unmap().IsLoopback()
 }
 
 // frontPort resolves the port a connection names.

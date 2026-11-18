@@ -164,11 +164,28 @@ func keyName(a store.Agent) string {
 // moved onto another's row.
 func keySealName(agentID string) string { return "agent-key:" + agentID }
 
-// ensureKey mints the agent's gateway key if it has none.
+// ensureKey mints the agent's gateway key if it has none. If another
+// replica stored one meanwhile, that one is kept and a's is read again.
 func (m *Manager) ensureKey(ctx context.Context, a *store.Agent) error {
 	if a.GatewayKeyID != "" && len(a.GatewayKey) > 0 {
 		return nil
 	}
+	err := m.replaceKey(ctx, a)
+	if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	fresh, ferr := m.st.Agent(ctx, a.ID)
+	if ferr != nil || fresh.GatewayKeyID == "" || len(fresh.GatewayKey) == 0 {
+		return err
+	}
+	*a = fresh
+	return nil
+}
+
+// replaceKey mints a key for a's settings and stores it in place of
+// a.GatewayKeyID, which it does not revoke. A key that cannot be stored is
+// revoked; ErrNotFound means the agent holds another key by now.
+func (m *Manager) replaceKey(ctx context.Context, a *store.Agent) error {
 	k, err := m.gw.MintKey(ctx, gateway.KeyRequest{
 		OrgID: a.OrgID, ProjectID: a.ProjectID, UserID: a.OwnerID,
 		Name: keyName(*a), BudgetMicros: a.BudgetMicros,
@@ -177,7 +194,7 @@ func (m *Manager) ensureKey(ctx context.Context, a *store.Agent) error {
 		return fmt.Errorf("the gateway did not issue a key for this agent: %w", err)
 	}
 	sealed := m.box.Seal(keySealName(a.ID), []byte(k.Secret))
-	if err := m.st.SetAgentKey(ctx, a.ID, k.ID, sealed); err != nil {
+	if err := m.st.ReplaceAgentKey(ctx, a.ID, a.GatewayKeyID, k.ID, sealed); err != nil {
 		_ = m.gw.RevokeKey(context.WithoutCancel(ctx), a.OrgID, k.ID)
 		return err
 	}
@@ -188,21 +205,35 @@ func (m *Manager) ensureKey(ctx context.Context, a *store.Agent) error {
 // Rekey replaces the agent's key, as when its project or budget changes. A
 // running agent's next gateway request fails with 401, and its runtime then
 // fetches the new key.
+//
+// It reads the agent again, so the key carries what is saved now, and
+// replaces the key the agent holds now, not one it held when a was read.
+// The old key is revoked before the new one is stored: an old key left
+// working would keep the old project and budget, unnoticed.
 func (m *Manager) Rekey(ctx context.Context, a store.Agent) error {
 	unlock, err := m.lock(ctx, a.ID)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	old := a.GatewayKeyID
-	a.GatewayKeyID, a.GatewayKey = "", nil
-	if err := m.ensureKey(ctx, &a); err != nil {
+	if a, err = m.st.Agent(ctx, a.ID); err != nil {
 		return err
 	}
+	old := a.GatewayKeyID
 	if old != "" {
 		if err := m.gw.RevokeKey(ctx, a.OrgID, old); err != nil {
-			m.log.Warn("could not revoke an agent's old key", "agent", a.ID, "key", old, "error", err)
+			return fmt.Errorf("the gateway did not revoke the agent's old key: %w", err)
 		}
+	}
+	err = m.replaceKey(ctx, &a)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return errors.New("the agent's key was replaced meanwhile; try again")
+	case err != nil:
+		// The revoked key must not be handed out; without one, the
+		// runtime's next request for a key mints it.
+		_ = m.st.ReplaceAgentKey(context.WithoutCancel(ctx), a.ID, old, "", nil)
+		return err
 	}
 	return nil
 }
@@ -449,12 +480,29 @@ func (m *Manager) Delete(ctx context.Context, a store.Agent) error {
 			return fmt.Errorf("the agent's machine could not be removed: %w", err)
 		}
 	}
-	if a.GatewayKeyID != "" {
+	if err := m.st.DeleteAgent(ctx, a.ID); err != nil {
+		return err
+	}
+	m.RevokeDeletedKeys(ctx)
+	return nil
+}
+
+// RevokeDeletedKeys revokes the keys of deleted agents. A deleted agent
+// keeps its key's id until the gateway has revoked it, so a revocation that
+// fails is tried again in the next round.
+func (m *Manager) RevokeDeletedKeys(ctx context.Context) {
+	agents, err := m.st.DeletedKeys(ctx)
+	if err != nil {
+		m.log.Warn("could not list deleted agents' keys", "error", err)
+		return
+	}
+	for _, a := range agents {
 		if err := m.gw.RevokeKey(ctx, a.OrgID, a.GatewayKeyID); err != nil {
 			m.log.Warn("could not revoke a deleted agent's key", "agent", a.ID, "error", err)
+			continue
 		}
+		_ = m.st.KeyRevoked(ctx, a.ID, a.GatewayKeyID)
 	}
-	return m.st.DeleteAgent(ctx, a.ID)
 }
 
 func stateOf(st runtime.Status) string {
@@ -691,18 +739,26 @@ func (m *Manager) CheckOwners(ctx context.Context) {
 		if !gone {
 			continue
 		}
-		m.log.Info("stopping an agent whose owner left", "agent", a.ID, "owner", a.OwnerEmail)
-		if a, err = m.st.SetEnabled(ctx, a.ID, false); err != nil {
-			continue
+		if a.Enabled {
+			m.log.Info("stopping an agent whose owner left", "agent", a.ID, "owner", a.OwnerEmail)
+			if a, err = m.st.SetEnabled(ctx, a.ID, false); err != nil {
+				continue
+			}
+			_ = m.stop(ctx, a, "the agent's owner no longer has access",
+				a.OwnerEmail+" no longer has access, so this agent was stopped; an administrator can take it over")
+			_ = m.st.Audit(ctx, a.OrgID, "keera-agents", "agent.owner_left", a.ID,
+				map[string]string{"owner": a.OwnerEmail})
 		}
-		_ = m.stop(ctx, a, "the agent's owner no longer has access",
-			a.OwnerEmail+" no longer has access, so this agent was stopped; an administrator can take it over")
+		// A key that is not revoked stays, so the next round tries again.
+		// It is cleared only if it is still the one revoked: an
+		// administrator taking the agent over meanwhile has a new one.
 		if a.GatewayKeyID != "" {
-			_ = m.gw.RevokeKey(ctx, a.OrgID, a.GatewayKeyID)
-			_ = m.st.SetAgentKey(ctx, a.ID, "", nil)
+			if err := m.gw.RevokeKey(ctx, a.OrgID, a.GatewayKeyID); err != nil {
+				m.log.Warn("could not revoke the key of an agent whose owner left", "agent", a.ID, "error", err)
+				continue
+			}
+			_ = m.st.ReplaceAgentKey(ctx, a.ID, a.GatewayKeyID, "", nil)
 		}
-		_ = m.st.Audit(ctx, a.OrgID, "keera-agents", "agent.owner_left", a.ID,
-			map[string]string{"owner": a.OwnerEmail})
 	}
 }
 

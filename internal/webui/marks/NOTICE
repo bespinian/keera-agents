@@ -1,7 +1,7 @@
-The panel shows the logos of Microsoft, Google, GitHub and Slack to name their
+The panel shows the logos of Microsoft, Google, GitHub, GitLab, Slack,
+Atlassian, HubSpot, Salesforce, AWS, Kubernetes and PostgreSQL to name their
 services an agent connects to and the sign-in they provide. They are drawn in
-internal/webui/assets/ui.js. GitLab is shown as a plain fork glyph, not its
-logo.
+internal/webui/assets/ui.js.
 
 The logos are trademarks of their owners and are used only for that. They
 are not covered by any licence in this repository, and showing them does not
