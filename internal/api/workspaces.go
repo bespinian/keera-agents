@@ -133,7 +133,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 	}
 	a := store.Agent{
 		ID: id.New("wks"), Kind: store.KindWorkspace, OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email,
-		MaxSteps: protocol.DefaultMaxSteps, Access: store.AccessOwner, Enabled: true,
+		Access: store.AccessOwner, Enabled: true,
 	}
 	if in.Model == nil {
 		// The coding agent lets its user pick any model the key may use;

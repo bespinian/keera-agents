@@ -593,7 +593,7 @@ func TestStopsAtTheDeadline(t *testing.T) {
 		return 200, callTools([2]string{"memory_read", `{}`})
 	})
 	boot := baseBoot(gw)
-	boot.Agent.MaxSteps = 1000
+	boot.Agent.MaxSteps = 0 // no limit: only the deadline stops it
 	cp.setBoot(func(b *protocol.Bootstrap) { *b = boot })
 	cp.push(protocol.Task{ID: "tsk_1", Prompt: "loop", Deadline: time.Now().Add(300 * time.Millisecond)})
 	startRunner(t, cp)

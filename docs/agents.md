@@ -101,8 +101,9 @@ key. Its tasks and audit entries stay.
 ## The runtime
 
 Each task is a loop of model calls through the gateway's Chat Completions API,
-with tools, until the model answers without a tool call, the step limit is hit,
-or the task's deadline passes (`KEERA_AGENTS_TASK_TIMEOUT`). If the model
+with tools, until the model answers without a tool call, the agent's step limit
+is hit, if it has one, or the task's deadline passes
+(`KEERA_AGENTS_TASK_TIMEOUT`). If the model
 writes a tool call as text instead of making one, it is told once; if it does it
 again, the task fails rather than deliver the text. A model that keeps doing this
 lacks tool calling, or its backend does not parse tool calls.

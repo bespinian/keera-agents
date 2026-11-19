@@ -182,7 +182,6 @@ export async function agentForm(ctx, agent) {
     builtins: ["memory", "files"],
     access: "owner",
     allowed_emails: [],
-    max_steps: 50,
   };
   let catalog = await api.catalog(a.project_id || "");
 
@@ -302,10 +301,10 @@ export async function agentForm(ctx, agent) {
   const maxSteps = h("input", {
     class: "input",
     type: "number",
-    min: "1",
+    min: "0",
     step: "1",
     value: a.max_steps || "",
-    placeholder: "50",
+    placeholder: "No limit",
   });
 
   const el = h(
@@ -354,9 +353,9 @@ export async function agentForm(ctx, agent) {
     fold(
       "Advanced",
       field(
-        "Most steps per task",
+        "Max steps per task",
         maxSteps,
-        "Each reply and tool call is a step. A task that reaches this stops, so a loop cannot run up costs.",
+        "Each reply and tool call is a step. A task that reaches this stops. Empty means no limit; the task's time limit still applies.",
       ),
     ),
   );

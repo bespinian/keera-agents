@@ -217,6 +217,10 @@ var (
 	agentIcon = regexp.MustCompile(`^[a-z0-9-]{0,32}$`)
 )
 
+// maxSteps is the highest step limit one can set, so a typo cannot overflow
+// the column.
+const maxSteps = 10000
+
 // apply checks in and writes it onto a. Only administrators choose a
 // project or an image: both decide what the agent may reach.
 func (s *Server) apply(ctx context.Context, p Principal, a *store.Agent, in agentInput) error {
@@ -271,13 +275,9 @@ func (s *Server) apply(ctx context.Context, p Principal, a *store.Agent, in agen
 	}
 	if in.MaxSteps != nil {
 		a.MaxSteps = *in.MaxSteps
-		// The panel sends 0 for an empty field.
-		if a.MaxSteps == 0 {
-			a.MaxSteps = protocol.DefaultMaxSteps
-		}
 	}
-	if a.MaxSteps < 1 || a.MaxSteps > 200 {
-		return errors.New("max steps must be from 1 to 200")
+	if a.MaxSteps < 0 || a.MaxSteps > maxSteps {
+		return fmt.Errorf("max steps must be from 0, for no limit, to %d", maxSteps)
 	}
 	if in.Access != nil {
 		a.Access = *in.Access
@@ -365,7 +365,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	a := store.Agent{
 		ID: id.New("agt"), OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email,
-		MaxSteps: protocol.DefaultMaxSteps, Access: store.AccessOrg, Enabled: true,
+		Access: store.AccessOrg, Enabled: true,
 		Builtins: []string{protocol.BuiltinMemory, protocol.BuiltinFiles},
 	}
 	in.Class = s.newClass(in.Class)

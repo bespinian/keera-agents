@@ -23,7 +23,8 @@ CREATE TABLE agents (
     model         text NOT NULL,
     -- The runtime's builtin tools this agent may use.
     builtins      text[] NOT NULL DEFAULT '{}',
-    max_steps     integer NOT NULL DEFAULT 30,
+    -- The most model calls per task; 0 is no limit.
+    max_steps     integer NOT NULL DEFAULT 0,
     -- Who may give it work from a chat: 'owner', 'org', or 'people' (listed
     -- in allowed_emails).
     access        text NOT NULL DEFAULT 'org' CHECK (access IN ('owner', 'org', 'people')),

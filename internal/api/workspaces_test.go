@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
@@ -64,7 +63,7 @@ func TestOnlyTheOwnerChangesAWorkspaceImage(t *testing.T) {
 	s := &Server{}
 	ws := store.Agent{
 		Kind: store.KindWorkspace, Name: "dev", OwnerID: "usr_ada", OwnerEmail: "ada@example.ch",
-		Experience: store.ExperienceTerminal, Access: store.AccessOwner, MaxSteps: protocol.DefaultMaxSteps,
+		Experience: store.ExperienceTerminal, Access: store.AccessOwner,
 		Image: "registry/workspace:1",
 	}
 	admin := Principal{UserID: "usr_root", CanAdminOrg: true}

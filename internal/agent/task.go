@@ -142,12 +142,9 @@ func (r *runner) work(ctx context.Context, task protocol.Task, ev *eventSink) (s
 	conv.msgs = append(conv.msgs, message{Role: "user", Content: taskMessage(task)})
 
 	maxSteps := boot.Agent.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = protocol.DefaultMaxSteps
-	}
 	last := ""
 	retold := false
-	for range maxSteps {
+	for n := 0; maxSteps <= 0 || n < maxSteps; n++ {
 		msg, err := r.step(ctx, conv, tools, task.ID, ev)
 		if err != nil {
 			return last, err

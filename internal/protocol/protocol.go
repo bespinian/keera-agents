@@ -164,8 +164,8 @@ type Agent struct {
 	// Builtins are the runtime's own tools this agent may use: shell, files,
 	// memory, web.
 	Builtins []string `json:"builtins"`
-	// MaxSteps bounds the model calls of one task. Zero means
-	// DefaultMaxSteps.
+	// MaxSteps bounds the model calls of one task. Zero means no limit:
+	// the task's deadline still stops it.
 	MaxSteps int    `json:"max_steps"`
 	Owner    Person `json:"owner"`
 }
@@ -280,7 +280,3 @@ type ToolResult struct {
 // MaxToolResult bounds a tool's answer, so one answer cannot fill the
 // model's context.
 const MaxToolResult = 64 << 10
-
-// DefaultMaxSteps bounds an agent's model calls per task when nobody chose.
-// The schema's default is the same.
-const DefaultMaxSteps = 30
