@@ -41,7 +41,9 @@ the runtime removes the token from its own environment and makes its memory
 unreadable to the commands it runs. The image does the same for tini, which
 starts it ([Hardening](#hardening)).
 
-**The key is attributed to the agent's owner.** Their gateway project decides
+**The key is attributed to the agent's owner** and named "Agent <name>". The
+owner is whoever created it, or the member an administrator created it for.
+Their gateway project decides
 the budget, rate limit, system prompt and model allow-list, and the agent's
 own monthly budget, if set, sits on the key. Every request carries
 `X-Keera-Session: <task id>`, so the gateway's Sessions screen shows each task

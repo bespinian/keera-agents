@@ -46,6 +46,7 @@ builtins:["memory","files","shell","web"], timezone_default:"Europe/Zurich",
 billing:true (only when machines are billed), credit_refusal:{code,message} (only when no machine may start)}`
 - `POST /api/v1/me/org {org_id}` → switches organisation; reload after.
 - `GET /api/v1/catalog?project_id=` → `{project_id, projects:[{id,name}], models:[{alias,kind:"model"|"router"}], mcp_servers:[{alias}]}`
+- `GET /api/v1/members` → `{data:[{id,email,name}]}` (administrators: the organisation's active members, whom they may create an agent or a workspace for)
   What an agent in that project may use. `projects` is only filled for admins (members get the default project).
 
 ## Overview
@@ -85,11 +86,12 @@ Agent:
 default robot. A name the panel does not know shows the default.
 
 - `GET /api/v1/agents` → `{data:[Agent]}`
-- `POST /api/v1/agents` body: `{name,icon,description,instructions,model,builtins,max_steps,access,allowed_emails,budget_micros,class,image,project_id}` → 201 Agent
-  (name: 1–60 chars; unique in the org, case-insensitive; max_steps: 0, for no limit, to 10000)
+- `POST /api/v1/agents` body: `{name,icon,description,instructions,model,builtins,max_steps,access,allowed_emails,budget_micros,class,image,project_id,owner_id}` → 201 Agent
+  (name: 1–60 chars; unique in the org, case-insensitive; max_steps: 0, for no limit, to 10000;
+  owner_id: administrators only, an active member; the caller by default)
 - `GET /api/v1/agents/{id}` → Agent + `{bindings:[Binding], schedules:[Schedule], stats:{last_task_at}}`
 - `GET /api/v1/agents/{id}/activity?since=168h` → `{tasks:{queued,running,succeeded,failed}, series:[{at,tasks,failed}], bucket:"hour"|"day"}` (the overview's counts and chart, for one agent)
-- `PATCH /api/v1/agents/{id}` (any subset of the POST fields) → Agent
+- `PATCH /api/v1/agents/{id}` (any subset of the POST fields, but not another owner_id: see take-over) → Agent
 - `DELETE /api/v1/agents/{id}` → 204 (stops its container, deletes its volume, revokes its key)
 - `POST /api/v1/agents/{id}/start` | `/stop` | `/restart` → Agent
 - `POST /api/v1/agents/{id}/take-over` → Agent (administrators: become the owner, with a new key)
@@ -227,10 +229,11 @@ one of the caller's own.
 
 - `GET /api/v1/workspaces?all=true` → `{data:[Workspace]}`, the caller's, or with `all` every one in the
   organisation (admins). Workspace = Agent fields + `{can_edit, can_connect}`.
-- `POST /api/v1/workspaces {name, experience:"terminal"|"vscode", description?, model?, class?, project_id?, image?}`
-  → 201 Workspace. Without a model, the project's first.
+- `POST /api/v1/workspaces {name, experience:"terminal"|"vscode", description?, model?, class?, project_id?, image?, owner_id?}`
+  → 201 Workspace. Without a model, the project's first. owner_id: administrators only, an active member; the
+  caller by default. An administrator cannot choose the image of someone else's.
 - `GET /api/v1/workspaces/{id}` → Workspace + `bindings:[Binding]`
-- `PATCH /api/v1/workspaces/{id}` → Workspace. A new experience, image or class starts the machine again.
+- `PATCH /api/v1/workspaces/{id}` → Workspace. Its owner never changes. A new experience, image or class starts the machine again.
 - `DELETE /api/v1/workspaces/{id}`, `POST …/start`, `POST …/stop`, `GET …/logs?follow=1`
 - `POST /api/v1/workspaces/{id}/bindings` → as for an agent, with the modes `files`, `repo`, `read` or `write`.
 - `POST /api/v1/workspaces/{id}/connect?port=web|ssh|<n>` with `Connection: Upgrade`, `Upgrade: keera-stream`

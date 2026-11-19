@@ -1,9 +1,12 @@
 package api
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/connectors"
+	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
@@ -41,6 +44,48 @@ func TestMayNameMailbox(t *testing.T) {
 	} {
 		if err := mayNameMailbox(c.p, c.desc, c.conn, c.target); (err == nil) != c.ok {
 			t.Errorf("%s: %v", c.name, err)
+		}
+	}
+}
+
+// An administrator may create an agent for an active member of their own
+// organisation, and nobody else may create one for someone else.
+func TestNewOwner(t *testing.T) {
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch {
+		case q.Get("org_id") == "org_a" && q.Get("id") == "usr_bob":
+			_, _ = w.Write([]byte(`{"id":"usr_bob","email":"bob@acme.ch"}`))
+		case q.Get("org_id") == "org_a" && q.Get("id") == "usr_gone":
+			_, _ = w.Write([]byte(`{"id":"usr_gone","email":"gone@acme.ch","disabled":true}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"code":"not_found","message":"that person is not in this organisation"}}`))
+		}
+	}))
+	defer gw.Close()
+	s := testServer(t)
+	s.gw = gateway.New(gw.URL, "service")
+
+	for _, tc := range []struct {
+		name string
+		p    Principal
+		user string
+		want int
+	}{
+		{"an admin, for a member", admin, "usr_bob", http.StatusOK},
+		{"an operator, for a member", operator, "usr_bob", http.StatusOK},
+		{"a member, for another", owner, "usr_bob", http.StatusForbidden},
+		{"for a disabled member", admin, "usr_gone", http.StatusBadRequest},
+		{"for someone in another organisation", outsider, "usr_bob", http.StatusBadRequest},
+	} {
+		w := httptest.NewRecorder()
+		u, ok := s.newOwner(w, httptest.NewRequest("POST", "/", nil), tc.p, tc.user)
+		if ok != (tc.want == http.StatusOK) || w.Code != tc.want {
+			t.Errorf("%s: ok %v, %d %s; want %d", tc.name, ok, w.Code, w.Body, tc.want)
+		}
+		if ok && u.Email != "bob@acme.ch" {
+			t.Errorf("%s: owner %+v", tc.name, u)
 		}
 	}
 }

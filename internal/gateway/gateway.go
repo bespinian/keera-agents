@@ -212,6 +212,28 @@ func (c *Client) UserByID(ctx context.Context, orgID, id string) (User, error) {
 	return c.user(ctx, orgID, "id", id)
 }
 
+// Members lists an organisation's active members. It calls with a person's
+// own token, as the service key cannot list people: only administrators get
+// an answer.
+func (c *Client) Members(ctx context.Context, token, orgID string) ([]User, error) {
+	var out struct {
+		Data []struct {
+			User
+			DisabledAt *time.Time `json:"disabled_at"`
+		} `json:"data"`
+	}
+	if err := c.call(ctx, "GET", "/v1/users?"+url.Values{"org_id": {orgID}}.Encode(), token, nil, &out); err != nil {
+		return nil, err
+	}
+	users := []User{}
+	for _, u := range out.Data {
+		if u.DisabledAt == nil {
+			users = append(users, User{ID: u.ID, Email: u.Email, Name: u.Name})
+		}
+	}
+	return users, nil
+}
+
 // user looks a member up by one field, id or email.
 func (c *Client) user(ctx context.Context, orgID, field, value string) (User, error) {
 	var out User

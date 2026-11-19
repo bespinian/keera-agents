@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/me", s.me)
 	route("POST /api/v1/me/org", s.switchOrg)
 	route("GET /api/v1/catalog", s.catalog)
+	route("GET /api/v1/members", s.members)
 	route("GET /api/v1/overview", s.overview)
 	route("GET /api/v1/setup", s.setup)
 	route("GET /api/v1/audit", s.audit)
@@ -328,6 +329,20 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request, p Principal) {
 		cat.MCPServers = []gateway.MCPRef{}
 	}
 	writeJSON(w, http.StatusOK, cat)
+}
+
+// members lists the people an administrator can create an agent for.
+func (s *Server) members(w http.ResponseWriter, r *http.Request, p Principal) {
+	if !p.CanAdmin() {
+		forbid(w, "only administrators see the organisation's members")
+		return
+	}
+	users, err := s.gw.Members(r.Context(), p.Token, p.OrgID)
+	if err != nil {
+		s.gatewayFailed(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": users})
 }
 
 // defaultZone is the time zone of schedules that name none, and the one the

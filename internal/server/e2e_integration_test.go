@@ -78,10 +78,29 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.revoked = append(g.revoked, strings.TrimPrefix(r.URL.Path, "/control/v1/service/keys/"))
 		g.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
+	case r.URL.Path == "/control/v1/users" && r.Method == http.MethodGet:
+		// Only an administrator lists their own organisation's people.
+		me := people[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+		if !me.CanAdminOrg || r.URL.Query().Get("org_id") != me.OrgID {
+			w.WriteHeader(http.StatusForbidden)
+			reply(map[string]any{"error": map[string]string{"code": "forbidden", "message": "administrators only"}})
+			return
+		}
+		var users []gateway.User
+		for _, p := range people {
+			if p.OrgID == me.OrgID {
+				users = append(users, gateway.User{ID: p.UserID, Email: p.Email, Name: p.Name})
+			}
+		}
+		reply(map[string]any{"data": users})
 	case r.URL.Path == "/control/v1/service/users" && service:
 		q := r.URL.Query()
 		if strings.EqualFold(q.Get("email"), "ada@example.ch") || q.Get("id") == "usr_ada" {
 			reply(gateway.User{ID: "usr_ada", Email: "ada@example.ch", Name: "Ada"})
+			return
+		}
+		if q.Get("id") == "usr_bob" && q.Get("org_id") == "org_a" {
+			reply(gateway.User{ID: "usr_bob", Email: "bob@example.ch", Name: "Bob"})
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

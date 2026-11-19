@@ -256,6 +256,7 @@ func permissionTable(f fixture) []check {
 		// The gateway decides which organisations someone is in.
 		{route: "POST /api/v1/me/org", body: map[string]string{"org_id": "org_a"}, other: forbidden, member: ok},
 		{route: "GET /api/v1/catalog", other: ok, member: ok},
+		{route: "GET /api/v1/members", other: ok, member: forbidden},
 		{route: "GET /api/v1/overview", other: ok, member: ok},
 		{route: "GET /api/v1/setup", other: ok, member: ok},
 		{route: "GET /api/v1/audit", other: ok, member: forbidden},
@@ -615,6 +616,32 @@ func TestOwnersAndAdmins(t *testing.T) {
 		}
 		must(t, ada, "DELETE", lab, nil, http.StatusNoContent, nil)
 		must(t, bob, "GET", "/api/v1/workspaces/lab", nil, http.StatusNotFound, nil)
+	})
+
+	t.Run("an administrator creates a workspace for someone else", func(t *testing.T) {
+		mine := map[string]string{"name": "pit", "experience": "terminal", "owner_id": "usr_ada"}
+		must(t, bob, "POST", "/api/v1/workspaces", mine, http.StatusForbidden, nil)
+		// The image would run with Bob's keys.
+		must(t, ada, "POST", "/api/v1/workspaces",
+			map[string]string{"name": "pit", "experience": "terminal", "owner_id": "usr_bob", "image": "evil/image:1"},
+			http.StatusBadRequest, nil)
+		must(t, ada, "POST", "/api/v1/workspaces",
+			map[string]string{"name": "pit", "experience": "terminal", "owner_id": "usr_eve"}, http.StatusBadRequest, nil)
+
+		var v view
+		must(t, ada, "POST", "/api/v1/workspaces",
+			map[string]string{"name": "pit", "experience": "terminal", "owner_id": "usr_bob"}, http.StatusCreated, &v)
+		if v.OwnerID != "usr_bob" || v.CanConnect {
+			t.Errorf("the workspace Ada made for Bob: %+v", v)
+		}
+		pit := "/api/v1/workspaces/" + v.ID
+		must(t, bob, "GET", "/api/v1/workspaces/pit", nil, http.StatusOK, &v)
+		if !v.CanConnect {
+			t.Errorf("Bob cannot get into his workspace: %+v", v)
+		}
+		must(t, ada, "POST", pit+"/connect?port=web", nil, http.StatusForbidden, nil)
+		must(t, ada, "PATCH", pit, map[string]string{"owner_id": "usr_ada"}, http.StatusBadRequest, nil)
+		must(t, ada, "DELETE", pit, nil, http.StatusNoContent, nil)
 	})
 
 	t.Run("boards are the organisation's", func(t *testing.T) {

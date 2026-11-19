@@ -67,3 +67,26 @@ func TestObserveHearsOfEveryCall(t *testing.T) {
 		t.Fatalf("heard %q, want %q", heard, want)
 	}
 }
+
+// Members calls with the person's own token, and leaves out disabled people:
+// an agent cannot be created for them.
+func TestMembersUsesTheCallersTokenAndSkipsDisabled(t *testing.T) {
+	var auth, org string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth, org = r.Header.Get("Authorization"), r.URL.Query().Get("org_id")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"usr_1","email":"anna@example.ch","name":"Anna","role":"admin"},
+			{"id":"usr_2","email":"marc@example.ch","disabled_at":"2026-01-01T00:00:00Z"}]}`))
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, "service").Members(context.Background(), "tok", "org_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer tok" || org != "org_1" {
+		t.Errorf("sent %q for %q", auth, org)
+	}
+	if want := []User{{ID: "usr_1", Email: "anna@example.ch", Name: "Anna"}}; !slices.Equal(got, want) {
+		t.Errorf("members = %+v, want %+v", got, want)
+	}
+}

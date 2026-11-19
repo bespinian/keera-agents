@@ -106,6 +106,9 @@ type workspaceInput struct {
 	Budget      *int64         `json:"budget_micros"`
 	Class       *runtime.Class `json:"class"`
 	Image       *string        `json:"image"`
+	// OwnerID is only read on create. A workspace is never taken over: that
+	// would hand its files and keys to someone else.
+	OwnerID *string `json:"owner_id"`
 }
 
 func (s *Server) applyWorkspace(ctx context.Context, p Principal, a *store.Agent, in workspaceInput) error {
@@ -135,10 +138,23 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		ID: id.New("wks"), Kind: store.KindWorkspace, OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email,
 		Access: store.AccessOwner, Enabled: true,
 	}
+	// The owner comes first: whether an image may be chosen depends on it.
+	if in.OwnerID != nil && *in.OwnerID != "" && *in.OwnerID != p.UserID {
+		u, ok := s.newOwner(w, r, p, *in.OwnerID)
+		if !ok {
+			return
+		}
+		a.OwnerID, a.OwnerEmail = u.ID, u.Email
+	}
 	if in.Model == nil {
 		// The coding agent lets its user pick any model the key may use;
-		// this is only the one it starts with.
-		cat, err := s.gw.Catalog(r.Context(), p.OrgID, "")
+		// this is only the one it starts with, from the chosen project.
+		// Only an administrator chooses one, which apply checks.
+		project := ""
+		if in.ProjectID != nil && p.CanAdmin() {
+			project = *in.ProjectID
+		}
+		cat, err := s.gw.Catalog(r.Context(), p.OrgID, project)
 		if err != nil {
 			s.gatewayFailed(w, err)
 			return
@@ -155,14 +171,23 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		return
 	}
 	out, err := s.st.CreateAgent(r.Context(), a)
-	if !s.saved(w, err, "name_taken", "you already have a workspace called "+a.Name) {
+	if !s.saved(w, err, "name_taken", nameTaken(p, a)) {
 		return
 	}
 	s.record(r.Context(), p, "workspace.create", out.ID, map[string]any{
-		"name": out.Name, "experience": out.Experience,
+		"name": out.Name, "experience": out.Experience, "owner": out.OwnerEmail,
 	})
 	s.startLater(out)
 	writeJSON(w, http.StatusCreated, viewWorkspace(p, out))
+}
+
+// nameTaken says whose workspace already has a's name: names are unique per
+// owner, and an administrator may be acting for someone else.
+func nameTaken(p Principal, a store.Agent) string {
+	if a.OwnerID == p.UserID {
+		return "you already have a workspace called " + a.Name
+	}
+	return a.OwnerEmail + " already has a workspace called " + a.Name
 }
 
 func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -174,13 +199,17 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 	if !readJSON(w, r, &in) {
 		return
 	}
+	if in.OwnerID != nil && *in.OwnerID != a.OwnerID {
+		badRequest(w, "a workspace's owner never changes")
+		return
+	}
 	before := a
 	if err := s.applyWorkspace(r.Context(), p, &a, in); err != nil {
 		badRequest(w, err.Error())
 		return
 	}
 	out, err := s.st.UpdateAgent(r.Context(), a)
-	if !s.saved(w, err, "name_taken", "you already have a workspace called "+a.Name) {
+	if !s.saved(w, err, "name_taken", nameTaken(p, a)) {
 		return
 	}
 	s.record(r.Context(), p, "workspace.update", out.ID, map[string]any{"name": out.Name})
@@ -381,10 +410,11 @@ func (l *connectLog) first(key string, now time.Time) bool {
 // shellArg quotes a name for a command we suggest, so a name with spaces stays
 // one argument. Plain names stay as they are, to keep commands readable.
 func shellArg(s string) string {
-	plain := s != "" && strings.IndexFunc(s, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
-			strings.ContainsRune("._/:@%+=,-", r))
-	}) < 0
+	safe := func(r rune) bool {
+		return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+			strings.ContainsRune("._/:@%+=,-", r)
+	}
+	plain := s != "" && strings.IndexFunc(s, func(r rune) bool { return !safe(r) }) < 0
 	if plain {
 		return s
 	}

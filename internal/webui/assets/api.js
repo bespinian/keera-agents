@@ -86,6 +86,8 @@ export const api = {
   me: () => get(V1 + "/me"),
   switchOrg: (orgID) => post(V1 + "/me/org", { org_id: orgID }),
   catalog: (projectID) => get(V1 + "/catalog" + query({ project_id: projectID })),
+  // Administrators only: whom they can create an agent for.
+  members: () => get(V1 + "/members"),
   overview: (since) => get(V1 + "/overview" + query({ since })),
   setup: () => get(V1 + "/setup"),
 

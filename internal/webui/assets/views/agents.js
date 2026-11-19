@@ -178,7 +178,13 @@ export async function agentForm(ctx, agent) {
     access: "owner",
     allowed_emails: [],
   };
-  let catalog = await api.catalog(a.project_id || "");
+  // An administrator may create an agent for someone else. Without the list,
+  // the form still works: the agent is theirs.
+  const [cat, members] = await Promise.all([
+    api.catalog(a.project_id || ""),
+    !agent && me.can_admin ? api.members().catch(() => null) : null,
+  ]);
+  let catalog = cat;
 
   const name = h("input", { class: "input", value: a.name || "", maxlength: "60", placeholder: "Invoice helper" });
   const iconPick = agentIconPicker(a.icon);
@@ -253,6 +259,34 @@ export async function agentForm(ctx, agent) {
       )
     : null;
 
+  const people = (members && members.data) || [];
+  const owner =
+    people.length > 1
+      ? h(
+          "select",
+          { class: "select" },
+          people.map((m) =>
+            h(
+              "option",
+              { value: m.id, selected: m.id === me.user_id },
+              m.name ? `${m.name} (${m.email})` : m.email,
+            ),
+          ),
+        )
+      : null;
+
+  // Two to a row, in this order, whichever there are.
+  const placed = [
+    project && field("Project", project, "Decides which models it may use and whose budget it spends."),
+    owner && field("Owner", owner, "It works for them and spends in their name."),
+    field("Model", model, "What it thinks with. Pick a model that supports tool calling."),
+  ].filter(Boolean);
+  const rows = [];
+  for (let i = 0; i < placed.length; i += 2) {
+    const pair = placed.slice(i, i + 2);
+    rows.push(pair.length > 1 ? h("div", { class: "field-row" }, pair) : pair[0]);
+  }
+
   const tools = (me.builtins && me.builtins.length ? me.builtins : Object.keys(BUILTINS)).map((b) => {
     const [label, hint] = BUILTINS[b] || [b, ""];
     return { name: b, ...checkRow(label, hint, (a.builtins || []).includes(b)) };
@@ -312,16 +346,11 @@ export async function agentForm(ctx, agent) {
       iconPick.grid,
     ),
     field("Description", description, "Optional. One line on what it is for."),
+    rows,
     field(
       "Instructions",
       instructions,
       "What it does and how. It reads these before every task, like a job description.",
-    ),
-    h(
-      "div",
-      { class: project ? "field-row" : "" },
-      project ? field("Project", project, "Decides which models it may use and whose budget it spends.") : null,
-      field("Model", model, "What it thinks with. Pick a model that supports tool calling."),
     ),
     h(
       "div",
@@ -333,20 +362,20 @@ export async function agentForm(ctx, agent) {
         tools.map((t) => t.el),
       ),
     ),
-    h(
-      "div",
-      { class: "field-row" },
-      field("Who may give it work", access, accessHint),
-      field(
-        "Monthly budget in CHF",
-        budget,
-        "What its model calls may cost each month. Once spent, it takes no more tasks until the next month.",
-      ),
-    ),
-    emailsField,
     machine.el,
     fold(
       "Advanced",
+      h(
+        "div",
+        { class: "field-row" },
+        field("Who may give it work", access, accessHint),
+        field(
+          "Monthly budget in CHF",
+          budget,
+          "What its model calls may cost each month. Once spent, it takes no more tasks until the next month.",
+        ),
+      ),
+      emailsField,
       field(
         "Max steps per task",
         maxSteps,
@@ -384,6 +413,7 @@ export async function agentForm(ctx, agent) {
       class: machine.value(),
     };
     if (project) body.project_id = project.value;
+    if (owner) body.owner_id = owner.value;
     return body;
   }
 

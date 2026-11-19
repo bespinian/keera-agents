@@ -208,6 +208,9 @@ type agentInput struct {
 	Class         *runtime.Class `json:"class"`
 	Image         *string        `json:"image"`
 	ProjectID     *string        `json:"project_id"`
+	// OwnerID is only read on create. Taking over is how an owner changes
+	// later, as it needs a new key.
+	OwnerID *string `json:"owner_id"`
 }
 
 var (
@@ -364,6 +367,13 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 		Access: store.AccessOrg, Enabled: true,
 		Builtins: []string{protocol.BuiltinMemory, protocol.BuiltinFiles},
 	}
+	if in.OwnerID != nil && *in.OwnerID != "" && *in.OwnerID != p.UserID {
+		u, ok := s.newOwner(w, r, p, *in.OwnerID)
+		if !ok {
+			return
+		}
+		a.OwnerID, a.OwnerEmail = u.ID, u.Email
+	}
 	in.Class = s.newClass(in.Class)
 	if err := s.apply(r.Context(), p, &a, in); err != nil {
 		badRequest(w, err.Error())
@@ -373,10 +383,32 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 	if !s.saved(w, err, "name_taken", "another agent in this organisation is called "+a.Name) {
 		return
 	}
-	s.record(r.Context(), p, "agent.create", out.ID, map[string]any{"name": out.Name, "model": out.Model})
+	s.record(r.Context(), p, "agent.create", out.ID, map[string]any{
+		"name": out.Name, "model": out.Model, "owner": out.OwnerEmail,
+	})
 	s.startLater(out)
 	// A new agent has no tasks and no bindings yet.
 	writeJSON(w, http.StatusCreated, viewAgent(p, out, store.AgentLoad{}, 0))
+}
+
+// newOwner checks the person an administrator creates an agent or a
+// workspace for: an active member of the organisation. It spends in their
+// name.
+func (s *Server) newOwner(w http.ResponseWriter, r *http.Request, p Principal, userID string) (gateway.User, bool) {
+	if !p.CanAdmin() {
+		forbid(w, "only an administrator can create one for someone else")
+		return gateway.User{}, false
+	}
+	u, err := s.gw.UserByID(r.Context(), p.OrgID, userID)
+	if gateway.IsNotFound(err) || (err == nil && u.Disabled) {
+		badRequest(w, "the owner must be an active member of this organisation")
+		return gateway.User{}, false
+	}
+	if err != nil {
+		s.gatewayFailed(w, err)
+		return gateway.User{}, false
+	}
+	return u, true
 }
 
 // rekeyIfChanged gives a changed agent or workspace a new key when its
@@ -412,6 +444,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	var in agentInput
 	if !readJSON(w, r, &in) {
+		return
+	}
+	if in.OwnerID != nil && *in.OwnerID != a.OwnerID {
+		badRequest(w, "an agent's owner changes only when an administrator takes it over")
 		return
 	}
 	before := a

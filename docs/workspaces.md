@@ -44,6 +44,11 @@ and `tmux attach` join the same session the browser shows. The image's
 `/etc/tmux.conf` turns on tmux's extended keys, so pi tells Shift+Enter from
 Enter. A `~/.tmux.conf` can change that.
 
+**An administrator can create a workspace for someone else**, such as a new
+engineer, and choose its project. It is theirs from the start: the key is in
+their name and only they get in. Its owner never changes, so no one takes over
+a workspace's files and keys.
+
 **Only the owner gets in.** An administrator sees, changes, stops and
 deletes every workspace in the organisation, and reads its logs to help when
 it does not start. But they cannot connect to it, nor change its image, which

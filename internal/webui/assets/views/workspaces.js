@@ -17,6 +17,7 @@ import {
   icons,
   plural,
   toast,
+  replace,
   isAdmin,
   sectionHead,
   iconButton,
@@ -147,8 +148,15 @@ async function openNewWorkspace(ctx) {
  *  values() returns the body to send, or throws after focusing the field at
  *  fault. */
 export async function workspaceForm(ctx, workspace) {
+  const me = ctx.state.me;
   const w = workspace || { experience: "" };
-  const catalog = await api.catalog("");
+  // An administrator may create a workspace for someone else. Without the
+  // list, the form still works: the workspace is theirs.
+  const [cat, members] = await Promise.all([
+    api.catalog(w.project_id || ""),
+    !workspace && me.can_admin ? api.members().catch(() => null) : null,
+  ]);
+  let catalog = cat;
 
   const name = h("input", { class: "input", value: w.name || "", maxlength: "60" });
   // The placeholder names what it opens in, such as My VS Code.
@@ -177,11 +185,71 @@ export async function workspaceForm(ctx, workspace) {
   );
   if (experience) tiles.choose(experience);
 
-  const model = h(
-    "select",
-    { class: "select" },
-    (catalog.models || []).map((m) => h("option", { value: m.alias, selected: m.alias === w.model }, m.alias)),
-  );
+  const model = h("select", { class: "select" });
+  function fillModels() {
+    const keep = model.value || w.model;
+    const models = catalog.models || [];
+    replace(
+      model,
+      models.length ? null : h("option", { value: "" }, "No model is allowed in this project"),
+      models.map((m) => h("option", { value: m.alias, selected: m.alias === keep }, m.alias)),
+    );
+  }
+  fillModels();
+
+  // Only administrators get the projects, as only they choose one.
+  const projects = catalog.projects || [];
+  const project = projects.length
+    ? h(
+        "select",
+        {
+          class: "select",
+          onChange: async (e) => {
+            const select = e.target;
+            select.disabled = true;
+            try {
+              catalog = await api.catalog(select.value);
+              fillModels();
+            } catch (err) {
+              toast(err.message, "bad");
+            } finally {
+              select.disabled = false;
+            }
+          },
+        },
+        projects.map((p) =>
+          h("option", { value: p.id, selected: p.id === (w.project_id || catalog.project_id) }, p.name),
+        ),
+      )
+    : null;
+
+  const people = (members && members.data) || [];
+  const owner =
+    people.length > 1
+      ? h(
+          "select",
+          { class: "select" },
+          people.map((m) =>
+            h(
+              "option",
+              { value: m.id, selected: m.id === me.user_id },
+              m.name ? `${m.name} (${m.email})` : m.email,
+            ),
+          ),
+        )
+      : null;
+
+  // Two to a row, in this order, whichever there are.
+  const placed = [
+    project && field("Project", project, "Decides which models it may use and whose budget it spends."),
+    owner && field("Owner", owner, "Only they can get in. It spends in their name."),
+    field("Model", model, "The one the coding agent starts with. You can pick any other your key may use in it."),
+  ].filter(Boolean);
+  const rows = [];
+  for (let i = 0; i < placed.length; i += 2) {
+    const pair = placed.slice(i, i + 2);
+    rows.push(pair.length > 1 ? h("div", { class: "field-row" }, pair) : pair[0]);
+  }
 
   const machine = machineFold(ctx.state.me, w.class || {}, {
     memory: "Such as 2Gi or 8Gi.",
@@ -192,7 +260,7 @@ export async function workspaceForm(ctx, workspace) {
   rest.append(
     field("Name", name, "You reach it by this name, as in ssh api.keera. Unique among your workspaces."),
     field("Description", description, "Optional. What you work on in it."),
-    field("Model", model, "The one the coding agent starts with. You can pick any other your key may use in it."),
+    ...rows,
     machine.el,
   );
 
@@ -224,6 +292,8 @@ export async function workspaceForm(ctx, workspace) {
       class: machine.value(),
     };
     if (model.value) body.model = model.value;
+    if (project) body.project_id = project.value;
+    if (owner) body.owner_id = owner.value;
     return body;
   }
 
