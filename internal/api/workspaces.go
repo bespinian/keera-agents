@@ -260,7 +260,7 @@ func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	if !stream.IsUpgrade(r) {
 		writeError(w, http.StatusUpgradeRequired, "upgrade_required",
-			"connect with the keera CLI: keera workspace open "+a.Name)
+			"connect with the keera CLI: keera workspace open "+shellArg(a.Name))
 		return
 	}
 	ctx := r.Context()
@@ -268,7 +268,7 @@ func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Prin
 	switch {
 	case errors.Is(err, fleet.ErrStopped):
 		writeError(w, http.StatusConflict, "workspace_stopped",
-			a.Name+" is stopped; start it with: keera workspace start "+a.Name)
+			a.Name+" is stopped; start it with: keera workspace start "+shellArg(a.Name))
 		return
 	case err != nil:
 		runtimeFailed(w, err)
@@ -376,4 +376,17 @@ func (l *connectLog) first(key string, now time.Time) bool {
 	}
 	l.seen[key] = now
 	return true
+}
+
+// shellArg quotes a name for a command we suggest, so a name with spaces stays
+// one argument. Plain names stay as they are, to keep commands readable.
+func shellArg(s string) string {
+	plain := s != "" && strings.IndexFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+			strings.ContainsRune("._/:@%+=,-", r))
+	}) < 0
+	if plain {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

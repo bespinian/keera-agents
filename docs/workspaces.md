@@ -26,7 +26,7 @@ gateway, and uses the same sign-in there.
 keera workspace create api            # asks: terminal or VS Code
 keera workspace open api              # opens it in the browser
 keera workspace forward api 3000      # a dev server inside, on this machine
-keera workspace ssh-config            # once per machine
+keera workspace configure-ssh         # once per machine
 ssh api.keera                         # ssh, scp, VS Code Remote-SSH, JetBrains
 ```
 
@@ -34,7 +34,7 @@ ssh api.keera                         # ssh, scp, VS Code Remote-SSH, JetBrains
 `kubectl port-forward` does, and pass each connection through keera-agents.
 VS Code's own port proxy, `/proxy/<port>/`, is off: any web page the person
 visits could reach it. Use `forward` instead.
-`ssh-config` makes `~/.ssh/keera_ed25519` if there is none, adds its public
+`configure-ssh` makes `~/.ssh/keera_ed25519` if there is none, adds its public
 half to the person's keys, and adds a `Host *.keera` entry whose
 `ProxyCommand` is `keera workspace ssh-proxy`. SSH then runs end to end, from
 the person's ssh to the workspace's sshd.

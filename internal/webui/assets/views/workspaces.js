@@ -24,7 +24,7 @@ import {
   modeTiles,
   pill,
 } from "../ui.js";
-import { agentStatePill, workspacePath, machineFold, EXPERIENCES } from "../common.js";
+import { agentStatePill, workspacePath, machineFold, EXPERIENCES, shellArg } from "../common.js";
 import { noRuntime } from "./agents.js";
 import { codeBlock } from "../markdown.js";
 
@@ -275,7 +275,7 @@ function sshKeysCard(ctx, keys) {
             "div",
             { class: "empty" },
             "Your keys let you into your workspaces over SSH. ",
-            h("code", {}, "keera workspace ssh-config"),
+            h("code", {}, "keera workspace configure-ssh"),
             " adds this computer's key for you.",
           ),
         ),
@@ -312,6 +312,7 @@ function addSSHKey(ctx) {
 
 /** connectSteps says how to reach a workspace from a terminal. */
 export function connectSteps(w) {
+  const name = shellArg(w.name);
   const step = (title, command, hint) =>
     h(
       "div",
@@ -325,10 +326,10 @@ export function connectSteps(w) {
     { class: "stack md", style: { gap: "14px" } },
     step(
       "Open it in your browser",
-      `keera workspace open ${w.name}`,
+      `keera workspace open ${name}`,
       `It serves ${EXPERIENCES[w.experience]?.name || "the workspace"} on this computer until you stop it.`,
     ),
-    step("Sign in over SSH", `keera workspace ssh-config\nssh ${w.name}.keera`, "Once per computer, then any time."),
-    step("Reach a port in it", `keera workspace forward ${w.name} 3000`, "Such as a dev server you started there."),
+    step("Sign in over SSH", `keera workspace configure-ssh\nssh ${shellArg(w.name + ".keera")}`, "Once per computer, then any time."),
+    step("Reach a port in it", `keera workspace forward ${name} 3000`, "Such as a dev server you started there."),
   );
 }

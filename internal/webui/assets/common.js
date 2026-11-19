@@ -144,6 +144,14 @@ export function firstLine(text, max = 80) {
   return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
 }
 
+/** shellArg quotes a value for a shell command, so a name with spaces stays
+ *  one argument. Plain names stay as they are, to keep commands readable. */
+export function shellArg(value) {
+  const s = String(value);
+  if (/^[A-Za-z0-9._\/:@%+=,-]+$/.test(s)) return s;
+  return "'" + s.replaceAll("'", `'\\''`) + "'";
+}
+
 /** kindLabel names a connector kind as /connection-kinds does, or by its id
  *  while that has not answered. */
 export function kindLabel(kind, kinds) {

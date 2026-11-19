@@ -106,3 +106,18 @@ func TestDialFrontFollowsNoRedirect(t *testing.T) {
 		t.Error("the redirect was followed")
 	}
 }
+
+func TestShellArg(t *testing.T) {
+	for in, want := range map[string]string{
+		"api":       "api",
+		"my-ws_2.0": "my-ws_2.0",
+		"my space":  "'my space'",
+		"it's":      `'it'\''s'`,
+		"":          "''",
+		"$(rm -rf)": "'$(rm -rf)'",
+	} {
+		if got := shellArg(in); got != want {
+			t.Errorf("shellArg(%q) = %s, want %s", in, got, want)
+		}
+	}
+}

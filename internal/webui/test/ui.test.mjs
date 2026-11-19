@@ -21,6 +21,7 @@ import {
   kindLabel,
   agentPath,
   taskPath,
+  shellArg,
 } from "../assets/common.js";
 import { modesFor } from "../assets/views/bindings.js";
 import { setupText } from "../assets/views/connectors.js";
@@ -197,4 +198,13 @@ test("every stops when told to", async (t) => {
   });
   t.mock.timers.tick(3000);
   assert.equal(runs, 1);
+});
+
+test("shellArg keeps a name with spaces one argument", () => {
+  assert.equal(shellArg("api"), "api");
+  assert.equal(shellArg("my-ws_2.0"), "my-ws_2.0");
+  assert.equal(shellArg("my space"), "'my space'");
+  assert.equal(shellArg("it's"), `'it'\\''s'`);
+  assert.equal(shellArg(""), "''");
+  assert.equal(shellArg("$(rm -rf)"), "'$(rm -rf)'");
 });
