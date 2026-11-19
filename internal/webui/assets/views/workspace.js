@@ -151,36 +151,42 @@ async function settingsTab(ctx, w) {
     toast("Saved", "good");
     ctx.reload();
   });
-  const remove = h(
-    "button",
-    {
-      class: "btn btn-danger",
-      onClick: () =>
-        confirm({
-          title: `Delete ${w.name}?`,
-          body: "Its machine and every file in it are deleted, and its key is revoked. This cannot be undone.",
-          confirmLabel: "Delete workspace",
-          danger: true,
-          onConfirm: () => api.deleteWorkspace(w.id),
-          done: () => {
-            ctx.navigate("/workspaces");
-            return `${w.name} deleted`;
-          },
-        }),
-    },
-    "Delete workspace",
-  );
   return h(
     "div",
     { class: "stack", style: { gap: "16px" } },
     card("Settings", h("div", {}, form.el, h("div", { class: "row-tight" }, save))),
-    card(
-      "Delete",
+    h(
+      "div",
+      { class: "card" },
       h(
         "div",
-        { class: "stack" },
-        h("div", { class: "muted" }, "Delete it and everything in it."),
-        h("div", {}, remove),
+        { class: "card-body row", style: { flexWrap: "wrap" } },
+        h(
+          "div",
+          { class: "stack", style: { flex: "1 1 280px" } },
+          h("strong", {}, "Delete this workspace"),
+          h("span", { class: "muted small" }, "Stops its machine, deletes its files, and revokes its key."),
+        ),
+        h(
+          "button",
+          {
+            class: "btn btn-danger",
+            onClick: () =>
+              confirm({
+                title: `Delete ${w.name}?`,
+                body: "Its machine and every file in it are deleted, and its key is revoked. This cannot be undone.",
+                confirmLabel: "Delete workspace",
+                danger: true,
+                onConfirm: () => api.deleteWorkspace(w.id),
+                done: () => {
+                  ctx.navigate("/workspaces");
+                  return `${w.name} deleted`;
+                },
+              }),
+          },
+          icon(icons.trash),
+          "Delete workspace",
+        ),
       ),
     ),
   );
