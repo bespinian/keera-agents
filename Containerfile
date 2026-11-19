@@ -113,10 +113,12 @@ ENV LANG=C.UTF-8 \
     NPM_CONFIG_PREFIX=/workspace/.local \
     PATH=/workspace/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# fd-find and ripgrep, so pi finds them and does not download them itself at
+# its first start, unpinned. Debian names fd fdfind, which pi also looks for.
 RUN apt-get update \
  && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends \
-      bash build-essential ca-certificates curl git jq less openssh-client openssh-server \
+      bash build-essential ca-certificates curl fd-find git jq less openssh-client openssh-server \
       procps python3 python3-venv ripgrep tini tmux tzdata unzip vim-tiny \
  && case "$TARGETARCH" in \
       amd64) ttyd=x86_64 ttyd_sum=$TTYD_SHA256_AMD64 cs_sum=$CODE_SERVER_SHA256_AMD64 ;; \
@@ -132,6 +134,10 @@ RUN apt-get update \
  && echo "$cs_sum  /tmp/code-server.deb" | sha256sum -c - \
  && apt-get install -y --no-install-recommends /tmp/code-server.deb \
  && rm -rf /tmp/code-server.deb /var/lib/apt/lists/*
+
+# So pi tells Shift+Enter from Enter in tmux, as its docs ask for tmux 3.5.
+# In /etc, not the home directory: the owner's ~/.tmux.conf still wins.
+RUN printf 'set -g extended-keys on\nset -g extended-keys-format csi-u\n' > /etc/tmux.conf
 
 # Into the image, not the home directory, which the volume hides. The
 # runtime installs Cline into the workspace at the first start.

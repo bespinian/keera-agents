@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,6 +27,9 @@ type child struct {
 // the image put in the home directory would be hidden by the volume.
 const vscodeExtensions = "/opt/keera/vscode-extensions"
 
+// projectsDir is the folder in the home directory VS Code opens.
+const projectsDir = "Projects"
+
 func sshdCommand(workspace string) child {
 	// sshd must be started by its full path: it runs itself again for each
 	// connection.
@@ -39,6 +43,9 @@ func sshdCommand(workspace string) child {
 // is left when pi exits.
 func experienceCommand(experience, workspace string) child {
 	if experience == "vscode" {
+		// Not the home directory, which holds the runtime's and the tools'
+		// own files, but a folder of the owner's.
+		folder := filepath.Join(workspace, projectsDir)
 		return child{name: "code-server", path: "code-server", args: []string{
 			"--bind-addr", "127.0.0.1:" + strconv.Itoa(vscodePort),
 			// The front lets only the owner in, through keera-agents.
@@ -48,8 +55,12 @@ func experienceCommand(experience, workspace string) child {
 			// does the same job safely.
 			"--disable-proxy",
 			"--disable-telemetry", "--disable-update-check",
-			workspace,
-		}, prepare: func() error { return installExtensions(workspace) }}
+			// Coder's own advert in Help: Getting Started.
+			"--disable-getting-started-override",
+			folder,
+		}, prepare: func() error {
+			return errors.Join(os.MkdirAll(folder, 0o755), installExtensions(workspace))
+		}}
 	}
 	return child{name: "ttyd", path: "ttyd", args: []string{
 		"--interface", "127.0.0.1", "--port", strconv.Itoa(terminalPort), "--writable",

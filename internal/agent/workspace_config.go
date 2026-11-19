@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,8 +17,8 @@ import (
 // writeConfigs points the workspace's programs at the bridge and lets the
 // owner's SSH keys in. It writes only its own entries, so what the owner
 // changed in the same files stays. A failure is logged: the workspace is
-// still of use without it.
-func (r *runner) writeConfigs(ctx context.Context) {
+// still of use without it. starting is true before the programs run.
+func (r *runner) writeConfigs(ctx context.Context, starting bool) {
 	home := r.cfg.Workspace
 	if err := r.writeSSHConfig(home); err != nil {
 		r.log.Warn("workspace: ssh will not let anybody in", "error", err)
@@ -48,15 +49,90 @@ func (r *runner) writeConfigs(ctx context.Context) {
 				"url": mcp, "description": "This workspace's connectors and the organisation's MCP servers",
 			}
 		}},
+		// Defaults only: what the owner set stays. The owner's own volume is
+		// all code-server opens, so Restricted Mode would only get in the
+		// way. The theme follows the system's, as the panel's does at first.
+		// No welcome page or walkthroughs at start: they are mostly noise.
+		{filepath.Join(codeServerUser(home), "settings.json"), func(m map[string]any) {
+			for k, v := range map[string]any{
+				"security.workspace.trust.enabled":                 false,
+				"window.autoDetectColorScheme":                     true,
+				"workbench.startupEditor":                          "none",
+				"workbench.welcomePage.walkthroughs.openOnInstall": false,
+			} {
+				if _, ok := m[k]; !ok {
+					m[k] = v
+				}
+			}
+		}},
 		// Cline reads its servers from the extension's storage, and from
 		// ~/.cline since version 4.
 		{clineMCPSettings(home), clineMCP},
 		{filepath.Join(home, ".cline", "data", "settings", "cline_mcp_settings.json"), clineMCP},
 	} {
-		if err := mergeJSON(f.path, f.edit); err != nil {
+		if err := mergeJSON(f.path, 0o644, f.edit); err != nil {
 			r.log.Warn("workspace: could not write a configuration file", "path", f.path, "error", err)
 		}
 	}
+	// Cline keeps its state in memory and writes the whole file on each
+	// change. Written while it runs, it could lose ours or we its.
+	if starting {
+		if err := writeClineProvider(home, r.snapshot().Agent.Model, models); err != nil {
+			r.log.Warn("workspace: could not set Cline's model", "error", err)
+		}
+	}
+}
+
+// writeClineProvider points Cline at the bridge, with the workspace's model.
+// Only a first choice, as for pi: once a provider is set, it is the owner's.
+// Cline reads these files since version 4, and fills its providers.json from
+// them at start.
+func writeClineProvider(home, model string, models []gatewayModel) error {
+	if model == "" {
+		return nil
+	}
+	dir := filepath.Join(home, ".cline", "data")
+	set := false
+	err := mergeJSON(filepath.Join(dir, "globalState.json"), 0o644, func(m map[string]any) {
+		if _, ok := m["actModeApiProvider"]; ok {
+			return
+		}
+		set = true
+		m["openAiBaseUrl"] = bridgeURL + "/v1"
+		m["openAiHeaders"] = map[string]any{"X-Keera-Client": "cline"}
+		for _, mode := range []string{"actMode", "planMode"} {
+			m[mode+"ApiProvider"] = "openai"
+			m[mode+"OpenAiModelId"] = model
+			if info := clineModelInfo(model, models); info != nil {
+				m[mode+"OpenAiModelInfo"] = info
+			}
+		}
+		// The welcome view asks to sign in to Cline, which is not needed.
+		m["welcomeViewCompleted"] = true
+	})
+	if err != nil || !set {
+		return err
+	}
+	return mergeJSON(filepath.Join(dir, "secrets.json"), 0o600, func(m map[string]any) {
+		if _, ok := m["openAiApiKey"]; !ok {
+			// Any key does: the bridge adds the workspace's.
+			m["openAiApiKey"] = "keera"
+		}
+	})
+}
+
+// clineModelInfo is Cline's description of the model, with the context
+// window the gateway knows. The rest are Cline's own defaults.
+func clineModelInfo(model string, models []gatewayModel) map[string]any {
+	for _, g := range models {
+		if g.ID == model && g.MaxContext > 0 {
+			return map[string]any{
+				"contextWindow": g.MaxContext, "maxTokens": -1, "supportsImages": true,
+				"supportsPromptCache": false, "inputPrice": 0, "outputPrice": 0, "temperature": 0,
+			}
+		}
+	}
+	return nil
 }
 
 func clineMCP(m map[string]any) {
@@ -65,9 +141,15 @@ func clineMCP(m map[string]any) {
 	}
 }
 
+// codeServerUser is code-server's user directory: its settings and the
+// extensions' storage.
+func codeServerUser(home string) string {
+	return filepath.Join(home, ".local", "share", "code-server", "User")
+}
+
 // clineMCPSettings is where Cline keeps its MCP servers inside code-server.
 func clineMCPSettings(home string) string {
-	return filepath.Join(home, ".local", "share", "code-server", "User", "globalStorage",
+	return filepath.Join(codeServerUser(home), "globalStorage",
 		"saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")
 }
 
@@ -134,11 +216,13 @@ func object(m map[string]any, key string) map[string]any {
 	return c
 }
 
-// mergeJSON applies edit to the JSON object in path and writes it back. A
-// file that is not a JSON object is the owner's and is left alone.
-func mergeJSON(path string, edit func(map[string]any)) error {
+// mergeJSON applies edit to the JSON object in path and writes it back, if
+// it changed anything. A file that is not a JSON object is the owner's and
+// is left alone.
+func mergeJSON(path string, mode os.FileMode, edit func(map[string]any)) error {
 	m := map[string]any{}
 	raw, err := os.ReadFile(path)
+	exists := err == nil
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
@@ -148,12 +232,19 @@ func mergeJSON(path string, edit func(map[string]any)) error {
 			return errors.New("it is not a JSON object, so it was left as it is")
 		}
 	}
+	before, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
 	edit(m)
+	if after, err := json.Marshal(m); err != nil || (exists && bytes.Equal(before, after)) {
+		return err
+	}
 	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	return writeFile(path, append(out, '\n'), 0o644)
+	return writeFile(path, append(out, '\n'), mode)
 }
 
 // writeFile replaces path by renaming, so a reader never sees half a file.

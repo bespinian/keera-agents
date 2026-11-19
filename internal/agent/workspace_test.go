@@ -211,7 +211,7 @@ func TestMergeJSONKeepsWhatTheOwnerWrote(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(path, []byte(`{"providers":{"mine":{"baseUrl":"http://x"}},"theme":"dark"}`), 0o644)
-	if err := mergeJSON(path, func(m map[string]any) {
+	if err := mergeJSON(path, 0o644, func(m map[string]any) {
 		object(m, "providers")["keera"] = piProvider([]gatewayModel{{ID: "gpt", DisplayName: "GPT", MaxContext: 1000}})
 	}); err != nil {
 		t.Fatal(err)
@@ -228,11 +228,72 @@ func TestMergeJSONKeepsWhatTheOwnerWrote(t *testing.T) {
 	}
 
 	_ = os.WriteFile(path, []byte("not json"), 0o644)
-	if err := mergeJSON(path, func(map[string]any) {}); err == nil {
+	if err := mergeJSON(path, 0o644, func(map[string]any) {}); err == nil {
 		t.Error("a file that is not JSON was replaced")
 	}
 	if raw, _ := os.ReadFile(path); string(raw) != "not json" {
 		t.Errorf("the owner's file is now %q", raw)
+	}
+}
+
+func TestMergeJSONLeavesAnUnchangedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	_ = os.WriteFile(path, []byte(`{"theme":"dark"}`), 0o644)
+	if err := mergeJSON(path, 0o644, func(m map[string]any) { m["theme"] = "dark" }); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(path); string(raw) != `{"theme":"dark"}` {
+		t.Errorf("the file was written again: %s", raw)
+	}
+}
+
+func TestClineProviderIsOnlyAFirstChoice(t *testing.T) {
+	home := t.TempDir()
+	state := filepath.Join(home, ".cline", "data", "globalState.json")
+	secrets := filepath.Join(home, ".cline", "data", "secrets.json")
+	read := func(path string) map[string]any {
+		t.Helper()
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+
+	models := []gatewayModel{{ID: "gpt", MaxContext: 1000}}
+	if err := writeClineProvider(home, "gpt", models); err != nil {
+		t.Fatal(err)
+	}
+	m := read(state)
+	if m["actModeApiProvider"] != "openai" || m["planModeOpenAiModelId"] != "gpt" ||
+		m["openAiBaseUrl"] != bridgeURL+"/v1" || m["welcomeViewCompleted"] != true {
+		t.Errorf("Cline is not set to the bridge: %v", m)
+	}
+	if info, _ := m["actModeOpenAiModelInfo"].(map[string]any); info["contextWindow"] != 1000.0 {
+		t.Errorf("model info = %v", m["actModeOpenAiModelInfo"])
+	}
+	if read(secrets)["openAiApiKey"] == nil {
+		t.Error("no API key, which Cline asks for")
+	}
+	if fi, _ := os.Stat(secrets); fi.Mode().Perm() != 0o600 {
+		t.Errorf("secrets.json is %v", fi.Mode().Perm())
+	}
+
+	// The owner chose another provider in Cline.
+	_ = os.WriteFile(state, []byte(`{"actModeApiProvider":"anthropic"}`), 0o644)
+	_ = os.WriteFile(secrets, []byte(`{"apiKey":"theirs"}`), 0o600)
+	if err := writeClineProvider(home, "other", models); err != nil {
+		t.Fatal(err)
+	}
+	if m := read(state); len(m) != 1 || m["actModeApiProvider"] != "anthropic" {
+		t.Errorf("the owner's choice was changed: %v", m)
+	}
+	if m := read(secrets); len(m) != 1 {
+		t.Errorf("the owner's secrets were changed: %v", m)
 	}
 }
 
@@ -295,5 +356,18 @@ func TestBridgeRefusesBrowsers(t *testing.T) {
 	}
 	if !slices.Contains(experienceCommand("vscode", "/w").args, "--disable-proxy") {
 		t.Error("code-server's proxy would let web pages reach the bridge")
+	}
+}
+
+func TestVSCodeOpensTheProjectsFolder(t *testing.T) {
+	home := t.TempDir()
+	c := experienceCommand("vscode", home)
+	folder := filepath.Join(home, "Projects")
+	if got := c.args[len(c.args)-1]; got != folder {
+		t.Errorf("code-server opens %q, want %q", got, folder)
+	}
+	_ = c.prepare()
+	if fi, err := os.Stat(folder); err != nil || !fi.IsDir() {
+		t.Errorf("the folder was not made: %v", err)
 	}
 }

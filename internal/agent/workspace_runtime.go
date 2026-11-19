@@ -38,7 +38,7 @@ func (r *runner) runWorkspace(ctx context.Context) {
 		r.log.Error("workspace: keera-agents sees this container as an agent; run `keera-agents agent` in it")
 		return
 	}
-	r.writeConfigs(ctx)
+	r.writeConfigs(ctx, true)
 	go r.serveGit(ctx)
 	go r.serveBridge(ctx)
 	go r.serveFront(ctx)
@@ -60,7 +60,7 @@ func (r *runner) runWorkspace(ctx context.Context) {
 				}
 				continue
 			}
-			r.writeConfigs(ctx)
+			r.writeConfigs(ctx, false)
 		}
 	}
 }

@@ -40,7 +40,9 @@ half to the person's keys, and adds a `Host *.keera` entry whose
 the person's ssh to the workspace's sshd.
 
 The terminal experience runs pi in a tmux session called `pi`. `ssh api.keera`
-and `tmux attach` join the same session the browser shows.
+and `tmux attach` join the same session the browser shows. The image's
+`/etc/tmux.conf` turns on tmux's extended keys, so pi tells Shift+Enter from
+Enter. A `~/.tmux.conf` can change that.
 
 **Only the owner gets in.** An administrator sees, changes, stops and
 deletes every workspace in the organisation, and reads its logs to help when
@@ -146,14 +148,25 @@ sets `KEERA_AGENTS_WORKSPACE_IMAGE`.
 The root filesystem is read-only, as for agents
 ([agents.md](agents.md#hardening)), and there is no root. `HOME` is
 `/workspace`, the volume, so `npm install -g` and `pip install` in a
-virtualenv land there and last. System packages need a derived image.
+virtualenv land there and last. System packages need a derived image. VS
+Code opens `~/Projects`, made empty at the first start, and not the home
+directory, which holds the tools' own files.
 
 The runtime writes its own entries into `~/.pi/agent/models.json`,
 `settings.json` and `mcp.json`, and into Cline's `cline_mcp_settings.json`. It
-leaves the rest of each file alone. **Cline's model** is the one thing it does
-not set: Cline keeps its provider in its own storage. In Cline's settings,
-choose **OpenAI Compatible**, base URL `http://127.0.0.1:7418/v1`, any API
-key, and a model from the gateway.
+leaves the rest of each file alone. In code-server's `settings.json`, it turns
+off workspace trust, so VS Code does not open in Restricted Mode, makes the
+theme follow the system's light or dark mode, and opens no welcome page or
+walkthroughs at start. Each only if the owner has not set that key
+themselves. code-server also runs without Coder's advert in Help: Getting
+Started.
+
+**Cline's model.** The runtime points Cline at the bridge, with the model
+chosen for the workspace, in `~/.cline/data/globalState.json` and
+`secrets.json`. It does so only while no provider is set there, so a choice
+the owner makes in Cline stays. And only before code-server starts: Cline
+keeps these files in memory and writes them whole, so a write while it runs
+could be lost.
 
 ## Kubernetes
 
