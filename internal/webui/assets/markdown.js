@@ -1,4 +1,4 @@
-// A small Markdown renderer for task results, copied from Keera Chat.
+// A small Markdown renderer for task results and comments, copied from Keera Chat.
 //
 // It builds DOM nodes and never parses HTML, so model output cannot inject
 // markup. Links allow only http, https and mailto.
@@ -16,36 +16,6 @@ export function render(text) {
         .split("\n"),
     ),
   );
-  return root;
-}
-
-/** code renders only code, in `spans` and fenced blocks, for text people
- *  write, such as comments. The rest stays as typed. */
-export function code(text) {
-  const root = h("div", { class: "md" });
-  const lines = String(text || "")
-    .replace(/\r\n?/g, "\n")
-    .split("\n");
-  let plain = [];
-  const flush = () => {
-    // Blank lines beside a block would add to the space it has.
-    const s = plain.join("\n").replace(/^\n+|\n+$/g, "");
-    if (s) root.append(h("div", {}, codeSpans(s)));
-    plain = [];
-  };
-  let i = 0;
-  while (i < lines.length) {
-    if (FENCE.test(lines[i])) {
-      flush();
-      const [block, next] = fence(lines, i);
-      root.append(block);
-      i = next;
-      continue;
-    }
-    plain.push(lines[i]);
-    i++;
-  }
-  flush();
   return root;
 }
 
@@ -377,28 +347,6 @@ function codeSpan(text, i) {
   let code = text.slice(i + run.length, end);
   if (/^ .*[^ ] $/.test(code)) code = code.slice(1, -1);
   return { node: h("code", {}, code), end: end + run.length };
-}
-
-/** codeSpans renders text with only its code spans marked. */
-function codeSpans(text) {
-  const out = [];
-  let i = 0;
-  while (i < text.length) {
-    const j = text.indexOf("`", i);
-    if (j < 0) {
-      out.push(document.createTextNode(text.slice(i)));
-      break;
-    }
-    const m = codeSpan(text, j);
-    if (m.node) {
-      if (j > i) out.push(document.createTextNode(text.slice(i, j)));
-      out.push(m.node);
-    } else {
-      out.push(document.createTextNode(text.slice(i, m.end)));
-    }
-    i = m.end;
-  }
-  return out;
 }
 
 /** emphasis finds a mark opening at i, as { tag, inner, end }, or null.

@@ -6,6 +6,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/connectors/aws"
 	"github.com/bespinian/keera-agents/internal/connectors/azure"
 	"github.com/bespinian/keera-agents/internal/connectors/confluence"
+	"github.com/bespinian/keera-agents/internal/connectors/freshdesk"
 	"github.com/bespinian/keera-agents/internal/connectors/gcalendar"
 	"github.com/bespinian/keera-agents/internal/connectors/gcp"
 	"github.com/bespinian/keera-agents/internal/connectors/gdocs"
@@ -21,10 +22,12 @@ import (
 	"github.com/bespinian/keera-agents/internal/connectors/kubernetes"
 	"github.com/bespinian/keera-agents/internal/connectors/onedrive"
 	"github.com/bespinian/keera-agents/internal/connectors/outlook"
+	"github.com/bespinian/keera-agents/internal/connectors/outlookcalendar"
 	"github.com/bespinian/keera-agents/internal/connectors/postgres"
 	"github.com/bespinian/keera-agents/internal/connectors/salesforce"
 	"github.com/bespinian/keera-agents/internal/connectors/slack"
 	"github.com/bespinian/keera-agents/internal/connectors/teams"
+	"github.com/bespinian/keera-agents/internal/connectors/trello"
 )
 
 // Register creates every adapter with opts and makes it available through
@@ -43,9 +46,10 @@ func adapters(opts connectors.Options) []connectors.Adapter {
 		teams.New(opts), googlechat.New(opts), slack.New(opts),
 		gdrive.New(opts), onedrive.New(opts),
 		github.New(opts), gitlab.New(opts),
-		jira.New(opts), confluence.New(opts),
-		gdocs.New(opts), gsheets.New(opts), gslides.New(opts), gcalendar.New(opts), gmail.New(opts), outlook.New(opts),
-		hubspot.New(opts), salesforce.New(opts), postgres.New(opts),
+		jira.New(opts), confluence.New(opts), trello.New(opts),
+		gdocs.New(opts), gsheets.New(opts), gslides.New(opts), gcalendar.New(opts), gmail.New(opts),
+		outlook.New(opts), outlookcalendar.New(opts),
+		hubspot.New(opts), salesforce.New(opts), freshdesk.New(opts), postgres.New(opts),
 		kubernetes.New(opts), aws.New(opts), azure.New(opts), gcp.New(opts),
 	}
 }

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { installFakeDOM } from "./fakedom.mjs";
 
 installFakeDOM();
-const { render, code } = await import("../assets/markdown.js");
+const { render } = await import("../assets/markdown.js");
 
 const tags = (node) =>
   node
@@ -39,21 +39,4 @@ test("the usual marks render", () => {
   const t = tags(out);
   for (const tag of ["H2", "STRONG", "CODE", "UL", "LI", "PRE"])
     assert.ok(t.includes(tag), tag);
-});
-
-test("comments render only code", () => {
-  const out = code(
-    "Run `make check` and **ship** it.\n\n```sh\nmake build\n```\n\nA stray ` stays.",
-  );
-  const t = tags(out);
-  assert.ok(t.includes("CODE"));
-  assert.ok(t.includes("PRE"));
-  assert.ok(!t.includes("STRONG"));
-  assert.match(out.textContent, /\*\*ship\*\*/);
-  assert.match(out.textContent, /A stray ` stays\./);
-  const spans = out.all().filter((n) => n.tagName === "CODE");
-  assert.deepEqual(
-    spans.map((n) => n.textContent),
-    ["make check", "make build"],
-  );
 });

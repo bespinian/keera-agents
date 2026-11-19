@@ -116,8 +116,7 @@ with a comment saying why. The task then
 runs for whoever gave the work, not whoever created the card, so editing
 someone else's card never borrows their rights.
 
-Comments show code in backticks as code: `inline` spans and fenced blocks.
-The rest stays as written.
+Comments are Markdown, rendered as task results are.
 
 ## Folders
 

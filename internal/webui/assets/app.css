@@ -2088,7 +2088,7 @@ a.pill-button:hover {
   color: var(--muted);
 }
 
-/* Task results are Markdown, rendered as Keera Chat renders replies. */
+/* Task results and comments are Markdown, rendered as Keera Chat renders replies. */
 .md {
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -2626,8 +2626,6 @@ a.mini-row:hover {
 .comment-body {
   margin-top: 2px;
   font-size: 13px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 /* A folder picker over a connector's files. */

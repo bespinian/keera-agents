@@ -33,7 +33,7 @@ import {
   pad,
 } from "../ui.js";
 import { taskStatePill, taskPath } from "../common.js";
-import { code } from "../markdown.js";
+import { render } from "../markdown.js";
 
 /** STATUSES are the columns, in order. */
 export const STATUSES = [
@@ -528,7 +528,7 @@ export async function boardView(ctx) {
         "div",
         {},
         h("div", { class: "comment-head" }, h("strong", {}, who), stamp(m.created_at, { cls: "faint" })),
-        h("div", { class: "comment-body" }, code(m.body)),
+        h("div", { class: "comment-body" }, render(m.body)),
       ),
     );
   }

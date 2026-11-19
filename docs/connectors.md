@@ -10,30 +10,33 @@ it may reach there. Each of these is a **binding**. (The API calls connectors
 connections.) This page explains how each service is reached and why. The
 panel shows the same setup steps next to the form.
 
-| Service                 | Kind         | Gives agents                           | keera-agents reaches it with          |
-| ----------------------- | ------------ | -------------------------------------- | ------------------------------------- |
-| Microsoft Teams         | `teams`      | messages in, replies out               | an Azure Bot (Bot Framework)          |
-| Google Chat             | `googlechat` | messages in, replies out               | a Chat app with an HTTP endpoint      |
-| Slack                   | `slack`      | messages in, replies out               | a Slack app (Events API)              |
-| Google Drive            | `gdrive`     | watched folders, file tools            | a service account                     |
-| OneDrive and SharePoint | `onedrive`   | watched folders, file tools            | an Entra app (Microsoft Graph)        |
-| GitHub                  | `github`     | git, issues, pull requests             | a fine-grained access token           |
-| GitLab                  | `gitlab`     | git, issues, merge requests            | a project or group access token       |
-| Jira                    | `jira`       | issue tools                            | an API token or personal access token |
-| Confluence              | `confluence` | page tools                             | an API token or personal access token |
-| Google Docs             | `gdocs`      | find, read and write documents         | a service account                     |
-| Google Sheets           | `gsheets`    | read and write spreadsheets            | a service account                     |
-| Google Slides           | `gslides`    | read and change presentations          | a service account                     |
-| Google Calendar         | `gcalendar`  | events and free time                   | a service account                     |
-| Gmail                   | `gmail`      | mail tools                             | a service account with delegation     |
-| Outlook                 | `outlook`    | mail and calendar tools                | an Entra app (Microsoft Graph)        |
-| HubSpot                 | `hubspot`    | CRM record tools                       | a private app's access token          |
-| Salesforce              | `salesforce` | CRM record tools                       | an app's client credentials           |
-| PostgreSQL              | `postgres`   | SQL queries, tables, changes           | a database role and its password      |
-| Kubernetes              | `kubernetes` | workloads, logs, events, apply         | a service account token               |
-| AWS                     | `aws`        | EC2, S3, CloudWatch, logs, costs       | an access key, and a role to assume   |
-| Azure                   | `azure`      | resource, cost and VM tools            | an Entra app (Resource Manager)       |
-| Google Cloud            | `gcp`        | resources, logs, metrics, storage, VMs | a service account                     |
+| Service                 | Kind              | Gives agents                           | keera-agents reaches it with          |
+| ----------------------- | ----------------- | -------------------------------------- | ------------------------------------- |
+| Microsoft Teams         | `teams`           | messages in, replies out               | an Azure Bot (Bot Framework)          |
+| Google Chat             | `googlechat`      | messages in, replies out               | a Chat app with an HTTP endpoint      |
+| Slack                   | `slack`           | messages in, replies out               | a Slack app (Events API)              |
+| Google Drive            | `gdrive`          | watched folders, file tools            | a service account                     |
+| OneDrive and SharePoint | `onedrive`        | watched folders, file tools            | an Entra app (Microsoft Graph)        |
+| GitHub                  | `github`          | git, issues, pull requests             | a fine-grained access token           |
+| GitLab                  | `gitlab`          | git, issues, merge requests            | a project or group access token       |
+| Jira                    | `jira`            | issue tools                            | an API token or personal access token |
+| Confluence              | `confluence`      | page tools                             | an API token or personal access token |
+| Trello                  | `trello`          | card tools                             | a Power-Up's API key and a token      |
+| Google Docs             | `gdocs`           | find, read and write documents         | a service account                     |
+| Google Sheets           | `gsheets`         | read and write spreadsheets            | a service account                     |
+| Google Slides           | `gslides`         | read and change presentations          | a service account                     |
+| Google Calendar         | `gcalendar`       | events and free time                   | a service account                     |
+| Gmail                   | `gmail`           | mail tools                             | a service account with delegation     |
+| Outlook Mail            | `outlook`         | mail tools                             | an Entra app (Microsoft Graph)        |
+| Outlook Calendar        | `outlookcalendar` | events and free time                   | an Entra app (Microsoft Graph)        |
+| HubSpot                 | `hubspot`         | CRM record tools                       | a private app's access token          |
+| Salesforce              | `salesforce`      | CRM record tools                       | an app's client credentials           |
+| Freshdesk               | `freshdesk`       | ticket tools                           | an agent's API key                    |
+| PostgreSQL              | `postgres`        | SQL queries, tables, changes           | a database role and its password      |
+| Kubernetes              | `kubernetes`      | workloads, logs, events, apply         | a service account token               |
+| AWS                     | `aws`             | EC2, S3, CloudWatch, logs, costs       | an access key, and a role to assume   |
+| Azure                   | `azure`           | resource, cost and VM tools            | an Entra app (Resource Manager)       |
+| Google Cloud            | `gcp`             | resources, logs, metrics, storage, VMs | a service account                     |
 
 **Credentials are sealed** with `KEERA_AGENTS_SECRET_KEY` and opened only to
 make a call. The panel never shows them again; leaving a secret field empty
@@ -221,12 +224,13 @@ Most services can also act as each person instead of one shared account; see
 ## Each person's own account
 
 A connector usually holds one account, and every agent connected to it acts as
-that account, whoever gives it work. Every connector but the chats, HubSpot and
-PostgreSQL can instead let **each person sign in with their own account**. An agent then
+that account, whoever gives it work. Every connector but the chats, HubSpot,
+PostgreSQL, Trello and Freshdesk can instead let **each person sign in with their own account**. An agent then
 works there as the person the task is for, and reaches only what they may. A
 chat's bot stays the organisation's: who may talk to an agent is decided by the
 sender. HubSpot's OAuth tokens reach the whole account, whoever signs in, so
-they would not narrow anything. PostgreSQL has no sign-in of this kind.
+they would not narrow anything. PostgreSQL, Trello and Freshdesk have no
+sign-in of this kind.
 
 The administrator chooses this when adding the connector, and enters an OAuth
 client instead of a shared account. Its redirect URI, or callback URL, is
@@ -238,8 +242,9 @@ steps; in short:
   and create an OAuth client of type **Web application**.
 - **Microsoft** (OneDrive and SharePoint, Outlook, Azure): register an app for
   your tenant with the platform **Web**, and add the delegated permissions the
-  panel names: `Files.ReadWrite.All` for OneDrive, `Mail.ReadWrite`,
-  `Mail.Send` and `Calendars.ReadWrite` and their `.Shared` forms for Outlook,
+  panel names: `Files.ReadWrite.All` for OneDrive, `Mail.ReadWrite` and
+  `Mail.Send` and their `.Shared` forms for Outlook Mail,
+  `Calendars.ReadWrite` and its `.Shared` form for Outlook Calendar,
   `user_impersonation` of Azure Service Management for Azure.
 - **Atlassian** (Jira, Confluence): create an OAuth 2.0 integration in the
   developer console, add the product's scopes and `read:me`, and set its
@@ -380,6 +385,40 @@ In one space, searches are wrapped as `space = "DOCS" AND (…)`, as for Jira,
 pages of other spaces are refused, and new pages and their parents must be in
 the space.
 
+## Trello
+
+Settings: `api_key`, `token`.
+
+1. Create a Trello account for your agents and add it to the boards they work
+   on.
+2. At trello.com/power-ups/admin, create a **Power-Up** in one of your
+   workspaces and generate its **API key**.
+3. Signed in as the agents' account, open
+   `https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&name=Keera+Agents&key=`
+   followed by the API key. Allow it and copy the **token**. Use
+   `scope=read` if agents should only read.
+
+keera-agents sends the key and token in the `Authorization` header, not in the
+address as Trello's examples do, so they never show in an error.
+
+Agents get these tools:
+
+- `trello_list_boards`: the boards the agent may use.
+- `trello_get_board`: a board's lists, labels and members, with their ids.
+- `trello_list_cards`: the open cards on a board, or in one list.
+- `trello_search_cards`: cards by text, with Trello's search operators.
+- `trello_get_card`: a card's fields, description, checklists and last 20
+  comments.
+- `trello_create_card` (write): a new card in a list.
+- `trello_update_card` (write): change a card, move it to another list on its
+  board, or archive it.
+- `trello_comment` (write): comment on a card.
+
+**A binding names a board**, by its address or the code in it, or every board
+the account is on. On one board, searches are narrowed to it, and cards and
+lists of other boards are refused. A card moves only between the lists of its
+own board.
+
 ## Google Docs
 
 Settings: `service_account_json`, `subject` (optional).
@@ -479,28 +518,37 @@ person's email, or a shared calendar's `…@group.calendar.google.com`. With
 domain-wide delegation, `primary` is the user's own calendar, and is stored as
 its ID. Every tool works on that calendar only; there is no `*`.
 
-## Outlook
+## Outlook Mail and Outlook Calendar
 
 Settings: `tenant_id`, `client_id`, `client_secret`.
 
+Mail and calendar are two connectors, so an agent may keep a calendar without
+reading mail. Both may use the same app.
+
 1. In Microsoft Entra, register an app and create a client secret.
-2. Give it the Microsoft Graph application permissions `Mail.ReadWrite`,
-   `Mail.Send` and `Calendars.ReadWrite`. Granted in Entra, they reach every
-   mailbox in the tenant, so limit them to the agents' mailboxes.
+2. Give it the Microsoft Graph application permissions it needs:
+   `Mail.ReadWrite` and `Mail.Send` for mail, `Calendars.ReadWrite` for the
+   calendar. Granted in Entra, they reach every mailbox in the tenant, so
+   limit them to the agents' mailboxes.
 3. Best, use Exchange Online's **RBAC for Applications**: create a management
-   scope for the agents' mailboxes and assign the app the roles Application
-   Mail.ReadWrite, Application Mail.Send and Application Calendars.ReadWrite
-   in it, without granting the permissions in Entra.
+   scope for the agents' mailboxes and assign the app the matching roles, such
+   as Application Mail.ReadWrite, in it, without granting the permissions in
+   Entra.
 4. Or grant them in Entra with admin consent, and restrict the app with an
    **application access policy** (`New-ApplicationAccessPolicy`) to a
    mail-enabled security group of the agents' mailboxes.
 5. Bind each agent to one mailbox, best one made for it.
 
 The connector is checked by signing in. A mailbox is checked when an agent is
-bound to it, by opening its inbox, so a mailbox outside the app's scope fails
-then.
+bound to it, by opening its inbox or its calendar, so a mailbox outside the
+app's scope fails then.
 
-Agents get these tools:
+**A binding names one mailbox**, by its address, and every call goes to that
+mailbox alone. There is no `*`: the app's permissions reach every mailbox it
+is allowed, so an agent gets only its own.
+A member may bind only their own mailbox; an administrator may bind any.
+
+Outlook Mail gives agents these tools:
 
 - `outlook_list_messages`: list a folder's messages, newest first, by search
   text or unread only.
@@ -509,14 +557,22 @@ Agents get these tools:
 - `outlook_send_message`: send a new email, as plain text. Needs write.
 - `outlook_reply`: reply, or reply to all. Needs write.
 - `outlook_move_message`: move a message to another folder. Needs write.
-- `outlook_list_events`: list calendar events, by default the next 7 days.
-- `outlook_create_event`: create an event, with invitations and a Teams
-  meeting if asked. Needs write.
 
-**A binding names one mailbox**, by its address, and every call goes to that
-mailbox alone. There is no `*`: the app's permissions reach every mailbox it
-is allowed, so an agent gets only its own.
-A member may bind only their own mailbox; an administrator may bind any.
+Outlook Calendar gives agents these tools:
+
+- `outlookcalendar_list_events`: list events, by default the next 7 days.
+- `outlookcalendar_get_event`: read an event, with its description and
+  attendees' answers.
+- `outlookcalendar_free_busy`: when the calendar is busy, without details.
+- `outlookcalendar_create_event`: create an event, with invitations and a
+  Teams meeting if asked. Needs write.
+- `outlookcalendar_update_event`: change only the fields given. Attendees get
+  the update. Needs write.
+- `outlookcalendar_delete_event`: delete an event. If the mailbox organised
+  it, attendees get a cancellation. Needs write.
+
+Times are local times in a time zone the agent names, such as
+`Europe/Zurich`, or RFC 3339. A range is at most 93 days.
 
 ## Gmail
 
@@ -615,6 +671,40 @@ Agents get these tools:
 
 A Salesforce connector has nothing to narrow to: a binding reaches whatever
 the run-as user may, so that user's permission set is the limit.
+
+## Freshdesk
+
+Settings: `domain` (such as `acme.freshdesk.com`), `api_key`.
+
+1. In Freshdesk, add an agent for your agents to work as, in the groups they
+   work in. Give it a role that may do what they should, such as reply to
+   tickets.
+2. Signed in as that agent, open **Profile settings** and copy the **API
+   key**.
+3. Enter your helpdesk's `freshdesk.com` address, not a custom domain.
+   keera-agents sends the key only to a `freshdesk.com` address, so whoever
+   edits the connector cannot send it elsewhere.
+
+Agents get these tools:
+
+- `freshdesk_search_tickets`: find tickets with a Freshdesk filter, such as
+  `status:2 AND priority:4`, or the latest ones.
+- `freshdesk_get_ticket`: a ticket's fields, requester, description and last
+  20 replies and notes.
+- `freshdesk_find_contacts`: customers by email or name.
+- `freshdesk_list_groups`: the groups the agent may use.
+- `freshdesk_list_agents`: the Freshdesk agents tickets can be assigned to.
+- `freshdesk_create_ticket` (write): a new ticket for a customer.
+- `freshdesk_update_ticket` (write): change the status, priority, agent, tags
+  or subject.
+- `freshdesk_reply` (write): reply to the customer, who gets it by email.
+- `freshdesk_add_note` (write): add a note, private unless told otherwise.
+
+**A binding names a group**, such as `Billing`, or every group. In one group,
+filters are wrapped as `(…) AND group_id:5`, and one whose parentheses or
+quotes do not balance is refused. Tickets of other groups are refused, and new
+tickets go in the group. Contacts are the whole helpdesk's: an agent that
+creates tickets must be able to find the customer.
 
 ## PostgreSQL
 

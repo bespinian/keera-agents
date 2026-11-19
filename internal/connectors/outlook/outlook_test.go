@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/connectors"
+	"github.com/bespinian/keera-agents/internal/connectors/internal/exchange"
 	"github.com/bespinian/keera-agents/internal/connectors/internal/jwttest"
 )
 
@@ -25,7 +26,7 @@ func newFake(t *testing.T) (*fake, *Adapter) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /login/tenant-1/oauth2/v2.0/token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
-		if r.Form.Get("client_secret") != "pw" || r.Form.Get("scope") != scope {
+		if r.Form.Get("client_secret") != "pw" || r.Form.Get("scope") != exchange.Scope {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"AADSTS7000215: Invalid client secret provided."}`))
 			return
@@ -64,15 +65,6 @@ func newFake(t *testing.T) (*fake, *Adapter) {
 	mux.HandleFunc("POST "+u+"/sendMail", reply(202, ``))
 	mux.HandleFunc("POST "+u+"/messages/m1/replyAll", reply(202, ``))
 	mux.HandleFunc("POST "+u+"/messages/m1/move", reply(201, `{"id":"m1-new"}`))
-	mux.HandleFunc("GET "+u+"/calendarView", reply(200, `{"value":[{"id":"e1","subject":"Standup",
-		"start":{"dateTime":"2026-11-05T09:00:00.0000000","timeZone":"Europe/Zurich"},
-		"end":{"dateTime":"2026-11-05T09:15:00.0000000","timeZone":"Europe/Zurich"},
-		"organizer":{"emailAddress":{"address":"bob@example.com"}},
-		"attendees":[{"emailAddress":{"address":"ada@example.com"},"status":{"response":"accepted"}}]}]}`))
-	mux.HandleFunc("POST "+u+"/events", reply(201, `{"id":"e2","subject":"Review",
-		"start":{"dateTime":"2026-11-05T14:00:00.0000000","timeZone":"Europe/Zurich"},
-		"end":{"dateTime":"2026-11-05T15:00:00.0000000","timeZone":"Europe/Zurich"},
-		"onlineMeeting":{"joinUrl":"https://teams.example/join"}}`))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("unexpected %s %s", r.Method, r.URL)
 		w.WriteHeader(http.StatusNotFound)
@@ -165,7 +157,7 @@ func TestReadMessage(t *testing.T) {
 	if m.Body != "Hello\n\nPlease pay." || m.Cc[0] != "Cy <cy@example.com>" || m.Attachments[0].Name != "invoice.pdf" {
 		t.Fatalf("message = %+v", m)
 	}
-	if p := f.last.Header.Get("Prefer"); p != textBody {
+	if p := f.last.Header.Get("Prefer"); p != exchange.TextBody {
 		t.Errorf("Prefer = %q", p)
 	}
 	_, err := a.Call(context.Background(), conn("pw"), box, "read_message", json.RawMessage(`{"id":"gone"}`))
@@ -200,36 +192,6 @@ func TestSendAndReply(t *testing.T) {
 	}
 }
 
-func TestEvents(t *testing.T) {
-	f, a := newFake(t)
-	list := call[[]Event](t, a, box, "list_events", `{"start":"2026-11-05","time_zone":"Europe/Zurich"}`)
-	if len(list) != 1 || list[0].Start != "2026-11-05T09:00:00" || list[0].Attendees[0] != "ada@example.com (accepted)" {
-		t.Fatalf("events = %+v", list)
-	}
-	q := f.last.URL.Query()
-	if q.Get("endDateTime") == "" || f.last.Header.Get("Prefer") != `outlook.timezone="Europe/Zurich"` {
-		t.Errorf("query %s, Prefer %q", f.last.URL.RawQuery, f.last.Header.Get("Prefer"))
-	}
-	if _, err := a.Call(context.Background(), conn("pw"), box, "list_events",
-		json.RawMessage(`{"start":"2026-01-01","end":"2026-12-31"}`)); err == nil {
-		t.Error("a year passed")
-	}
-
-	ev := call[Event](t, a, box, "create_event", `{"subject":"Review","start":"2026-11-05T14:00","end":"2026-11-05T15:00",
-		"time_zone":"Europe/Zurich","attendees":["bob@example.com"],"online_meeting":true}`)
-	if ev.ID != "e2" || ev.JoinURL == "" {
-		t.Errorf("event = %+v", ev)
-	}
-	start := f.body["start"].(map[string]any)
-	if start["dateTime"] != "2026-11-05T14:00:00" || start["timeZone"] != "Europe/Zurich" || f.body["isOnlineMeeting"] != true {
-		t.Errorf("sent %v", f.body)
-	}
-	if _, err := a.Call(context.Background(), conn("pw"), box, "create_event",
-		json.RawMessage(`{"subject":"x","start":"2026-11-05T15:00","end":"2026-11-05T14:00"}`)); err == nil {
-		t.Error("end before start passed")
-	}
-}
-
 // The mailbox in every path is the binding's; the model can only pick ids
 // within it.
 func TestStaysInMailbox(t *testing.T) {
@@ -244,7 +206,7 @@ func TestStaysInMailbox(t *testing.T) {
 		t.Error("any target passed")
 	}
 	for _, tool := range a.Tools() {
-		write := map[string]bool{"send_message": true, "reply": true, "move_message": true, "create_event": true}[tool.Name]
+		write := map[string]bool{"send_message": true, "reply": true, "move_message": true}[tool.Name]
 		if tool.Write != write {
 			t.Errorf("%s: Write = %v", tool.Name, tool.Write)
 		}
@@ -310,7 +272,7 @@ func TestPerUser(t *testing.T) {
 
 	user := client
 	user.Token = "user-tok"
-	if got, err := a.Target(ctx, user, "Me"); err != nil || got != me {
+	if got, err := a.Target(ctx, user, "Me"); err != nil || got != exchange.Me {
 		t.Errorf("Target(me) = %q, %v", got, err)
 	}
 	if _, err := a.Target(ctx, user, "boss@example.com"); err == nil || !strings.Contains(err.Error(), "shared with you") {
@@ -319,10 +281,10 @@ func TestPerUser(t *testing.T) {
 	if _, err := a.Target(ctx, conn("pw"), "me"); err == nil {
 		t.Error("me passed on a shared connector")
 	}
-	if out, err := a.Call(ctx, user, me, "list_folders", nil); err != nil || out == nil {
+	if out, err := a.Call(ctx, user, exchange.Me, "list_folders", nil); err != nil || out == nil {
 		t.Errorf("list_folders = %v, %v", out, err)
 	}
-	if _, err := a.Call(ctx, client, me, "list_folders", nil); err == nil {
+	if _, err := a.Call(ctx, client, exchange.Me, "list_folders", nil); err == nil {
 		t.Error("a call for nobody passed")
 	}
 }

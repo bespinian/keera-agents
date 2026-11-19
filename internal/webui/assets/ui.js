@@ -189,9 +189,8 @@ export const icons = {
     "M18 3h2a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z",
   tasks: "M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9",
   schedules: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 7v5l3 2",
-  connections:
-    "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" +
-    "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+  // A power plug: a connector plugs a service in.
+  connections: "M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z",
   audit: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h4",
   billing: "M6 2h12v20l-3-2-3 2-3-2-3 2zM9 7h6M9 11h6M9 15h4",
   orgs: "M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01",
@@ -311,7 +310,7 @@ const gitlabMark = {
     "a12 12 0 0 1 22.831-1.121L88.544 104h78.912l20.664-55.104a12 12 0 0 1 22.83 1.121l27.33 102.486a16.04 16.04 0 0 1-6.352 17.278z",
 };
 
-// Atlassian's, for Jira and Confluence alike. Padded, as it fills its square.
+// Atlassian's, for Jira, Confluence and Trello alike. Padded, as it fills its square.
 const atlassianMark = {
   viewBox: "-16 -16 288 288",
   path:
@@ -456,6 +455,18 @@ const postgresMark = {
     "C122.97 166.3 121.39 164.27 119.77 163.6C118.89 163.24 118.19 162.95 117.47 162.96z",
 };
 
+// The outline of Freshworks' flower, drawn in one colour. Padded, as it fills
+// its square.
+const freshworksMark = {
+  viewBox: "-97 -97 1749 1749",
+  path:
+    "M775 .5C497 .5 241.6 151 104.8 388 36.5 506.5 0 643.3 0 780" +
+    "c0 36.5 4.6 77.5 9.1 114 22.8 164.1 100.3 314.6 218.8 433.1C346.4 1445.6 496.9 1523.1 661 1545.9" +
+    "c41 4.5 77.5 9.1 118.5 9.1 136.8 0 269-36.5 387.5-104.8 188.2-106.6 318.3-285 366.6-490.1 13.7-56.9 20.9-115.8 20.9-175.5V196.5" +
+    "c0-34.3-8.1-64.6-24.3-94.7l-16.8-28.3-13.6-18.3-18.3-13.6" +
+    "c-9.1-4.6-13.6-13.7-22.8-18.3-15.3-6.6-30.6-12.1-46.5-16C1395.8 2.8 1378.9.5 1363 .5Z",
+};
+
 /** serviceMarks name the vendor behind each connector kind. */
 const serviceMarks = {
   teams: idpMarks.microsoft,
@@ -467,8 +478,10 @@ const serviceMarks = {
   gitlab: gitlabMark,
   jira: atlassianMark,
   confluence: atlassianMark,
+  trello: atlassianMark,
   hubspot: hubspotMark,
   salesforce: salesforceMark,
+  freshdesk: freshworksMark,
   aws: awsMark,
   kubernetes: kubernetesMark,
   postgres: postgresMark,
@@ -479,6 +492,7 @@ const serviceMarks = {
   gmail: googleMark,
   gcp: googleMark,
   outlook: idpMarks.microsoft,
+  outlookcalendar: idpMarks.microsoft,
   azure: idpMarks.microsoft,
 };
 
