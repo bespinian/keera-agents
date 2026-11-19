@@ -264,7 +264,7 @@ func permissionTable(f fixture) []check {
 		{route: "GET /api/v1/billing", other: notFound, member: forbidden},
 
 		{route: "GET /api/v1/agents", other: ok, member: ok},
-		{route: "POST /api/v1/agents", body: map[string]any{"name": "Mole", "model": "keera-speed", "enabled": false}, other: created},
+		{route: "POST /api/v1/agents", body: map[string]any{"name": "Mole", "model": "keera-speed"}, other: created},
 		{route: "GET /api/v1/agents/{id}", id: f.adaAgent, other: notFound, member: ok},
 		{route: "PATCH /api/v1/agents/{id}", id: f.adaAgent, body: map[string]any{"description": "mine now"}, other: notFound, member: forbidden},
 		{route: "DELETE /api/v1/agents/{id}", id: f.adaAgent, other: notFound, member: forbidden},

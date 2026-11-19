@@ -23,7 +23,6 @@ import {
   confirm,
   toast,
   field,
-  checkRow,
   link,
   card,
   listCard,
@@ -161,7 +160,6 @@ function head(ctx, agent) {
     ["/agents", "Agents"],
     [
       agentStatePill(agent.state),
-      agent.enabled === false ? pill("Off: takes no new tasks") : null,
       agent.running_task_id
         ? link(ctx, taskPath(agent.running_task_id), [h("span", { class: "blip" }), "Working on a task"], {
             class: "pill pill-accent pill-button",
@@ -289,17 +287,11 @@ async function settingsTab(ctx, agent) {
     return banner("info", "Only its owner or an administrator can change this agent.");
   }
   const form = await agentForm(ctx, agent);
-  const enabled = checkRow(
-    "Takes new tasks",
-    "When off, its machine stops and the tasks it has are cancelled. Its connectors and schedules stay.",
-    agent.enabled !== false,
-  );
   const err = h("div");
   const save = busyButton({ class: "btn btn-primary" }, "Save changes", async () => {
     replace(err);
     try {
-      const body = { ...form.values(), enabled: enabled.input.checked };
-      await api.updateAgent(agent.id, body);
+      await api.updateAgent(agent.id, form.values());
     } catch (ex) {
       replace(err, banner("bad", ex.message || "That did not work."));
       return;
@@ -324,7 +316,6 @@ async function settingsTab(ctx, agent) {
         "div",
         { class: "card-body" },
         err,
-        h("div", { class: "field" }, enabled.el),
         form.el,
         h("div", { class: "row", style: { marginTop: "16px" } }, h("div", { class: "spacer" }), save),
       ),

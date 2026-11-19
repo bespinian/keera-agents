@@ -71,12 +71,7 @@ function agentTable(ctx, agents) {
           h(
             "div",
             { class: "stack" },
-            h(
-              "div",
-              { class: "row-tight" },
-              agentStatePill(a.state),
-              a.enabled === false ? h("span", { class: "pill", title: "It takes no new tasks" }, "Off") : null,
-            ),
+            h("div", { class: "row-tight" }, agentStatePill(a.state)),
             a.state === "failed" && a.state_detail ? h("div", { class: "faint small" }, a.state_detail) : null,
           ),
         sortKey: (a) => a.state,

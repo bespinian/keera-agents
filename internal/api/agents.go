@@ -208,7 +208,6 @@ type agentInput struct {
 	Class         *runtime.Class `json:"class"`
 	Image         *string        `json:"image"`
 	ProjectID     *string        `json:"project_id"`
-	Enabled       *bool          `json:"enabled"`
 }
 
 var (
@@ -321,9 +320,6 @@ func (s *Server) apply(ctx context.Context, p Principal, a *store.Agent, in agen
 		}
 		a.Image = strings.TrimSpace(*in.Image)
 	}
-	if in.Enabled != nil {
-		a.Enabled = *in.Enabled
-	}
 	return nil
 }
 
@@ -430,17 +426,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 	s.record(r.Context(), p, "agent.update", out.ID, map[string]any{"name": out.Name})
 	// Instructions and the model reach the runtime at its next task.
 	s.rekeyIfChanged(r.Context(), before, out)
-	if before.Enabled != out.Enabled {
-		// As the start and stop routes do.
-		s.record(r.Context(), p, "agent"+startOrStop(out.Enabled), out.ID, nil)
-	}
-	switch {
-	case before.Enabled && !out.Enabled:
-		if err := s.fleet.Stop(r.Context(), out, "the agent was stopped"); err != nil {
-			s.log.Warn("could not stop an agent", "agent", out.ID, "error", err)
-		}
-	case !before.Enabled && out.Enabled,
-		out.Enabled && (before.Image != out.Image || before.Class != out.Class):
+	if out.Enabled && (before.Image != out.Image || before.Class != out.Class) {
 		s.startLater(out)
 	}
 	s.writeAgent(w, r, p, out)
