@@ -24,6 +24,8 @@ type fakeFiles struct {
 	content map[string]string
 	changes []connectors.File
 	failing error
+	// hangs is a folder whose changes never come.
+	hangs   string
 	written []string
 }
 
@@ -77,7 +79,11 @@ func (f *fakeFiles) Write(_ context.Context, _ connectors.Connection, folder, na
 }
 
 // Changes starts a cursor at c, and then lists f.changes on every call.
-func (f *fakeFiles) Changes(_ context.Context, _ connectors.Connection, _, cursor string) ([]connectors.File, string, error) {
+func (f *fakeFiles) Changes(ctx context.Context, _ connectors.Connection, folder, cursor string) ([]connectors.File, string, error) {
+	if folder != "" && folder == f.hangs {
+		<-ctx.Done()
+		return nil, "", ctx.Err()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failing != nil {

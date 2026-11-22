@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -583,6 +584,39 @@ func TestAWatchThatFailsKeepsItsCursor(t *testing.T) {
 	e.d.CheckWatches(e.ctx, b.CheckedAt.Add(2*time.Minute))
 	if n := len(e.tasks(t, a)); n != 1 {
 		t.Fatalf("%d tasks after the interval", n)
+	}
+}
+
+// A folder whose service never answers must not hold up the others, in this
+// round or the next.
+func TestASlowWatchLeavesTheOthersTheirTurn(t *testing.T) {
+	defer func(d time.Duration) { watchTimeout = d }(watchTimeout)
+	e := setup(t)
+	files := newFakeFiles()
+	files.hangs = "slow"
+	connectors.Register(files)
+	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	fc := e.conn(t, "org_a", filesKind, nil)
+	slow := e.bind(t, a, fc, "slow", store.ModeWatch)
+	fast := e.bind(t, a, fc, "fast", store.ModeWatch)
+
+	// The check of one folder times out.
+	watchTimeout = 50 * time.Millisecond
+	e.d.CheckWatches(e.ctx, time.Now().Add(2*time.Minute))
+	if b, _ := e.st.Binding(e.ctx, fast.ID); b.Cursor != "c" {
+		t.Fatalf("the other folder's cursor is %q", b.Cursor)
+	}
+
+	// The round's time runs out during it: it still waits its interval, so
+	// the next round checks the others first.
+	before, _ := e.st.Binding(e.ctx, slow.ID)
+	watchTimeout = time.Minute
+	round, cancel := context.WithTimeout(e.ctx, 50*time.Millisecond)
+	defer cancel()
+	e.d.CheckWatches(round, time.Now().Add(4*time.Minute))
+	after, _ := e.st.Binding(e.ctx, slow.ID)
+	if after.CheckedAt == nil || !after.CheckedAt.After(*before.CheckedAt) {
+		t.Fatalf("the slow folder was checked at %v, before at %v", after.CheckedAt, before.CheckedAt)
 	}
 }
 

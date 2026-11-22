@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -155,25 +156,52 @@ func cardPrompt(c store.Card, comments []store.Comment) string {
 	return prompt.String()
 }
 
-// CheckWatches reads the change feed of every watched folder that is due.
+// watchTimeout bounds one folder's check, so a slow service, such as one
+// asking to retry later, leaves the round time for the other folders.
+var watchTimeout = 30 * time.Second
+
+// CheckWatches reads the change feed of every watched folder that is due,
+// the longest waiting first. Those it has no time for wait for the next
+// round.
 func (d *Dispatcher) CheckWatches(ctx context.Context, now time.Time) {
 	watches, err := d.st.Watches(ctx)
 	if err != nil {
 		d.log.Warn("could not read watched folders", "error", err)
 		return
 	}
+	watches = slices.DeleteFunc(watches, func(b store.Binding) bool {
+		return b.CheckedAt != nil && now.Sub(*b.CheckedAt) < d.opts.WatchInterval
+	})
+	slices.SortStableFunc(watches, func(a, b store.Binding) int {
+		return cmp.Compare(checkedAt(a), checkedAt(b))
+	})
 	for _, b := range watches {
-		if b.CheckedAt != nil && now.Sub(*b.CheckedAt) < d.opts.WatchInterval {
-			continue
+		if ctx.Err() != nil {
+			return
 		}
-		err := d.checkWatch(ctx, b)
+		check, cancel := context.WithTimeout(ctx, watchTimeout)
+		err := d.checkWatch(check, b)
+		cancel()
 		d.opts.Metrics.FolderCheck(b.Kind, metrics.Outcome(err))
 		if err != nil {
 			d.log.Warn("could not check a watched folder", "binding", b.ID, "error", err)
-			// Wait a full interval before asking again.
-			_ = d.st.SetWatchCursor(ctx, b.ID, b.Cursor)
+			// Wait a full interval before asking again. The round's time may
+			// be up, and this must still be written, or the folder would be
+			// first again next round.
+			write, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			_ = d.st.SetWatchCursor(write, b.ID, b.Cursor)
+			cancel()
 		}
 	}
+}
+
+// checkedAt is when a watch was last checked, as Unix nanoseconds; zero if
+// never.
+func checkedAt(b store.Binding) int64 {
+	if b.CheckedAt == nil {
+		return 0
+	}
+	return b.CheckedAt.UnixNano()
 }
 
 func (d *Dispatcher) checkWatch(ctx context.Context, b store.Binding) error {
