@@ -471,6 +471,34 @@ func TestPermissions(t *testing.T) {
 }
 
 // The owner and administrators can do what the table refuses others.
+// The owner is saved first, so a key the gateway cannot replace now must not
+// make a take-over look failed. The key is replaced later.
+func TestATakeOverHoldsWhileTheGatewayIsDown(t *testing.T) {
+	ta := startApp(t)
+	f := seed(t, ta)
+	ada := ta.as(t, "tok-ada")
+	ta.gw.mu.Lock()
+	ta.gw.down = true
+	ta.gw.mu.Unlock()
+
+	var v struct {
+		OwnerID string `json:"owner_id"`
+	}
+	must(t, ada, "POST", "/api/v1/agents/"+f.bobAgent+"/take-over", nil, http.StatusOK, &v)
+	if v.OwnerID != "usr_ada" {
+		t.Fatalf("owner = %q", v.OwnerID)
+	}
+	var audit struct {
+		Data []store.AuditEntry `json:"data"`
+	}
+	must(t, ada, "GET", "/api/v1/audit", nil, http.StatusOK, &audit)
+	if !slices.ContainsFunc(audit.Data, func(e store.AuditEntry) bool {
+		return e.Action == "agent.take_over" && e.Target == f.bobAgent
+	}) {
+		t.Errorf("the audit log lacks the take-over: %+v", audit.Data)
+	}
+}
+
 // The API's default is the panel's: only the owner gives a new agent work.
 func TestANewAgentServesOnlyItsOwner(t *testing.T) {
 	ta := startApp(t)

@@ -40,6 +40,8 @@ type fakeGateway struct {
 	mu      sync.Mutex
 	revoked []string
 	session string
+	// down refuses new keys, as a gateway that cannot be reached.
+	down bool
 }
 
 func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +69,13 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case r.URL.Path == "/control/v1/service/keys" && service && r.Method == http.MethodPost:
+		g.mu.Lock()
+		down := g.down
+		g.mu.Unlock()
+		if down {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
 		reply(map[string]string{"id": "key_1", "project_id": "prj_1", "key": "sk-agent"})
 	case strings.HasPrefix(r.URL.Path, "/control/v1/service/keys/") && service && r.Method == http.MethodDelete:

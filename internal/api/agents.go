@@ -562,13 +562,18 @@ func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Princip
 		return
 	}
 	a.OwnerID, a.OwnerEmail = p.UserID, p.Email
+	// The agent is taken over once the owner is saved. A key the gateway
+	// could not replace now stays stale, and RekeyStale replaces it soon.
 	if err := s.fleet.Rekey(r.Context(), a); err != nil {
-		writeError(w, http.StatusBadGateway, "gateway_error", err.Error())
-		return
+		s.log.Warn("could not replace a key; trying again later", "agent", a.ID, "error", err)
 	}
 	_ = s.st.SetAgentState(r.Context(), a.ID, a.State, "")
 	s.record(r.Context(), p, "agent.take_over", a.ID, map[string]string{"previous_owner": previous})
-	out, _ := s.st.Agent(r.Context(), a.ID)
+	out, err := s.st.Agent(r.Context(), a.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.writeAgent(w, r, p, out)
 }
 
