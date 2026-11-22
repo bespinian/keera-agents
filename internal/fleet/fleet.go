@@ -416,11 +416,11 @@ func stale(a store.Agent, st runtime.Status) bool {
 
 // restartStale starts an agent again if its container's token is stale. It
 // checks again under the lock, so it does not undo a start that is just
-// storing its token.
+// storing its token. A held lock means that start is under way.
 func (m *Manager) restartStale(ctx context.Context, agentID string) error {
-	unlock, err := m.lock(ctx, agentID)
-	if err != nil {
-		return err
+	unlock, ok := m.tryLock(agentID)
+	if !ok {
+		return nil
 	}
 	defer unlock()
 	a, err := m.st.Agent(ctx, agentID)
@@ -438,12 +438,27 @@ func (m *Manager) restartStale(ctx context.Context, agentID string) error {
 // Wake makes sure an agent with work is running. It returns quickly; the
 // container takes its task once it is up.
 func (m *Manager) Wake(ctx context.Context, agentID string) error {
+	return m.wake(ctx, agentID, true)
+}
+
+// wake is Wake. Unless it may wait, it leaves an agent whose lock is held,
+// as by a start pulling an image, for the next round: Reconcile goes
+// through the agents one by one, and one must not hold up the others.
+func (m *Manager) wake(ctx context.Context, agentID string, wait bool) error {
 	if m.driver == nil {
 		return ErrNoRuntime
 	}
-	unlock, err := m.lock(ctx, agentID)
-	if err != nil {
-		return err
+	var unlock func()
+	if wait {
+		var err error
+		if unlock, err = m.lock(ctx, agentID); err != nil {
+			return err
+		}
+	} else {
+		var ok bool
+		if unlock, ok = m.tryLock(agentID); !ok {
+			return nil
+		}
 	}
 	defer unlock()
 	a, err := m.st.Agent(ctx, agentID)
@@ -659,7 +674,7 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 				return
 			}
 		}
-		if err := m.Wake(ctx, a.ID); err != nil {
+		if err := m.wake(ctx, a.ID, false); err != nil {
 			m.log.Warn("could not wake an agent", "agent", a.ID, "error", err)
 		}
 		return
@@ -715,10 +730,11 @@ func (m *Manager) suspendStopped(ctx context.Context, agentID string) bool {
 // suspendIdle suspends an agent that has been idle since idleSince and still
 // is, and logs msg. The list Reconcile went by may be old, and a task may
 // have come in since, so the store checks again and holds off claims until
-// the container has stopped. It reports whether the agent stayed suspended.
+// the container has stopped. A held lock means a change is under way: the
+// next round looks again. It reports whether the agent stayed suspended.
 func (m *Manager) suspendIdle(ctx context.Context, a store.Agent, idleSince time.Time, msg string) bool {
-	unlock, err := m.lock(ctx, a.ID)
-	if err != nil {
+	unlock, ok := m.tryLock(a.ID)
+	if !ok {
 		return false
 	}
 	suspended, err := m.st.SuspendIdle(ctx, a.ID, idleSince, func() error {
@@ -736,7 +752,7 @@ func (m *Manager) suspendIdle(ctx context.Context, a store.Agent, idleSince time
 	// A task queued while the container stopped found it still running, so
 	// nothing woke it.
 	if busy, err := m.st.Busy(ctx, a.ID); err == nil && busy {
-		if err := m.Wake(ctx, a.ID); err != nil {
+		if err := m.wake(ctx, a.ID, false); err != nil {
 			m.log.Warn("could not wake an agent", "agent", a.ID, "error", err)
 		}
 		return false

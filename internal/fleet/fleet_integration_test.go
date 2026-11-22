@@ -343,6 +343,43 @@ func TestReconcileLeavesAnAgentStartedSinceItsList(t *testing.T) {
 	}
 }
 
+// A change under way, such as a start pulling an image, holds an agent's
+// lock for minutes. Reconcile passes that agent by, and gets to the others.
+func TestReconcileDoesNotWaitForABusyAgent(t *testing.T) {
+	f := newFixture(t, Options{IdleSuspend: time.Minute})
+	ctx := context.Background()
+	idle := f.agent(t)
+	f.driver.set(idle.ID, runtime.Status{State: runtime.Running})
+	f.setState(t, idle.ID, store.AgentRunning)
+	f.exec(t, `UPDATE agents SET last_active_at = $2 WHERE id = $1`, idle.ID, time.Now().Add(-time.Hour))
+	gone := f.agent(t)
+	f.queue(t, gone.ID)
+	waiting := f.agent(t)
+	f.driver.set(waiting.ID, runtime.Status{State: runtime.Suspended})
+	f.setState(t, waiting.ID, store.AgentSuspended)
+	f.queue(t, waiting.ID)
+	for _, a := range []store.Agent{idle, gone} {
+		unlock, err := f.m.lock(ctx, a.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer unlock()
+	}
+
+	round, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	f.m.Reconcile(round)
+	if round.Err() != nil {
+		t.Fatal("the round waited for a held lock")
+	}
+	if f.driver.count("resume "+waiting.ID) != 1 {
+		t.Fatalf("calls = %v, want the waiting agent resumed", f.driver.calls)
+	}
+	if f.driver.count("suspend "+idle.ID) != 0 || f.driver.count("create "+gone.ID) != 0 {
+		t.Fatalf("calls = %v, want the locked agents left be", f.driver.calls)
+	}
+}
+
 func TestReconcileSuspendsAnAgentIdleForItsLimit(t *testing.T) {
 	for _, c := range []struct {
 		name    string
