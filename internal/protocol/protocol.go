@@ -27,8 +27,10 @@ package protocol
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -280,3 +282,20 @@ type ToolResult struct {
 // MaxToolResult bounds a tool's answer, so one answer cannot fill the
 // model's context.
 const MaxToolResult = 64 << 10
+
+// CutResult keeps a tool's result within MaxToolResult and says when it was
+// cut, so the model asks for less instead of trusting a partial answer. The
+// note fits within the bound too.
+func CutResult(s string) string {
+	if len(s) <= MaxToolResult {
+		return s
+	}
+	note := fmt.Sprintf("\n[Cut at %d KiB of %d KiB. Ask for less, such as with a narrower query or a smaller limit.]",
+		MaxToolResult>>10, len(s)>>10)
+	// Not in the middle of a character.
+	n := MaxToolResult - len(note)
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + note
+}

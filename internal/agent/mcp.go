@@ -162,7 +162,7 @@ func toolResultText(raw json.RawMessage) (string, bool) {
 		IsError           bool            `json:"isError"`
 	}
 	if json.Unmarshal(raw, &res) != nil {
-		return truncate(string(raw), protocol.MaxToolResult), false
+		return protocol.CutResult(string(raw)), false
 	}
 	var b strings.Builder
 	for _, c := range res.Content {
@@ -187,7 +187,7 @@ func toolResultText(raw json.RawMessage) (string, bool) {
 	if b.Len() == 0 && len(res.StructuredContent) > 0 {
 		b.Write(res.StructuredContent)
 	}
-	return truncate(b.String(), protocol.MaxToolResult), res.IsError
+	return protocol.CutResult(b.String()), res.IsError
 }
 
 func (c *mcpClient) notify(ctx context.Context, method string) error {

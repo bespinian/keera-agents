@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/bespinian/keera-agents/internal/protocol"
 )
 
 func TestAPanickingToolTellsTheModel(t *testing.T) {
@@ -84,6 +86,18 @@ func TestToolResultText(t *testing.T) {
 		`{"type":"image","mimeType":"image/png","data":"..."}],"isError":true}`))
 	if got != "a\n[image image/png omitted]" || !isError {
 		t.Errorf("toolResultText = %q, %v", got, isError)
+	}
+}
+
+// A long answer from an MCP server tells the model it was cut, as a
+// platform tool's does.
+func TestMCPResultSaysItWasCut(t *testing.T) {
+	long, _ := json.Marshal(map[string]any{"content": []map[string]string{
+		{"type": "text", "text": strings.Repeat("a", protocol.MaxToolResult+1)},
+	}})
+	got, _ := toolResultText(long)
+	if len(got) > protocol.MaxToolResult || !strings.Contains(got, "Ask for less") {
+		t.Fatalf("cut to %d bytes, ending %q", len(got), got[len(got)-80:])
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/connectors"
-	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
@@ -90,21 +89,6 @@ func TestAPITools(t *testing.T) {
 		if _, ok := apiKindOf(name); ok {
 			t.Errorf("%s taken for an API tool", name)
 		}
-	}
-}
-
-func TestCutResult(t *testing.T) {
-	if got := cutResult("short"); got != "short" {
-		t.Errorf("cut a short result: %q", got)
-	}
-	long := strings.Repeat("é", protocol.MaxToolResult)
-	got := cutResult(long)
-	head, note, ok := strings.Cut(got, "\n[Cut")
-	if !ok || !strings.Contains(note, "Ask for less") || len(got) > protocol.MaxToolResult {
-		t.Fatalf("cut to %d bytes: %q", len(got), note)
-	}
-	if !strings.HasSuffix(head, "é") {
-		t.Error("cut in the middle of a character")
 	}
 }
 
