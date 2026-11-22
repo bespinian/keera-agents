@@ -187,6 +187,11 @@ func (a *Adapter) Receive(ctx context.Context, conn connectors.Connection, r *ht
 	switch ev.Type {
 	case "ADDED_TO_SPACE":
 		out.Response = reply(hello, addOn)
+		// Mentioning the app in a space it is not in adds it, and the
+		// message comes with this event alone.
+		if in, ok := parse(ev); ok && ev.Message.Name != "" {
+			out.Messages = []connectors.Inbound{in}
+		}
 	case "MESSAGE":
 		if in, ok := parse(ev); ok {
 			out.Messages = []connectors.Inbound{in}
@@ -278,25 +283,33 @@ func (a *Adapter) Send(ctx context.Context, conn connectors.Connection, to conne
 	if !spaceName.MatchString(to.Conversation) {
 		return "", errors.New("googlechat: no space to post to")
 	}
-	msg := map[string]any{"text": markup.Mrkdwn(text, false)}
-	if to.Thread != "" {
-		if !strings.HasPrefix(to.Thread, to.Conversation+"/threads/") {
-			return "", errors.New("googlechat: the thread is not in the space")
-		}
-		msg["thread"] = map[string]string{"name": to.Thread}
+	if to.Thread != "" && !strings.HasPrefix(to.Thread, to.Conversation+"/threads/") {
+		return "", errors.New("googlechat: the thread is not in the space")
 	}
 	u := a.chat + "/v1/" + to.Conversation + "/messages?" + url.Values{
 		"messageReplyOption": {"REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"},
 	}.Encode()
-	req, err := web.NewJSONRequest(ctx, http.MethodPost, u, msg)
-	if err != nil {
-		return "", err
+	var first string
+	for _, part := range connectors.Split(text, maxMessage) {
+		msg := map[string]any{"text": markup.Mrkdwn(part, false)}
+		if to.Thread != "" {
+			msg["thread"] = map[string]string{"name": to.Thread}
+		}
+		req, err := web.NewJSONRequest(ctx, http.MethodPost, u, msg)
+		if err != nil {
+			return first, err
+		}
+		var r struct {
+			Name string `json:"name"`
+		}
+		if err := a.auth.DoJSON(req, google.Creds{Key: web.Value(conn, "service_account_json")}, scope, 1<<20, &r); err != nil {
+			return first, fmt.Errorf("googlechat: posting the message: %w", err)
+		}
+		first = cmp.Or(first, r.Name)
 	}
-	var r struct {
-		Name string `json:"name"`
-	}
-	if err := a.auth.DoJSON(req, google.Creds{Key: web.Value(conn, "service_account_json")}, scope, 1<<20, &r); err != nil {
-		return "", fmt.Errorf("googlechat: posting the message: %w", err)
-	}
-	return r.Name, nil
+	return first, nil
 }
+
+// maxMessage is the most of an answer one message takes. Chat refuses a
+// message over 32,000 bytes, with all its fields.
+const maxMessage = 12000

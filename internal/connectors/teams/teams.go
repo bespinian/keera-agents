@@ -271,24 +271,34 @@ func (a *Adapter) Send(ctx context.Context, conn connectors.Connection, to conne
 	if to.Conversation == "" || to.Conversation == connectors.AnyTarget {
 		return "", errors.New("teams: no conversation to post to")
 	}
-	msg := map[string]any{"type": "message", "text": text, "textFormat": "markdown"}
 	u := strings.TrimRight(serviceURL, "/") + "/v3/conversations/"
 	if to.Thread != "" {
 		// A reply in a channel thread goes to the thread's conversation, as
 		// a reply to its root post.
 		u += component(to.Conversation+";messageid="+to.Thread) + "/activities/" + component(to.Thread)
-		msg["replyToId"] = to.Thread
 	} else {
 		u += component(to.Conversation) + "/activities"
 	}
-	var r struct {
-		ID string `json:"id"`
+	var first string
+	for _, part := range connectors.Split(text, maxMessage) {
+		msg := map[string]any{"type": "message", "text": part, "textFormat": "markdown"}
+		if to.Thread != "" {
+			msg["replyToId"] = to.Thread
+		}
+		var r struct {
+			ID string `json:"id"`
+		}
+		if err := a.do(ctx, conn, http.MethodPost, u, msg, &r); err != nil {
+			return first, fmt.Errorf("teams: posting the message: %w", err)
+		}
+		first = cmp.Or(first, r.ID)
 	}
-	if err := a.do(ctx, conn, http.MethodPost, u, msg, &r); err != nil {
-		return "", fmt.Errorf("teams: posting the message: %w", err)
-	}
-	return r.ID, nil
+	return first, nil
 }
+
+// maxMessage is the most of an answer one message takes. Teams refuses an
+// activity over about 100 KB, counted in UTF-16.
+const maxMessage = 12000
 
 // do calls the Bot Connector with the bot's token.
 func (a *Adapter) do(ctx context.Context, conn connectors.Connection, method, u string, in, out any) error {

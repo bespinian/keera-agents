@@ -197,6 +197,14 @@ func TestReceiveOtherEvents(t *testing.T) {
 	if err != nil || len(rc.Messages) != 0 || !strings.HasPrefix(string(rc.Response.Body), `{"text":"Hello`) {
 		t.Errorf("added: %s, %v", rc.Response.Body, err)
 	}
+	// Mentioning the app adds it, and the message comes with that event.
+	added := roomMessage(true)
+	added["type"] = "ADDED_TO_SPACE"
+	r, body = request(f.chatToken(t, "123456"), added)
+	rc, err = a.Receive(context.Background(), f.conn("123456"), r, body)
+	if err != nil || len(rc.Messages) != 1 || !strings.HasPrefix(string(rc.Response.Body), `{"text":"Hello`) {
+		t.Errorf("added by a mention: %+v, %v", rc, err)
+	}
 	r, body = request(f.chatToken(t, "123456"), map[string]any{"type": "REMOVED_FROM_SPACE"})
 	rc, err = a.Receive(context.Background(), f.conn("123456"), r, body)
 	if err != nil || string(rc.Response.Body) != "{}" {

@@ -421,19 +421,27 @@ func (a *Adapter) Send(ctx context.Context, conn connectors.Connection, to conne
 	if to.Conversation == "" || to.Conversation == connectors.AnyTarget {
 		return "", errors.New("slack: no channel to post to")
 	}
-	msg := map[string]any{
-		"channel": to.Conversation,
-		"text":    markup.Mrkdwn(text, true),
-		"mrkdwn":  true,
+	var first string
+	for _, part := range connectors.Split(text, maxMessage) {
+		msg := map[string]any{
+			"channel": to.Conversation,
+			"text":    markup.Mrkdwn(part, true),
+			"mrkdwn":  true,
+		}
+		if to.Thread != "" {
+			msg["thread_ts"] = to.Thread
+		}
+		var r struct {
+			TS string `json:"ts"`
+		}
+		if err := a.call(ctx, token, "chat.postMessage", nil, msg, &r); err != nil {
+			return first, err
+		}
+		first = cmp.Or(first, r.TS)
 	}
-	if to.Thread != "" {
-		msg["thread_ts"] = to.Thread
-	}
-	var r struct {
-		TS string `json:"ts"`
-	}
-	if err := a.call(ctx, token, "chat.postMessage", nil, msg, &r); err != nil {
-		return "", err
-	}
-	return r.TS, nil
+	return first, nil
 }
+
+// maxMessage is the most of an answer one message takes. Slack cuts text
+// past 40,000 characters; parts this size also leave room for escaping.
+const maxMessage = 12000

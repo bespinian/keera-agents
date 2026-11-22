@@ -31,6 +31,7 @@ type fake struct {
 	srv        *httptest.Server
 	userCalls  atomic.Int32
 	posted     map[string]any
+	posts      int
 	slowUsers  bool
 	authResult string
 }
@@ -68,9 +69,11 @@ func newFake(t *testing.T) *fake {
 		case "/conversations.info":
 			_, _ = w.Write([]byte(`{"ok":true,"channel":{"name":"general"}}`))
 		case "/chat.postMessage":
+			f.posted = nil
 			if err := json.NewDecoder(r.Body).Decode(&f.posted); err != nil {
 				t.Error(err)
 			}
+			f.posts++
 			if f.posted["channel"] == "CGONE" {
 				_, _ = w.Write([]byte(`{"ok":false,"error":"channel_not_found"}`))
 				return
@@ -267,6 +270,16 @@ func TestSend(t *testing.T) {
 	}
 	if _, err := a.Send(context.Background(), conn, connectors.Target{Conversation: "*"}, "x"); err == nil {
 		t.Error("posted to *")
+	}
+
+	// A long answer goes out as several messages, in the same thread.
+	f.posts = 0
+	long := strings.Repeat(strings.Repeat("word ", 200)+"\n\n", 30)
+	if _, err := a.Send(context.Background(), conn, connectors.Target{Conversation: "C1", Thread: "111.222"}, long); err != nil {
+		t.Fatal(err)
+	}
+	if f.posts != 3 || f.posted["thread_ts"] != "111.222" {
+		t.Errorf("%d posts, last %v", f.posts, f.posted["thread_ts"])
 	}
 }
 

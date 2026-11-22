@@ -56,6 +56,9 @@ for `/hooks/`.
 **Every webhook is verified** before it is read: Slack's signature, the Bot
 Framework's or Google's signed token. An address alone does nothing.
 
+**A long answer goes out as several messages**, cut at paragraphs, since
+each service refuses or cuts a message past its limit.
+
 ## Microsoft Teams
 
 Settings: `app_id`, `tenant_id`, `allowed_tenants` (only for an older
@@ -964,7 +967,6 @@ each person can.
 - Tasks from GitHub or GitLab, such as an issue assigned to an agent. For now,
   give the task in a chat, on the board or on a schedule, and name the issue.
 - A GitHub App as the shared account instead of a token, and Git LFS.
-- Long messages are not split, so a very long answer may be cut by the service.
 - OneDrive uploads over 4 MiB, and Teams' government clouds.
 - Atlassian's scoped API tokens, and AWS outside its standard partition, such
   as China or GovCloud.
