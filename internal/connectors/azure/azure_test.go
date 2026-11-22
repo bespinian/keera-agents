@@ -80,9 +80,19 @@ func newFake(t *testing.T) (*fake, *Adapter) {
 	mux.HandleFunc("GET /arm"+vm+"/providers/Microsoft.Insights/metrics", reply(200, `{"value":[{"name":{"value":"Percentage CPU"},"unit":"Percent",
 		"timeseries":[{"data":[{"timeStamp":"2026-11-04T06:00:00Z","average":12.5},{"timeStamp":"2026-11-04T07:00:00Z"}]}]}]}`))
 	mux.HandleFunc("GET /arm"+vm+"/providers/Microsoft.Insights/metricDefinitions", reply(200, `{"value":[{"name":{"value":"Percentage CPU"},"unit":"Percent","primaryAggregationType":"Average"}]}`))
-	mux.HandleFunc("POST "+s+"/providers/Microsoft.CostManagement/query", reply(200, `{"properties":{
+	costs := reply(200, `{"properties":{
 		"columns":[{"name":"Cost","type":"Number"},{"name":"ResourceGroupName","type":"String"},{"name":"Currency","type":"String"}],
-		"rows":[[1.234,"db","CHF"],[10.5,"web","CHF"]]}}`))
+		"rows":[[1.234,"db","CHF"],[10.5,"web","CHF"]]}}`)
+	mux.HandleFunc("POST "+s+"/providers/Microsoft.CostManagement/query", func(w http.ResponseWriter, r *http.Request) {
+		// Cost Management pages its rows.
+		if r.URL.Query().Get("$skiptoken") == "" {
+			_, _ = w.Write([]byte(`{"properties":{"nextLink":"http://` + r.Host + s + `/providers/Microsoft.CostManagement/query?api-version=x&$skiptoken=2",
+				"columns":[{"name":"Cost","type":"Number"},{"name":"ResourceGroupName","type":"String"},{"name":"Currency","type":"String"}],
+				"rows":[[100,"old","CHF"]]}}`))
+			return
+		}
+		costs(w, r)
+	})
 	mux.HandleFunc("POST /arm"+vm+"/deallocate", reply(202, ``))
 	mux.HandleFunc("POST /arm"+strings.Replace(vm, "vm1", "locked", 1)+"/start", reply(403,
 		`{"error":{"code":"AuthorizationFailed","message":"The client does not have authorization to perform action 'Microsoft.Compute/virtualMachines/start/action'."}}`))
@@ -251,7 +261,7 @@ func TestMonitoring(t *testing.T) {
 func TestCosts(t *testing.T) {
 	f, a := newFake(t)
 	c := call[Costs](t, a, "costs", `{"start":"2026-10-01","end":"2026-10-31","group_by":"resource_group"}`)
-	if c.Currency != "CHF" || c.Total != 11.73 || len(c.Rows) != 2 || c.Rows[0].Group != "web" || c.Rows[1].Cost != 1.23 {
+	if c.Currency != "CHF" || c.Total != 111.73 || len(c.Rows) != 3 || c.Rows[0].Group != "old" || c.Rows[2].Cost != 1.23 || c.Partial {
 		t.Fatalf("costs = %+v", c)
 	}
 	period := f.body["timePeriod"].(map[string]any)

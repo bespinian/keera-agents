@@ -75,8 +75,8 @@ func (a *Adapter) toolSet() apitool.Set {
 			Parameters: apitool.Schema(`{"type": "object", "properties": {
 				"filter": {"type": "string", "description": "Monitoring filter naming one metric type, such as metric.type = \"compute.googleapis.com/instance/cpu/utilization\"."},
 				` + sinceArg + `,
-				"alignment_period_seconds": {"type": "integer", "description": "Combine each series' points into one per this many seconds, such as 300."},
-				"aligner": {"type": "string", "description": "How points are combined, such as ALIGN_MEAN (the default), ALIGN_MAX or ALIGN_RATE for counters."},
+				"alignment_period_seconds": {"type": "integer", "description": "Combine each series' points into one per this many seconds, such as 300. At least a minute, and enough for at most 120 points."},
+				"aligner": {"type": "string", "description": "How points are combined, such as ALIGN_MEAN (the default), ALIGN_MAX, ALIGN_RATE for counters, or ALIGN_NEXT_OLDER for true/false or text metrics."},
 				"limit": {"type": "integer", "description": "How many series, at most 100. Default 25."}
 			}, "required": ["filter"]}`),
 			Run: apitool.Typed(a.metrics),
@@ -365,19 +365,24 @@ func (a *Adapter) metrics(ctx context.Context, conn connectors.Connection, targe
 		return nil, err
 	}
 	now := time.Now()
-	q := url.Values{
-		"filter":             {args.Filter},
-		"interval.startTime": {since(args.SinceMinutes, now)},
-		"interval.endTime":   {now.UTC().Format(time.RFC3339)},
-		"pageSize":           {strconv.Itoa(apitool.Limit(args.Limit, 25, 100))},
+	minutes := apitool.Limit(args.SinceMinutes, 60, maxMinutes)
+	limit := apitool.Limit(args.Limit, 25, 100)
+	// The page size counts points, not series. So each series is combined
+	// into at most about maxPoints points, and the page holds that many for
+	// every series asked for.
+	period := max(args.AlignmentPeriodSeconds, 60, (minutes*60+maxPoints-1)/maxPoints)
+	period = (period + 59) / 60 * 60
+	aligner := cmp.Or(args.Aligner, "ALIGN_MEAN")
+	if !validAligner.MatchString(aligner) {
+		return nil, fmt.Errorf("%q is not an aligner, such as ALIGN_MEAN", web.Short(aligner, 40))
 	}
-	if args.AlignmentPeriodSeconds > 0 {
-		aligner := cmp.Or(args.Aligner, "ALIGN_MEAN")
-		if !validAligner.MatchString(aligner) {
-			return nil, fmt.Errorf("%q is not an aligner, such as ALIGN_MEAN", web.Short(aligner, 40))
-		}
-		q.Set("aggregation.alignmentPeriod", strconv.Itoa(args.AlignmentPeriodSeconds)+"s")
-		q.Set("aggregation.perSeriesAligner", aligner)
+	q := url.Values{
+		"filter":                       {args.Filter},
+		"interval.startTime":           {now.Add(-time.Duration(minutes) * time.Minute).UTC().Format(time.RFC3339)},
+		"interval.endTime":             {now.UTC().Format(time.RFC3339)},
+		"pageSize":                     {strconv.Itoa(limit * (maxPoints + 2))},
+		"aggregation.alignmentPeriod":  {strconv.Itoa(period) + "s"},
+		"aggregation.perSeriesAligner": {aligner},
 	}
 	var r struct {
 		TimeSeries []struct {
@@ -402,7 +407,7 @@ func (a *Adapter) metrics(ctx context.Context, conn connectors.Connection, targe
 		return nil, err
 	}
 	out := []series{}
-	for _, ts := range r.TimeSeries {
+	for _, ts := range r.TimeSeries[:min(len(r.TimeSeries), limit)] {
 		s := series{
 			Metric: ts.Metric.Type, MetricLabels: ts.Metric.Labels,
 			Resource: ts.Resource.Type, ResourceLabels: ts.Resource.Labels, Unit: ts.Unit, Points: []point{},

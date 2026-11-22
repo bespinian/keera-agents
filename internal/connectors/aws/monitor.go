@@ -112,13 +112,23 @@ func metrics(ctx context.Context, c client, in metricsArgs) (any, error) {
 		return nil, err
 	}
 	secs := int(to.Sub(from).Seconds())
+	// CloudWatch keeps older data coarser, and for a start past 15 days
+	// returns nothing, without an error, unless the period fits.
+	step := 60
+	switch age := c.a.now().Sub(from); {
+	case age > 63*24*time.Hour:
+		step = 3600
+	case age > 15*24*time.Hour:
+		step = 300
+	}
 	period := in.Period
 	if period <= 0 {
-		// About 60 points, in whole minutes.
-		period = max(60, (secs/60+59)/60*60)
+		// About 60 points, in whole steps.
+		period = max(step, (secs/60+step-1)/step*step)
 	}
-	if period%60 != 0 {
-		return nil, fmt.Errorf("the period must be a multiple of 60 seconds, not %d", period)
+	if period%step != 0 {
+		return nil, fmt.Errorf("from a start %s, the period must be a multiple of %d seconds, not %d",
+			map[int]string{60: "in the last 15 days", 300: "15 to 63 days ago", 3600: "over 63 days ago"}[step], step, period)
 	}
 	if secs/period > maxPoints {
 		return nil, fmt.Errorf("%d points of %d seconds is more than the %d CloudWatch returns; ask for a longer period or a shorter time",

@@ -556,8 +556,18 @@ func TestCloudWatch(t *testing.T) {
 	if !slices.Contains(f.calls, "monitoring eu-central-1 GetMetricStatistics") {
 		t.Fatalf("calls = %v", f.calls)
 	}
+	// From 15 days back, CloudWatch takes only periods of whole 5 minutes.
+	if _, err := call(t, a, good, "eu-central-1", "cloudwatch_metrics",
+		`{"namespace":"AWS/EC2","metric_name":"CPUUtilization","start":"16d"}`); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.params["GetMetricStatistics"].Get("Period"); p != "23100" {
+		t.Errorf("16 days: period %s", p)
+	}
 	for _, args := range []string{
 		`{"namespace":"AWS/EC2","metric_name":"CPUUtilization","period":60,"start":"7d"}`,
+		`{"namespace":"AWS/EC2","metric_name":"CPUUtilization","period":120,"start":"20d","end":"19d"}`,
+		`{"namespace":"AWS/EC2","metric_name":"CPUUtilization","period":600,"start":"70d","end":"69d"}`,
 		`{"namespace":"AWS/EC2","metric_name":"CPUUtilization","statistic":"p99"}`,
 		`{"namespace":"AWS/EC2","metric_name":"CPUUtilization","start":"yesterday"}`,
 	} {

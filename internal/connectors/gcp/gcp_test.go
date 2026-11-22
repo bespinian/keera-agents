@@ -209,6 +209,15 @@ func TestReadTools(t *testing.T) {
 		!strings.Contains(q, "aggregation.perSeriesAligner=ALIGN_MEAN") || !strings.Contains(q, "interval.startTime=") {
 		t.Errorf("metrics query = %s", q)
 	}
+	// The page size counts points, so a week is combined into about 120
+	// points a series, and the page holds them for every series.
+	if _, err := call(t, a, c, "acme-prod", "metrics", `{"filter":"x","since_minutes":10080,"limit":10}`); err != nil {
+		t.Fatal(err)
+	}
+	if q := f.got("GET /monitoring/v3/projects/acme-prod/timeSeries"); !strings.Contains(q, "aggregation.alignmentPeriod=5040s") ||
+		!strings.Contains(q, "pageSize=1220") {
+		t.Errorf("week of metrics query = %s", q)
+	}
 
 	out, err = call(t, a, c, "acme-prod", "list_buckets", `{}`)
 	if err != nil || !strings.Contains(out, `"name":"acme-data"`) {

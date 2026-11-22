@@ -935,7 +935,7 @@ Agents get these tools:
 - `gcp_logs`: log entries from Cloud Logging, newest first, from the last
   hour unless asked otherwise.
 - `gcp_metrics`: time series from Cloud Monitoring, from the last hour unless
-  asked otherwise.
+  asked otherwise, each combined into at most about 120 points.
 - `gcp_list_buckets`, `gcp_list_objects` and `gcp_read_object`: Cloud Storage
   buckets, their objects, and text objects, 48 KiB at a time.
 - `gcp_instance_start` and `gcp_instance_stop` (write): start or stop a VM.

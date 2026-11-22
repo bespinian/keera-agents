@@ -317,6 +317,10 @@ func (a *Adapter) events(ctx context.Context, conn connectors.Connection, target
 			Count         int    `json:"count"`
 			LastTimestamp string `json:"lastTimestamp"`
 			EventTime     string `json:"eventTime"`
+			Series        struct {
+				Count            int    `json:"count"`
+				LastObservedTime string `json:"lastObservedTime"`
+			} `json:"series"`
 		} `json:"items"`
 	}
 	if err := a.call(ctx, c, http.MethodGet, path, "", nil, &l); err != nil {
@@ -324,11 +328,12 @@ func (a *Adapter) events(ctx context.Context, conn connectors.Connection, target
 	}
 	out := []event{}
 	for _, e := range l.Items {
-		// Newer events set eventTime only; older ones lastTimestamp.
-		at := cmp.Or(e.LastTimestamp, e.EventTime, e.Metadata.CreationTimestamp)
+		// Newer events set eventTime, at the first time, and series when
+		// they happen again; older ones lastTimestamp and count.
+		at := cmp.Or(e.Series.LastObservedTime, e.LastTimestamp, e.EventTime, e.Metadata.CreationTimestamp)
 		out = append(out, event{
 			Time: at, Type: e.Type, Reason: e.Reason, Object: e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name,
-			Message: web.Cut(e.Message, 500, "…"), Count: e.Count,
+			Message: web.Cut(e.Message, 500, "…"), Count: cmp.Or(e.Series.Count, e.Count),
 		})
 	}
 	// RFC 3339 times in UTC sort as strings, and Kubernetes writes them so.

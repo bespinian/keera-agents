@@ -520,7 +520,14 @@ type Costs struct {
 	Rows     []CostRow `json:"rows,omitempty"`
 	// More is how many rows were left out, the cheapest.
 	More int `json:"more,omitempty"`
+	// Partial says Cost Management had more rows than were read, so the
+	// total is too low.
+	Partial bool `json:"partial,omitempty"`
 }
+
+// maxCostPages bounds the pages of rows read for one question, each of
+// up to a few thousand.
+const maxCostPages = 20
 
 type CostRow struct {
 	Date  string  `json:"date,omitempty"`
@@ -573,25 +580,40 @@ func (a *Adapter) costs(ctx context.Context, app microsoft.App, sub string, in s
 		"timePeriod": map[string]string{"from": from.Format(time.RFC3339), "to": to.Add(24*time.Hour - time.Second).Format(time.RFC3339)},
 		"dataset":    dataset,
 	}
-	var r struct {
-		Properties struct {
-			Columns []struct {
-				Name string `json:"name"`
-				Type string `json:"type"`
-			} `json:"columns"`
-			Rows [][]any `json:"rows"`
-		} `json:"properties"`
+	type column struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
 	}
+	var columns []column
 	u := a.arm + "/subscriptions/" + sub + "/providers/Microsoft.CostManagement/query" + microsoft.Query(map[string]string{"api-version": costVersion})
-	err = a.call(ctx, app, http.MethodPost, u, body, &r)
-	if web.Status(err) == http.StatusForbidden {
-		return nil, fmt.Errorf("%s may not read costs; assign Cost Management Reader on the subscription (%w)", app.Who, err)
-	}
-	if err != nil {
-		return nil, err
+	var rows [][]any
+	partial := false
+	// Rows come in pages; the same question goes to each page's link.
+	for page := 0; u != ""; page++ {
+		if page == maxCostPages || !strings.HasPrefix(u, a.arm+"/") {
+			partial = true
+			break
+		}
+		var r struct {
+			Properties struct {
+				NextLink string   `json:"nextLink"`
+				Columns  []column `json:"columns"`
+				Rows     [][]any  `json:"rows"`
+			} `json:"properties"`
+		}
+		err = a.call(ctx, app, http.MethodPost, u, body, &r)
+		if web.Status(err) == http.StatusForbidden {
+			return nil, fmt.Errorf("%s may not read costs; assign Cost Management Reader on the subscription (%w)", app.Who, err)
+		}
+		if err != nil {
+			return nil, err
+		}
+		columns = r.Properties.Columns
+		rows = append(rows, r.Properties.Rows...)
+		u = r.Properties.NextLink
 	}
 	cost, date, grp, cur := -1, -1, -1, -1
-	for i, c := range r.Properties.Columns {
+	for i, c := range columns {
 		switch {
 		case c.Name == "UsageDate":
 			date = i
@@ -603,11 +625,11 @@ func (a *Adapter) costs(ctx context.Context, app microsoft.App, sub string, in s
 			cost = i
 		}
 	}
-	out := Costs{Start: from.Format(time.DateOnly), End: to.Format(time.DateOnly), Rows: []CostRow{}}
+	out := Costs{Start: from.Format(time.DateOnly), End: to.Format(time.DateOnly), Rows: []CostRow{}, Partial: partial}
 	if cost < 0 {
 		return out, nil
 	}
-	for _, row := range r.Properties.Rows {
+	for _, row := range rows {
 		var c CostRow
 		c.Cost, _ = cell(row, cost).(float64)
 		if d, ok := cell(row, date).(float64); ok {

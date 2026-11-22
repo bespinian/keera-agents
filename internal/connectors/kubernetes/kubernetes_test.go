@@ -79,7 +79,9 @@ func newFake(t *testing.T) *fake {
 	mux.HandleFunc("GET /api/v1/namespaces/shop/pods/web-1/log", reply(200, "started\nlistening on :8080\n"))
 	mux.HandleFunc("GET /api/v1/namespaces/shop/events", reply(200, `{"items":[
 		{"involvedObject":{"kind":"Pod","name":"web-1"},"type":"Normal","reason":"Pulled","lastTimestamp":"2024-01-01T10:00:00Z"},
-		{"involvedObject":{"kind":"Pod","name":"web-1"},"type":"Warning","reason":"BackOff","lastTimestamp":"2024-01-01T11:00:00Z","count":5}]}`))
+		{"involvedObject":{"kind":"Pod","name":"web-1"},"type":"Warning","reason":"BackOff","lastTimestamp":"2024-01-01T11:00:00Z","count":5},
+		{"involvedObject":{"kind":"Pod","name":"web-1"},"type":"Warning","reason":"FailedScheduling","eventTime":"2024-01-01T09:00:00.000000Z",
+		 "series":{"count":40,"lastObservedTime":"2024-01-01T12:00:00.000000Z"}}]}`))
 	mux.HandleFunc("PATCH /apis/apps/v1/namespaces/shop/deployments/web", reply(200,
 		`{"metadata":{"name":"web"},"spec":{"replicas":2},"status":{"readyReplicas":1}}`))
 	mux.HandleFunc("PATCH /api/v1/namespaces/shop/secrets/db", reply(200,
@@ -205,7 +207,9 @@ func TestReadTools(t *testing.T) {
 	}
 
 	out, err = call(t, a, c, "shop", "events", `{"name":"web-1"}`)
-	if err != nil || strings.Index(out, "BackOff") > strings.Index(out, "Pulled") {
+	// An event that keeps happening counts from when it was last seen.
+	if err != nil || strings.Index(out, "BackOff") > strings.Index(out, "Pulled") ||
+		strings.Index(out, "FailedScheduling") > strings.Index(out, "BackOff") || !strings.Contains(out, `"count":40`) {
 		t.Fatalf("events, newest first = %s, %v", out, err)
 	}
 	if q := f.got("GET /api/v1/namespaces/shop/events").query; q != "fieldSelector=involvedObject.name%3Dweb-1" {
