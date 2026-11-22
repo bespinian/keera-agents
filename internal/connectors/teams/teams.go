@@ -46,21 +46,21 @@ const (
 
 // Adapter is the Microsoft Teams chat adapter.
 type Adapter struct {
-	keys   *jwtverify.KeySet
-	auth   *microsoft.Auth
-	extra  string
-	global string
-	emails *web.Cache[string]
+	keys    *jwtverify.KeySet
+	auth    *microsoft.Auth
+	extra   string
+	global  string
+	senders *web.Cache[connectors.Person]
 }
 
 func New(opts connectors.Options) *Adapter {
 	hc := web.Client(opts)
 	return &Adapter{
-		keys:   jwtverify.NewOpenID(hc, web.Endpoint(opts, "openid", "https://login.botframework.com/v1/.well-known/openidconfiguration")),
-		auth:   microsoft.NewAuth(opts),
-		extra:  opts.Endpoints["serviceurl"],
-		global: cmp.Or(opts.Endpoints["serviceurl"], globalServiceURL),
-		emails: web.NewCache[string](lookupTTL, 10000),
+		keys:    jwtverify.NewOpenID(hc, web.Endpoint(opts, "openid", "https://login.botframework.com/v1/.well-known/openidconfiguration")),
+		auth:    microsoft.NewAuth(opts),
+		extra:   opts.Endpoints["serviceurl"],
+		global:  cmp.Or(opts.Endpoints["serviceurl"], globalServiceURL),
+		senders: web.NewCache[connectors.Person](lookupTTL, 10000),
 	}
 }
 
@@ -180,7 +180,7 @@ func (a *Adapter) Receive(ctx context.Context, conn connectors.Connection, r *ht
 	}
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
-	in.Sender.Email = a.email(ctx, conn, in, act.From.ID)
+	in.Sender = a.sender(ctx, conn, in, act.From.ID)
 	return connectors.Receipt{Messages: []connectors.Inbound{in}}, nil
 }
 
@@ -229,25 +229,33 @@ func parse(act activity, appID string) (connectors.Inbound, bool) {
 	return in, true
 }
 
-// email asks the Bot Connector for the sender's email, which activities
-// leave out.
-func (a *Adapter) email(ctx context.Context, conn connectors.Connection, in connectors.Inbound, user string) string {
+// sender asks the Bot Connector who sent a message, since activities leave
+// out the email. The activity's tenant is the conversation's host, so in a
+// shared channel or a chat with people of another tenant the sender can be
+// from elsewhere, with an email their own admins chose: they are Outside.
+func (a *Adapter) sender(ctx context.Context, conn connectors.Connection, in connectors.Inbound, user string) connectors.Person {
 	key := conn.ID + "/" + user
-	if e, ok := a.emails.Get(key, time.Now()); ok {
-		return e
+	if p, ok := a.senders.Get(key, time.Now()); ok {
+		return p
 	}
 	u := strings.TrimRight(in.Target.Extra["serviceUrl"], "/") + "/v3/conversations/" + component(in.Target.Conversation) +
 		"/members/" + component(user)
 	var m struct {
 		Email             string `json:"email"`
 		UserPrincipalName string `json:"userPrincipalName"`
+		TenantID          string `json:"tenantId"`
+		UserRole          string `json:"userRole"`
 	}
 	if err := a.do(ctx, conn, http.MethodGet, u, nil, &m); err != nil {
-		return ""
+		return connectors.Person{}
 	}
-	e := cmp.Or(m.Email, m.UserPrincipalName)
-	a.emails.Put(key, e, time.Now())
-	return e
+	p := connectors.Person{
+		Email: cmp.Or(m.Email, m.UserPrincipalName),
+		Outside: m.UserRole == "anonymous" ||
+			(m.TenantID != "" && !slices.ContainsFunc(tenants(conn), func(t string) bool { return strings.EqualFold(t, m.TenantID) })),
+	}
+	a.senders.Put(key, p, time.Now())
+	return p
 }
 
 func (a *Adapter) Send(ctx context.Context, conn connectors.Connection, to connectors.Target, text string) (string, error) {

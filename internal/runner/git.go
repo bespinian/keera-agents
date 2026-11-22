@@ -207,8 +207,9 @@ func checkPush(body io.Reader) (io.Reader, error) {
 		cmd, caps, _ := strings.Cut(strings.TrimSuffix(string(line), "\n"), "\x00")
 		// Push options follow the flush, unchecked, and some hosts act on
 		// them: GitLab can open a merge request and merge it when its
-		// pipeline passes.
-		if slices.Contains(strings.Fields(caps), "push-options") {
+		// pipeline passes. Git also takes the capability with a value, as
+		// push-options=1.
+		if slices.ContainsFunc(strings.Fields(caps), func(c string) bool { return strings.HasPrefix(c, "push-options") }) {
 			return nil, errors.New("agents may not send push options; open a change with the repository tools")
 		}
 		// A shallow clone names its boundary first; those lines change

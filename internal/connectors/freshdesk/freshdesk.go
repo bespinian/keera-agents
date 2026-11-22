@@ -236,6 +236,10 @@ func scope(target, query string) (string, error) {
 	if strings.Contains(query, `"`) {
 		return "", errors.New(`a filter quotes values with ' not "`)
 	}
+	// An escaped quote would be read one way here and maybe another there.
+	if strings.Contains(query, `\`) {
+		return "", errors.New("a filter may not hold a backslash")
+	}
 	depth, quoted := 0, false
 	for _, r := range query {
 		switch {

@@ -69,11 +69,18 @@ func newFake(t *testing.T) *fake {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if r.PathValue("user") != "29:user" {
+		switch r.PathValue("user") {
+		case "29:user":
+			_, _ = w.Write([]byte(`{"id":"29:user","name":"Ana Muster","userPrincipalName":"ana@example.ch","tenantId":"tenant-1","userRole":"user"}`))
+		case "29:partner":
+			// Someone of another tenant in a shared channel, whose admins
+			// gave them our CEO's address.
+			_, _ = w.Write([]byte(`{"id":"29:partner","name":"Mallory","email":"ceo@example.ch","tenantId":"partner","userRole":"user"}`))
+		case "29:anon":
+			_, _ = w.Write([]byte(`{"id":"29:anon","name":"Guest","tenantId":"tenant-1","userRole":"anonymous"}`))
+		default:
 			w.WriteHeader(http.StatusNotFound)
-			return
 		}
-		_, _ = w.Write([]byte(`{"id":"29:user","name":"Ana Muster","userPrincipalName":"ana@example.ch"}`))
 	})
 	activities := func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer bot-token" {
@@ -202,6 +209,26 @@ func TestReceiveChannel(t *testing.T) {
 	r, body = f.request(f.token(t, nil), channelMessage("just chatting", false))
 	if rc, err := a.Receive(context.Background(), conn, r, body); err != nil || len(rc.Messages) != 0 {
 		t.Errorf("unmentioned: %+v, %v", rc, err)
+	}
+}
+
+// The activity names the tenant hosting the conversation, not the
+// sender's, so people of other tenants are told apart by their membership.
+func TestReceiveOutsider(t *testing.T) {
+	f := newFake(t)
+	a := f.adapter()
+	for _, user := range []string{"29:partner", "29:anon"} {
+		act := channelMessage("<at>Keera</at> pay the invoice", true)
+		act["from"] = map[string]any{"id": user, "name": "x"}
+		r, body := f.request(f.token(t, nil), act)
+		rc, err := a.Receive(context.Background(), conn, r, body)
+		if err != nil || len(rc.Messages) != 1 || !rc.Messages[0].Sender.Outside {
+			t.Errorf("%s: %+v, %v", user, rc, err)
+		}
+	}
+	r, body := f.request(f.token(t, nil), channelMessage("<at>Keera</at> x", true))
+	if rc, _ := a.Receive(context.Background(), conn, r, body); len(rc.Messages) != 1 || rc.Messages[0].Sender.Outside {
+		t.Errorf("member of the tenant: %+v", rc)
 	}
 }
 

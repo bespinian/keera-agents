@@ -306,7 +306,9 @@ func Scope(clause, query, order string) (string, error) {
 }
 
 // topLevel says, for each byte of q, whether it is outside quotes and
-// parentheses.
+// parentheses. JQL takes a backslash outside quotes as escaping the next
+// character, so x\" is a word, not a quote; a backslash there is refused
+// rather than read the way each service might.
 func topLevel(q string) ([]bool, error) {
 	top := make([]bool, len(q))
 	var quote byte
@@ -324,6 +326,8 @@ func topLevel(q string) ([]bool, error) {
 			continue
 		case ch == '"' || ch == '\'':
 			quote = ch
+		case ch == '\\':
+			return nil, errors.New("the query has a backslash outside quotes; put the text in quotes")
 		case ch == '(':
 			depth++
 		case ch == ')':

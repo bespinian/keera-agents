@@ -29,7 +29,11 @@ func TestScope(t *testing.T) {
 		}
 	}
 	// Each would close the parentheses and reach other projects.
-	for _, bad := range []string{"a = 1) OR (project = OPS", "a = 1) OR project = OPS OR (b = 2", `x = "open`, "(a = 1"} {
+	for _, bad := range []string{
+		"a = 1) OR (project = OPS", "a = 1) OR project = OPS OR (b = 2", `x = "open`, "(a = 1",
+		// JQL reads x\" as a word, so the parentheses really close.
+		`summary ~ x\" ) OR project = OPS OR (summary ~ "y\"`,
+	} {
 		if got, err := Scope(p, bad, ""); err == nil {
 			t.Errorf("Scope(%q) = %q, want an error", bad, got)
 		}

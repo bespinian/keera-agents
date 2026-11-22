@@ -191,7 +191,7 @@ func TestScope(t *testing.T) {
 			t.Errorf("scope(%q, %q) = %q, %v", c.target, c.in, got, err)
 		}
 	}
-	for _, in := range []string{"status:2) OR (group_id:6", "status:2 OR (", `tag:"x"`, "tag:'x"} {
+	for _, in := range []string{"status:2) OR (group_id:6", "status:2 OR (", `tag:"x"`, "tag:'x", `tag:'x\' ) OR (group_id:6 OR tag:'y'`} {
 		if _, err := scope("5", in); err == nil {
 			t.Errorf("scope(%q) passed", in)
 		}

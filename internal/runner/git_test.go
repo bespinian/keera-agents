@@ -48,6 +48,8 @@ func TestCheckPush(t *testing.T) {
 		"cert":       pkt("push-cert\x00x\n") + "0000",
 		"options": pkt(zero+" "+oid+" refs/heads/keera/x\x00report-status push-options\n") + "0000" +
 			pkt("merge_request.create") + "0000",
+		"options with a value": pkt(zero+" "+oid+" refs/heads/keera/x\x00report-status push-options=1\n") + "0000" +
+			pkt("merge_request.create") + "0000",
 		"cut short": pkt(zero + " " + oid + " refs/heads/keera/x\n"),
 		"garbage":   "zzzz",
 	} {
