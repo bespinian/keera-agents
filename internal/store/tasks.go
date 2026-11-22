@@ -149,14 +149,19 @@ func (s *Store) Tasks(ctx context.Context, q TaskQuery) ([]Task, error) {
 	if q.Limit <= 0 || q.Limit > 200 {
 		q.Limit = 50
 	}
-	return s.queryTasks(ctx, `WHERE t.org_id = $1 AND ($2 = '' OR t.agent_id = $2)
-		AND ($3 = '' OR t.state = $3) AND ($4 = '' OR t.source = $4)
-		AND ($5::timestamptz IS NULL OR t.created_at < $5)
-		AND ($7 = '' OR t.requested_by_id = $7 OR t.requested_by = $8
-			OR (a.owner_id = $7 AND a.deleted_at IS NULL))
-		ORDER BY t.created_at DESC LIMIT $6`,
-		q.OrgID, q.AgentID, q.State, q.Source, q.Before, q.Limit, q.ViewerID, q.ViewerEmail)
+	return s.queryTasks(ctx, taskScope+`
+		AND ($5 = '' OR t.state = $5) AND ($6 = '' OR t.source = $6)
+		AND ($7::timestamptz IS NULL OR t.created_at < $7)
+		ORDER BY t.created_at DESC LIMIT $8`,
+		q.OrgID, q.AgentID, q.ViewerID, q.ViewerEmail, q.State, q.Source, q.Before, q.Limit)
 }
+
+// taskScope keeps an organisation's tasks, of one agent when $2 is set, and
+// those the viewer $3 (with email $4) may see when $3 is set. Tasks and
+// TaskFacets share it, so both apply the same rule as canSeeTask in the API.
+const taskScope = `WHERE t.org_id = $1 AND ($2 = '' OR t.agent_id = $2)
+		AND ($3 = '' OR t.requested_by_id = $3 OR t.requested_by = $4
+			OR (a.owner_id = $3 AND a.deleted_at IS NULL))`
 
 // TaskFacets are the agents, states and sources a task list has tasks of,
 // so the panel offers only filters that find something.
@@ -178,9 +183,7 @@ func (s *Store) TaskFacets(ctx context.Context, q TaskQuery) (TaskFacets, error)
 	f := TaskFacets{Agents: []TaskAgent{}, States: []string{}, Sources: []string{}}
 	rows, err := s.pool.Query(ctx, `SELECT DISTINCT t.agent_id, coalesce(a.name, ''), t.state, t.source
 		FROM tasks t LEFT JOIN agents a ON a.id = t.agent_id
-		WHERE t.org_id = $1 AND ($2 = '' OR t.agent_id = $2)
-		AND ($3 = '' OR t.requested_by_id = $3 OR t.requested_by = $4
-			OR (a.owner_id = $3 AND a.deleted_at IS NULL))`,
+		`+taskScope,
 		q.OrgID, q.AgentID, q.ViewerID, q.ViewerEmail)
 	if err != nil {
 		return f, err

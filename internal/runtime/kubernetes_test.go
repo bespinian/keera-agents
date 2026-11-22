@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -131,7 +130,6 @@ func (f *fakeAPI) driver(t *testing.T, opts KubernetesOptions) *Kubernetes {
 	if opts.Namespace == "" {
 		opts.Namespace = "agents"
 	}
-	opts.Log = slog.New(slog.DiscardHandler)
 	k, err := NewKubernetes(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("building the driver: %v", err)

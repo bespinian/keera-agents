@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"slices"
 	"strconv"
@@ -17,7 +16,7 @@ import (
 
 // New makes the driver cfg.Driver names. It returns a nil Driver and no error
 // when cfg.Driver is empty: agents can then be set up but not started.
-func New(ctx context.Context, cfg config.RuntimeConfig, log *slog.Logger) (Driver, error) {
+func New(ctx context.Context, cfg config.RuntimeConfig) (Driver, error) {
 	runtimes := map[Isolation]string{
 		Standard: cfg.RuntimeStandard,
 		Isolated: cfg.RuntimeIsolated,
@@ -40,7 +39,6 @@ func New(ctx context.Context, cfg config.RuntimeConfig, log *slog.Logger) (Drive
 			ServiceAccount:   cfg.ServiceAccount,
 			ImagePullSecrets: cfg.ImagePullSecrets,
 			UserNamespaces:   cfg.UserNamespaces,
-			Log:              log,
 		})
 	default:
 		return nil, fmt.Errorf("unknown runtime driver %q; use podman or kubernetes", cfg.Driver)

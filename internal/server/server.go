@@ -97,7 +97,7 @@ func Run() error {
 	}
 	cancel()
 
-	driver, err := runtime.New(ctx, cfg.Runtime, log)
+	driver, err := runtime.New(ctx, cfg.Runtime)
 	if err != nil {
 		return fmt.Errorf("starting the %s runtime: %w", cfg.Runtime.Driver, err)
 	}

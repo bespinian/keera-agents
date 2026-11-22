@@ -800,7 +800,7 @@ func TestRekeyReplacesAndRevokesTheKey(t *testing.T) {
 	}
 	a = f.load(t, a.ID)
 
-	if err := f.m.Rekey(ctx, a); err != nil {
+	if err := f.m.Rekey(ctx, a.ID); err != nil {
 		t.Fatal(err)
 	}
 	got := f.load(t, a.ID)
@@ -825,10 +825,9 @@ func TestRekeyReplacesTheKeyHeldNow(t *testing.T) {
 	if err := f.m.Start(ctx, a); err != nil {
 		t.Fatal(err)
 	}
-	stale := f.load(t, a.ID)
-	// Two edits in turn, each with the agent as it was read before both.
+	// Two edits in turn: each replaces the key the one before it made.
 	for range 2 {
-		if err := f.m.Rekey(ctx, stale); err != nil {
+		if err := f.m.Rekey(ctx, a.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -844,7 +843,7 @@ func TestRekeyReplacesTheKeyHeldNow(t *testing.T) {
 
 	// A key the gateway would not revoke stays, and so does the change.
 	f.gw.failRevokes(true)
-	if err := f.m.Rekey(ctx, got); err == nil {
+	if err := f.m.Rekey(ctx, got.ID); err == nil {
 		t.Fatal("Rekey succeeded although the old key works")
 	}
 	if after := f.load(t, a.ID); after.GatewayKeyID != "key_3" {

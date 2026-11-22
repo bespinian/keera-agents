@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"maps"
 	"net"
 	"net/http"
@@ -52,7 +51,6 @@ type KubernetesOptions struct {
 	// other tiers have a kernel boundary of their own, and their runtimes may
 	// not support it.
 	UserNamespaces bool
-	Log            *slog.Logger
 }
 
 type Kubernetes struct {
@@ -63,9 +61,6 @@ type Kubernetes struct {
 // NewKubernetes lists StatefulSets as a check, which proves the service
 // account may use them.
 func NewKubernetes(ctx context.Context, opts KubernetesOptions) (*Kubernetes, error) {
-	if opts.Log == nil {
-		opts.Log = slog.Default()
-	}
 	if opts.Namespace == "" {
 		return nil, errors.New("kubernetes: name the namespace agents run in")
 	}

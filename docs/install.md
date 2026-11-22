@@ -245,8 +245,8 @@ tini. It is a base: a deployment builds its own `FROM` it, with the tools its ag
 need, and names it in `KEERA_AGENTS_IMAGE` or per agent. Agents run it with a
 read-only root filesystem, so install tools in the image, not at run time
 ([Hardening](agents.md#hardening)).
-Setting `KEERA_AGENT_LOG_LEVEL=debug` in such an image makes the runtime log
-more. `make workspace-image` builds the image workspaces run in
+Setting `KEERA_AGENT_LOG_LEVEL=warn` or `error` in such an image makes the
+runtime log less. `make workspace-image` builds the image workspaces run in
 ([workspaces.md](workspaces.md#the-image)). It checks each file it downloads,
 ttyd, code-server and Cline, against a SHA-256 pinned in the Containerfile:
 change those with the versions.

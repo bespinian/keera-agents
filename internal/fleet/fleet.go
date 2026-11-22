@@ -218,13 +218,13 @@ func (m *Manager) replaceKey(ctx context.Context, a *store.Agent) error {
 // running agent's next gateway request fails with 401, and its runtime then
 // fetches the new key.
 //
-// It reads the agent again, so the key carries what is saved now, and
-// replaces the key the agent holds now, not one it held when a was read.
+// It reads the agent, so the key carries what is saved now, and replaces the
+// key the agent holds now, not one it held when the caller read it.
 // The old key is revoked before the new one is stored: an old key left
 // working would keep the old project and budget. If the gateway cannot be
 // reached, the key stays stale and RekeyStale tries again.
-func (m *Manager) Rekey(ctx context.Context, a store.Agent) error {
-	return m.rekey(ctx, a.ID, false)
+func (m *Manager) Rekey(ctx context.Context, id string) error {
+	return m.rekey(ctx, id, false)
 }
 
 // RekeyStale replaces the keys minted for other settings than their agents'

@@ -110,7 +110,7 @@ func (tr *testRunner) agent(t *testing.T, org, name, kind string, key bool) (sto
 		t.Fatal(err)
 	}
 	if key {
-		if err := tr.fleet.Rekey(tr.ctx, a); err != nil {
+		if err := tr.fleet.Rekey(tr.ctx, a.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
