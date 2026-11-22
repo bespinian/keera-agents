@@ -26,16 +26,17 @@ servers and audit log apply to agents as they do to people.
                   service key: agent keys, people  │                   │ runtime token
                                                    ▼                   │
                                             Keera Gateway ◀── models ── agent's container
-                                            guardrails, budgets,        (keera-agents agent)
+                                            guardrails, budgets,        (keera-agents-runtime)
                                             filters, MCP, audit         workspace volume
 ```
 
 ## What is in this repository
 
-One Go binary, `keera-agents`: the **control plane** by default,
-`keera-agents agent`, the **runtime** inside each agent's container, and
-`keera-agents workspace`, the runtime inside each workspace's
-([docs/agents.md](docs/agents.md#one-binary-three-roles)). Agents run on
+Two Go binaries from one module: `keera-agents`, the **control plane**, and
+`keera-agents-runtime`, the **runtime** inside each agent's container
+(`keera-agents-runtime agent`) and each workspace's
+(`keera-agents-runtime workspace`)
+([docs/agents.md](docs/agents.md#two-binaries)). Agents run on
 **podman** for local development, or on any **Kubernetes** cluster, as one
 StatefulSet each.
 

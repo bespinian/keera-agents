@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// The workspace runtime (`keera-agents workspace`) runs in a workspace: a
+// The workspace runtime (`keera-agents-runtime workspace`) runs in a workspace: a
 // machine an engineer works in, with a coding agent they drive. It takes no
 // tasks. It keeps the same two credentials as an agent's runtime, out of
 // reach of what runs beside it, and serves:
@@ -35,7 +35,7 @@ func (r *runner) runWorkspace(ctx context.Context) {
 	}
 	boot := r.snapshot()
 	if boot.Workspace == nil {
-		r.log.Error("workspace: keera-agents sees this container as an agent; run `keera-agents agent` in it")
+		r.log.Error("workspace: keera-agents sees this container as an agent; run `keera-agents-runtime agent` in it")
 		return
 	}
 	r.writeConfigs(ctx, true)

@@ -5,11 +5,13 @@ COMPOSE ?= podman compose
 # Everything a build writes goes here, so `make clean` removes one directory.
 BUILD_DIR ?= build
 
-# Without cgo, like the images.
+# Both binaries, without cgo, like the images: keera-agents, the control
+# plane, and keera-agents-runtime, which runs in agents' and workspaces'
+# containers.
 .PHONY: build
 build:
 	@mkdir -p $(BUILD_DIR)
-	@CGO_ENABLED=0 $(GO) build -trimpath -o $(BUILD_DIR)/keera-agents ./cmd/keera-agents
+	@CGO_ENABLED=0 $(GO) build -trimpath -o $(BUILD_DIR)/ ./cmd/keera-agents ./cmd/keera-agents-runtime
 
 .PHONY: check
 check: test vet fmt-check
@@ -105,8 +107,8 @@ agent-image:
 workspace-image:
 	@$(PODMAN) build --target workspace -t $(WORKSPACE_IMAGE) --build-arg VERSION='$(VERSION)' .
 
-# What is inside each image, for auditors and vulnerability scanners: the Go
-# binary and its modules, Alpine's packages in the agent image, and Debian's
+# What is inside each image, for auditors and vulnerability scanners: its Go
+# binary and that binary's modules, Alpine's packages in the agent image, and Debian's
 # and npm's in the workspace image. The images
 # are rebuilt first (cached), so the SBOMs match the source.
 SYFT ?= syft

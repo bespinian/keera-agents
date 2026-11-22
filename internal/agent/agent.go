@@ -1,5 +1,5 @@
 // Package agent is the runtime inside each agent's container
-// (`keera-agents agent`). It asks the control plane for tasks, runs each one
+// (`keera-agents-runtime agent`). It asks the control plane for tasks, runs each one
 // as a loop of model calls and tool calls through Keera Gateway, and reports
 // what it did. See internal/protocol for the API it speaks.
 //

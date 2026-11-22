@@ -8,8 +8,9 @@
 .claude
 docs
 /build
-# A bare `go build ./cmd/keera-agents` writes here; `make build` uses build/.
+# A bare `go build ./cmd/...` writes here; `make build` uses build/.
 /keera-agents
+/keera-agents-runtime
 # The compose credentials. The build stage copies the whole context, so they
 # would otherwise sit in its layers and the build cache.
 compose/.env

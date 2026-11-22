@@ -40,7 +40,7 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	log := NewLogger(cfg.LogLevel, cfg.LogFormat)
+	log := newLogger(cfg.LogLevel, cfg.LogFormat)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -375,8 +375,8 @@ func step(ctx context.Context, f func(context.Context)) bool {
 	return ctx.Err() == nil
 }
 
-// NewLogger writes to stderr, as text or JSON.
-func NewLogger(level, format string) *slog.Logger {
+// newLogger writes to stderr, as text or JSON.
+func newLogger(level, format string) *slog.Logger {
 	var l slog.Level
 	_ = l.UnmarshalText([]byte(level))
 	opts := &slog.HandlerOptions{Level: l}

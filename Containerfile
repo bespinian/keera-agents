@@ -1,12 +1,14 @@
-# The images, from one build of the binary:
+# The images, from one build of the two binaries:
 #
 #   make image            the control plane:      podman build --target control-plane .
 #   make agent-image      what agents run in:     podman build --target agent .
 #   make workspace-image  what workspaces run in: podman build --target workspace .
 #
-# The agent image runs the same binary as `keera-agents agent`, and the
-# workspace image as `keera-agents workspace`, so the runtime always speaks
-# the protocol of the control plane built from the same source.
+# The control plane runs keera-agents. The agent image runs
+# `keera-agents-runtime agent`, and the workspace image
+# `keera-agents-runtime workspace`. The runtime is its own binary, so the
+# containers do not carry the control plane's code and modules. Both are built
+# here from the same source, so they speak the same protocol.
 #
 # The agent image is a base. A deployment that wants other tools, languages or
 # certificates builds its own FROM it and sets KEERA_AGENTS_IMAGE to it. Keep
@@ -25,8 +27,9 @@ COPY . .
 RUN [ -f vendor/modules.txt ] || go mod vendor
 RUN CGO_ENABLED=0 go build -mod=vendor -trimpath \
         -ldflags="-s -w -X github.com/bespinian/keera-agents/internal/version.release=${VERSION}" \
-        -o /out/ ./cmd/keera-agents
-RUN sh scripts/third-party-notices.sh > /out/THIRD_PARTY_NOTICES
+        -o /out/ ./cmd/keera-agents ./cmd/keera-agents-runtime
+RUN sh scripts/third-party-notices.sh ./cmd/keera-agents > /out/THIRD_PARTY_NOTICES \
+ && sh scripts/third-party-notices.sh ./cmd/keera-agents-runtime > /out/THIRD_PARTY_NOTICES.runtime
 
 FROM docker.io/library/alpine:3.24 AS agent
 
@@ -68,10 +71,10 @@ RUN addgroup -g 1000 agent \
 # dumpable, so its /proc files belong to root. tini's environment holds the
 # runtime token; readable, any command the agent runs could print it from
 # /proc/1/environ.
-COPY --from=build --chmod=0711 /out/keera-agents /usr/local/bin/keera-agents
+COPY --from=build --chmod=0711 /out/keera-agents-runtime /usr/local/bin/keera-agents-runtime
 RUN chmod 0711 /sbin/tini
 COPY LICENSE /LICENSE
-COPY --from=build /out/THIRD_PARTY_NOTICES /THIRD_PARTY_NOTICES
+COPY --from=build /out/THIRD_PARTY_NOTICES.runtime /THIRD_PARTY_NOTICES
 
 # Numeric, so Kubernetes can check runAsNonRoot against it.
 USER 1000:1000
@@ -80,7 +83,7 @@ WORKDIR /workspace
 # tini is PID 1: it reaps what the shell builtin's commands leave behind,
 # which a Go process as PID 1 would not, and passes SIGTERM on, so a suspend
 # lets the runtime report its task first.
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/keera-agents", "agent"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/keera-agents-runtime", "agent"]
 
 # A workspace: a machine an engineer works in, with pi in a browser terminal
 # or code-server with Cline. Debian, not Alpine: code-server is built for
@@ -159,18 +162,18 @@ RUN userdel --remove node \
 
 # Execute-only, as in the agent image: the runtime's /proc files are then
 # root's, so nothing the engineer runs reads its token.
-COPY --from=build --chmod=0711 /out/keera-agents /usr/local/bin/keera-agents
+COPY --from=build --chmod=0711 /out/keera-agents-runtime /usr/local/bin/keera-agents-runtime
 RUN chmod 0711 /usr/bin/tini
 # THIRD_PARTY_NOTICES covers the binary. Debian's packages carry their
 # licences in /usr/share/doc, and pi, code-server and Cline in their own
 # directories.
 COPY LICENSE /LICENSE
-COPY --from=build /out/THIRD_PARTY_NOTICES /THIRD_PARTY_NOTICES
+COPY --from=build /out/THIRD_PARTY_NOTICES.runtime /THIRD_PARTY_NOTICES
 
 USER 1000:1000
 WORKDIR /workspace
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/keera-agents", "workspace"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/keera-agents-runtime", "workspace"]
 
 # Last, so a build without --target gets the control plane.
 FROM scratch AS control-plane

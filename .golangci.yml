@@ -4,8 +4,31 @@ version: "2"
 
 linters:
   default: standard
+  enable:
+    - depguard
   disable:
     - govet
+
+  settings:
+    depguard:
+      rules:
+        # What runs in agents' and workspaces' containers stays small: the
+        # standard library and these packages, never the control plane's code
+        # or modules. See docs/agents.md.
+        runtime:
+          list-mode: strict
+          files:
+            - "**/cmd/keera-agents-runtime/**"
+            - "**/internal/agent/**"
+            - "**/internal/protocol/**"
+            - "**/internal/stream/**"
+            - "**/internal/version/**"
+          allow:
+            - $gostd
+            - github.com/bespinian/keera-agents/internal/agent
+            - github.com/bespinian/keera-agents/internal/protocol
+            - github.com/bespinian/keera-agents/internal/stream
+            - github.com/bespinian/keera-agents/internal/version
 
   exclusions:
     # The default, but naming the set above drops it.

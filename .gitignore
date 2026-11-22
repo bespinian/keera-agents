@@ -1,7 +1,8 @@
 /build
 /compose/.env
-# A bare `go build ./cmd/keera-agents` writes here; `make build` uses build/.
+# A bare `go build ./cmd/...` writes here; `make build` uses build/.
 /keera-agents
+/keera-agents-runtime
 
 # Written by `go mod vendor`, which the release runs so the image build stays
 # offline.

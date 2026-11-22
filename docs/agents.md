@@ -4,14 +4,19 @@ An agent is a persistent assistant: instructions, a model, tools, and a
 machine of its own with a workspace that outlives each task. This page
 explains how one runs and why.
 
-## One binary, three roles
+## Two binaries
 
-`keera-agents` serves the control plane. `keera-agents agent` is the runtime
-inside an agent's container, and `keera-agents workspace` the runtime inside a
-workspace's ([workspaces.md](workspaces.md)). The agent image (the `agent`
-stage of the [Containerfile](../Containerfile)) holds the same binary, so the
-runtime always speaks the protocol of the control plane built from the same
-source.
+`keera-agents` serves the control plane. `keera-agents-runtime agent` is the
+runtime inside an agent's container, and `keera-agents-runtime workspace` the
+runtime inside a workspace's ([workspaces.md](workspaces.md)). The
+[Containerfile](../Containerfile) builds both from the same source, so the
+runtime always speaks the protocol of the control plane it came with.
+
+**The runtime is its own binary** so a container holds none of the control
+plane's code or modules: no database driver, no panel, no connectors. It uses
+only the standard library, so a flaw in one of the control plane's modules
+does not show up in the agents' images, and it is half the size. A depguard rule in `.golangci.yml` keeps it that way:
+the runtime's packages may import only each other and the standard library.
 
 The runtime calls the control plane, never the other way round
 ([internal/protocol](../internal/protocol/protocol.go)). So a container needs

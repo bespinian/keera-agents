@@ -1,27 +1,19 @@
-// Command keera-agents runs Keera's agent platform. With no arguments it
-// serves the control plane: the panel, its API, connector webhooks and the
-// runtime API. `keera-agents agent` is the runtime inside each agent's
-// container, and `keera-agents workspace` the runtime in a workspace's. One
-// binary does all three, so the image an agent runs is built from
-// the same source as the server that runs it.
+// Command keera-agents serves the control plane of Keera's agent platform:
+// the panel, its API, connector webhooks and the runtime API. What runs
+// inside agents' and workspaces' containers is cmd/keera-agents-runtime.
 package main
 
 import (
 	"cmp"
-	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	// Schedules run in people's time zones, and the image has no zone files.
 	_ "time/tzdata"
 
-	"github.com/bespinian/keera-agents/internal/agent"
 	"github.com/bespinian/keera-agents/internal/config"
 	"github.com/bespinian/keera-agents/internal/server"
 	"github.com/bespinian/keera-agents/internal/version"
@@ -30,8 +22,6 @@ import (
 const usage = `usage: keera-agents [command]
 
   (none)    serve the control plane, configured by KEERA_AGENTS_* variables
-  agent     run an agent, inside its container
-  workspace run a workspace, inside its container
   health    check that the control plane on this machine is ready
   version   print the version
 `
@@ -45,10 +35,6 @@ func main() {
 	switch cmd {
 	case "", "serve":
 		err = server.Run()
-	case "agent":
-		err = runtime(agent.Run)
-	case "workspace":
-		err = runtime(agent.RunWorkspace)
 	case "health":
 		err = health()
 	case "version", "--version":
@@ -63,13 +49,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "keera-agents:", err)
 		os.Exit(1)
 	}
-}
-
-// runtime runs an agent's or a workspace's runtime until SIGTERM.
-func runtime(run func(context.Context, *slog.Logger) error) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return run(ctx, server.NewLogger(os.Getenv("KEERA_AGENT_LOG_LEVEL"), "text"))
 }
 
 // health asks this machine's /readyz, for a container healthcheck in an

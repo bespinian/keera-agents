@@ -1,5 +1,8 @@
 #!/bin/sh
-# Writes the licences of everything compiled into keera-agents to stdout.
+# Writes the licences of everything compiled into one binary to stdout.
+#
+#   sh scripts/third-party-notices.sh ./cmd/keera-agents
+#   sh scripts/third-party-notices.sh ./cmd/keera-agents-runtime
 #
 # MIT, BSD and Apache-2.0 require their notice to ship with a binary. The list
 # comes from the build graph, not go.mod, so test-only modules are left out and
@@ -11,13 +14,14 @@ set -eu
 GO=${GO:-go}
 export LC_ALL=C
 rule='================================================================'
+pkg=${1:?usage: third-party-notices.sh <package>, such as ./cmd/keera-agents}
 
-cat <<'EOF'
+cat <<EOF
 Third-party software in Keera Agents
 
-The keera-agents binary includes the software below. Each part keeps its own
-licence, which is reproduced here. The Keera Community Licence does not cover
-it.
+The ${pkg##*/} binary includes the software below.
+Each part keeps its own licence, which is reproduced here. The Keera Community
+Licence does not cover it.
 EOF
 
 # The Go standard library is linked into every binary. Some toolchains, such
@@ -33,7 +37,7 @@ printf '\n%s\nThe Go standard library and runtime, %s\n\n' "$rule" "$($GO env GO
 cat "$golicence"
 
 $GO list -mod=vendor -deps \
-  -f '{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}}{{end}}{{end}}' ./cmd/... |
+  -f '{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}}{{end}}{{end}}' "$pkg" |
   sort -u |
   while read -r path version; do
     files=$(find "vendor/$path" -type f ! -name '*.go' \( \
@@ -46,9 +50,11 @@ $GO list -mod=vendor -deps \
     done
   done
 
-# The panel embeds this font, which is not a Go module.
-printf '\n%s\nSpace Grotesk, the panel'\''s display font\n\n' "$rule"
-cat internal/webui/fonts/OFL.txt
+# The panel embeds this font, which is not a Go module, and shows these marks.
+if $GO list -mod=vendor -deps "$pkg" | grep -qx 'github.com/bespinian/keera-agents/internal/webui'; then
+  printf '\n%s\nSpace Grotesk, the panel'\''s display font\n\n' "$rule"
+  cat internal/webui/fonts/OFL.txt
 
-printf '\n%s\nTrademarks\n\n' "$rule"
-cat internal/webui/marks/NOTICE
+  printf '\n%s\nTrademarks\n\n' "$rule"
+  cat internal/webui/marks/NOTICE
+fi

@@ -1,5 +1,5 @@
 // Package protocol is the runtime API between the control plane and the
-// agent runtime in each container (`keera-agents agent`).
+// agent runtime in each container (`keera-agents-runtime agent`).
 //
 // The runtime calls the control plane, never the other way round, so a
 // container needs no open port. It authenticates every call with its runtime
@@ -13,7 +13,7 @@
 //	*    /runtime/v1/git/{binding}/...        git over HTTP to a repository it is bound to
 //	POST /runtime/v1/workspace/tools/{name}   a platform tool, for a workspace
 //
-// A workspace runs `keera-agents workspace` instead. It takes no tasks, so it
+// A workspace runs `keera-agents-runtime workspace` instead. It takes no tasks, so it
 // calls only the bootstrap, the git proxy and the workspace's tools route.
 // It is the one container that is called: keera-agents dials its front on
 // FrontPort to pass its owner's connections through (see Stream).

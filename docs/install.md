@@ -237,11 +237,11 @@ default), and `KEERA_AGENTS_BIND`, the interface the port is published on
 ## Images
 
 All three come from one [Containerfile](../Containerfile), which builds the
-binary once. `make image` builds the control plane's image, `FROM scratch`
+two binaries once. `make image` builds the control plane's image, `FROM scratch`
 (`--target control-plane`). `make agent-image` builds the agent image
 (`--target agent`): Alpine with bash, git, curl, python3, jq and ripgrep, user
-1000, the workspace at `/workspace`, and `keera-agents agent` under tini. It
-is a base: a deployment builds its own `FROM` it, with the tools its agents
+1000, the workspace at `/workspace`, and `keera-agents-runtime agent` under
+tini. It is a base: a deployment builds its own `FROM` it, with the tools its agents
 need, and names it in `KEERA_AGENTS_IMAGE` or per agent. Agents run it with a
 read-only root filesystem, so install tools in the image, not at run time
 ([Hardening](agents.md#hardening)).

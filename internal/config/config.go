@@ -22,7 +22,7 @@ const DefaultAddr = ":8070"
 
 // Config is the control plane's configuration. The agent runtime inside a
 // container reads its own few variables: see internal/protocol, and
-// KEERA_AGENT_LOG_LEVEL in cmd/keera-agents.
+// KEERA_AGENT_LOG_LEVEL in cmd/keera-agents-runtime.
 type Config struct {
 	// Addr serves the panel at /, its API at /api, sign-in at /auth, connector
 	// webhooks at /hooks and the agents' runtime API at /runtime.
@@ -84,8 +84,8 @@ type RuntimeConfig struct {
 	// Driver is "podman", "kubernetes", or empty for no runtime: agents can
 	// be set up but not started.
 	Driver string
-	// Image is the agent image. Its entrypoint must run `keera-agents agent`;
-	// see the Containerfile's agent stage.
+	// Image is the agent image. Its entrypoint must run
+	// `keera-agents-runtime agent`; see the Containerfile's agent stage.
 	Image string
 	// URL is keera-agents as an agent container reaches it. Defaults to
 	// PublicURL.
@@ -97,7 +97,7 @@ type RuntimeConfig struct {
 	// suspends.
 	IdleSuspend time.Duration
 	// WorkspaceImage is the workspace image. Its entrypoint must run
-	// `keera-agents workspace`; see the Containerfile's workspace stage.
+	// `keera-agents-runtime workspace`; see the Containerfile's workspace stage.
 	WorkspaceImage string
 	// WorkspaceIdleSuspend suspends a workspace nobody is connected to for
 	// this long. Zero never suspends.
