@@ -102,6 +102,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Fields:   workspace.Fields("Google Docs API"),
 		Setup: workspace.Setup("Google Docs API and the Google Drive API",
 			"the documents, or a folder holding them, as Editor for agents that write,",
+			"A service account has no storage of its own, so agents can then change documents but not create new ones.",
 			scope, workspace.DriveMetadata, workspace.DriveFile),
 		TargetLabel: "Document",
 		TargetHelp:  "A document's link or id, or * for every document the connector can see.",

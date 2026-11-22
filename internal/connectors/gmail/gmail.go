@@ -72,9 +72,9 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 			},
 		},
 		Setup: "1. In a Google Cloud project, enable the Gmail API, and create a service account with a JSON key.\n" +
-			"2. As a Workspace administrator, under Security, API controls, Domain-wide delegation, grant the service " +
-			"account's client ID the scope " + scope + ". It then may act as any mailbox in your domain, " +
-			"so keep its key here only.\n" +
+			"2. As a Workspace administrator, in the Admin console under **Security → Access and data control → " +
+			"API controls → Domain-wide delegation**, add the service account's client ID with the scope `" + scope + "`. " +
+			"It may then act as any mailbox in your domain, so keep its key here only.\n" +
 			"3. Bind each agent to one mailbox, best one made for it, such as assistant@acme.com.",
 		TargetLabel: "Mailbox",
 		TargetHelp: "The mailbox's address, such as assistant@acme.com. On a connector people sign in to, " +

@@ -141,8 +141,9 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Summary:  "Agents read a Google Calendar's events and free time, and create, change and delete events.",
 		Fields:   workspace.Fields("Google Calendar API"),
 		Setup: workspace.Setup("Google Calendar API",
-			"each calendar, with Make changes to events for agents that write,", scope) +
-			"\n4. Invitations to guests need domain-wide delegation: Google lets a service account invite no one on its own.",
+			"each calendar (with **Make changes to events** for agents that write)",
+			"Agents can then invite no guests: Google lets a service account invite people only through domain-wide delegation.",
+			scope),
 		TargetLabel: "Calendar",
 		TargetHelp:  "The calendar's ID, from its settings: a person's email, such as ada@acme.com, or a shared calendar's …@group.calendar.google.com.",
 	}

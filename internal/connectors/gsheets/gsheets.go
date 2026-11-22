@@ -113,6 +113,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Fields:   workspace.Fields("Google Sheets API"),
 		Setup: workspace.Setup("Google Sheets API and the Google Drive API",
 			"the spreadsheets, or a folder holding them, as Editor for agents that write,",
+			"A service account has no storage of its own, so agents can then change spreadsheets but not create new ones.",
 			scope, workspace.DriveMetadata, workspace.DriveFile),
 		TargetLabel: "Spreadsheet",
 		TargetHelp:  "A spreadsheet's link or id, or * for every spreadsheet the connector can see.",

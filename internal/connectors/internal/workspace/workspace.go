@@ -380,11 +380,15 @@ func Quote(s string) string {
 }
 
 // Setup is the steps on Google's side for a kind that calls apis with
-// scopes. share says what to share with the service account.
-func Setup(apis, share string, scopes ...string) string {
+// scopes. share says what to share with the service account, and note what
+// agents then cannot do, if anything. The scopes are one comma-separated
+// line, as the Admin console takes them.
+func Setup(apis, share, note string, scopes ...string) string {
 	return "1. In a Google Cloud project, enable the " + apis + ".\n" +
 		"2. Create a service account with a JSON key.\n" +
-		"3. Either share " + share + " with the service account's email, or, as a Workspace administrator, " +
-		"grant the service account's client ID domain-wide delegation for the scopes " +
-		strings.Join(scopes, ",") + " and enter the user to act as."
+		"3. Give it access in one of two ways:\n" +
+		"   - Share " + share + " with the service account's email. " + note + "\n" +
+		"   - Or, as a Workspace administrator, in the Admin console under **Security → Access and data control → " +
+		"API controls → Domain-wide delegation**, add the service account's client ID with the scopes `" +
+		strings.Join(scopes, ",") + "`. Then enter the user to act as under Act as user."
 }

@@ -1,7 +1,7 @@
 // Package hubspot lets agents work in a HubSpot CRM: find, read, create and
 // update contacts, companies, deals and tickets, and add notes to them. It
-// calls the CRM API with a private app's access token, whose scopes are the
-// limit of what agents may do.
+// calls the CRM API with a service key, or a legacy private app's access
+// token, whose scopes are the limit of what agents may do.
 //
 // Endpoints:
 //   - "api": the HubSpot API, default https://api.hubapi.com
@@ -73,21 +73,24 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Category: "CRM",
 		Summary:  "Find, read, create and update contacts, companies, deals and tickets, and add notes to them.",
 		Fields: []connectors.Field{{
-			Name: "access_token", Label: "Access token", Secret: true, Required: true,
-			Help: "The access token of a private app, starting with pat-.",
+			Name: "access_token", Label: "Service key", Secret: true, Required: true,
+			Help: "A service key, or the access token of a legacy private app, starting with pat-.",
 		}},
-		Setup: "1. In HubSpot, open **Settings → Integrations → Private apps** (called legacy apps in newer accounts) and create an app for your agents.\n" +
-			"2. Give it the scopes `crm.objects.contacts.read` and `.write`, the same for `companies` and `deals`, `tickets`, and `crm.objects.owners.read`. " +
-			"Leave out the write scopes if agents should only read.\n" +
-			"3. Copy the app's access token here.\n" +
-			"4. Agents reach every record those scopes allow, so grant only what they need.",
+		Setup: "1. In HubSpot, go to **Development → Keys → Service keys** and choose **Create service key**. " +
+			"You need to be a super admin, or have the Developer tools permission.\n" +
+			"2. Add the scopes agents need. To read: `crm.objects.contacts.read`, `crm.objects.companies.read`, " +
+			"`crm.objects.deals.read`, `tickets` (which allows writing too) and `crm.objects.owners.read`. " +
+			"To write as well: `crm.objects.contacts.write`, `crm.objects.companies.write` and `crm.objects.deals.write`.\n" +
+			"3. Choose **Show**, then **Copy**, and paste the key here.\n" +
+			"4. Agents reach every record those scopes allow, so grant only what they need. " +
+			"The access token of a legacy private app works too.",
 	}
 }
 
 func token(conn connectors.Connection) (string, error) {
 	t := web.Value(conn, "access_token")
 	if t == "" {
-		return "", errors.New("the access token is missing")
+		return "", errors.New("the service key is missing")
 	}
 	return t, nil
 }
@@ -117,9 +120,9 @@ func (a *Adapter) Check(ctx context.Context, conn connectors.Connection) error {
 	err := a.call(ctx, conn, http.MethodGet, "/crm/v3/objects/contacts?limit=1", nil, nil)
 	switch web.Status(err) {
 	case http.StatusUnauthorized:
-		return fmt.Errorf("HubSpot does not accept the access token; copy it again from the private app (%w)", err)
+		return fmt.Errorf("HubSpot does not accept the service key; copy it again (%w)", err)
 	case http.StatusForbidden:
-		return fmt.Errorf("the private app may not read contacts; give it the scope crm.objects.contacts.read and the others in the steps (%w)", err)
+		return fmt.Errorf("the service key may not read contacts; give it the scope crm.objects.contacts.read and the others in the steps (%w)", err)
 	}
 	return err
 }

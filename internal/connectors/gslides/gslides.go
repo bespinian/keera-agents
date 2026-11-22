@@ -95,7 +95,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Summary:  "Agents find and read Google Slides presentations, replace their text and add slides.",
 		Fields:   workspace.Fields("Google Slides API"),
 		Setup: workspace.Setup("Google Slides API and the Google Drive API",
-			"the presentations, or a folder holding them, as Editor for agents that write,",
+			"the presentations, or a folder holding them, as Editor for agents that write,", "",
 			scope, workspace.DriveMetadata, workspace.DriveFile),
 		TargetLabel: "Presentation",
 		TargetHelp:  "A presentation's link or id, or * for every presentation the connector can see.",

@@ -74,28 +74,33 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Fields: []connectors.Field{
 			{
 				Name: "app_id", Label: "App ID", Required: true,
-				Help: "The Microsoft App ID of the Azure Bot, under Configuration.",
+				Help: "The Microsoft App ID of the Azure Bot, under Settings → Configuration.",
 			},
 			{
 				Name: "tenant_id", Label: "Tenant ID",
-				Help: "Your Microsoft Entra tenant ID, for a single-tenant bot. Leave empty for a multi-tenant bot.",
+				Help: "The bot's App Tenant ID, under Settings → Configuration. Leave empty only for a multi-tenant bot, " +
+					"which Azure no longer creates.",
 			},
 			{
 				Name: "allowed_tenants", Label: "Other tenants",
-				Help: "For a multi-tenant bot: the Entra tenant IDs whose people may message it, separated by commas. " +
+				Help: "Only for an older multi-tenant bot: the Entra tenant IDs whose people may message it, separated by commas. " +
 					"Messages from any other tenant are refused.",
 			},
 			{
 				Name: "app_password", Label: "App password", Secret: true, Required: true,
-				Help: "A client secret of the bot's app registration, from Certificates & secrets.",
+				Help: "A client secret of the bot's app registration.",
 			},
 		},
-		Setup: "1. In the Azure portal, create an Azure Bot (single tenant is recommended) and note its Microsoft App ID.\n" +
-			"2. In its app registration, create a client secret under Certificates & secrets.\n" +
-			"3. In the bot's Configuration, set the messaging endpoint to {webhook}.\n" +
-			"4. Under Channels, add Microsoft Teams.\n" +
-			"5. Add the bot to Teams with an app package (for example in the Teams Developer Portal) " +
-			"and install it for the people and teams that should use it.",
+		Setup: "1. In the Azure portal, create an **Azure Bot** of the type **Single Tenant**, with a new Microsoft App ID.\n" +
+			"2. Under **Settings → Configuration**, copy the **Microsoft App ID** and the **App Tenant ID** here, " +
+			"and set the **Messaging endpoint** to {webhook}.\n" +
+			"3. Next to the App ID, open **Manage Password** and create a client secret. Copy its value here as the App password.\n" +
+			"4. Under **Settings → Channels**, add **Microsoft Teams**.\n" +
+			"5. In the [Teams Developer Portal](https://dev.teams.microsoft.com/apps), create a new app. " +
+			"Under **App features**, add a **Bot**, choose this bot's App ID, and turn on the scopes **Personal**, **Team** and **Group chat**.\n" +
+			"6. Choose **Publish → Publish to your org**. A Teams administrator then allows the app in the " +
+			"[Teams admin center](https://admin.teams.microsoft.com) under **Teams apps → Manage apps**.\n" +
+			"7. People can now chat with the bot, and add it to their teams and chats. In a channel, they mention it.",
 		TargetLabel: "Conversation ID",
 		TargetHelp:  "A channel's ID, such as 19:…@thread.tacv2, or * for every chat and channel the bot is in.",
 	}

@@ -29,7 +29,7 @@ panel shows the same setup steps next to the form.
 | Gmail                   | `gmail`           | mail tools                             | a service account with delegation     |
 | Outlook Mail            | `outlook`         | mail tools                             | an Entra app (Microsoft Graph)        |
 | Outlook Calendar        | `outlookcalendar` | events and free time                   | an Entra app (Microsoft Graph)        |
-| HubSpot                 | `hubspot`         | CRM record tools                       | a private app's access token          |
+| HubSpot                 | `hubspot`         | CRM record tools                       | a service key                         |
 | Salesforce              | `salesforce`      | CRM record tools                       | an app's client credentials           |
 | Freshdesk               | `freshdesk`       | ticket tools                           | an agent's API key                    |
 | PostgreSQL              | `postgres`        | SQL queries, tables, changes           | a database role and its password      |
@@ -58,21 +58,29 @@ Framework's or Google's signed token. An address alone does nothing.
 
 ## Microsoft Teams
 
-Settings: `app_id`, `tenant_id` (empty for a multi-tenant bot),
-`allowed_tenants`, `app_password`.
+Settings: `app_id`, `tenant_id`, `allowed_tenants` (only for an older
+multi-tenant bot), `app_password`.
 
-1. In the Azure portal, create an **Azure Bot**, single tenant if you can, and
-   note its Microsoft App ID.
-2. In its app registration, create a client secret.
-3. In the bot's Configuration, set the messaging endpoint to the webhook
-   address. Under Channels, add Microsoft Teams.
-4. Add the bot to Teams with an app package, for example from the Teams
-   Developer Portal, and install it for the people and teams that use it.
+1. In the Azure portal, create an **Azure Bot** of the type **Single
+   Tenant**, with a new Microsoft App ID. Azure no longer creates
+   multi-tenant bots.
+2. Under **Settings → Configuration**, note the **Microsoft App ID** and the
+   **App Tenant ID**, and set the messaging endpoint to the webhook address.
+3. Next to the App ID, open **Manage Password** and create a client secret.
+4. Under **Settings → Channels**, add Microsoft Teams.
+5. In the [Teams Developer Portal](https://dev.teams.microsoft.com/apps),
+   create an app. Under **App features**, add a **Bot** with this App ID and
+   the scopes Personal, Team and Group chat.
+6. Choose **Publish → Publish to your org**, and have a Teams administrator
+   allow the app in the Teams admin center, under **Teams apps → Manage
+   apps**.
 
 **Only your tenants are trusted.** Anyone can add a bot to their own tenant
 and give their account any email there. So a message is refused unless it
 comes from `tenant_id` or one of `allowed_tenants` (comma-separated). A
-multi-tenant bot needs `allowed_tenants`.
+multi-tenant bot needs `allowed_tenants`. People of other tenants in a
+shared channel or chat your tenant hosts are refused too, as are anonymous
+guests: their own tenant sets their email.
 
 The sender's email comes from the conversation's member list. Replies go to the
 `serviceUrl` the activity named, but only to Microsoft's hosts, so a forged
@@ -126,11 +134,15 @@ Settings: `service_account_json`, `subject` (optional), `shared_drive_id`
 (optional).
 
 Enable the Google Drive API and create a service account with a JSON key.
-Then either **share the folders with the service account**, which is the
-narrowest, or, as a Workspace administrator, grant it domain-wide delegation
-for `https://www.googleapis.com/auth/drive` and name the user to act as.
+Then either **share the folders, or a shared drive, with the service
+account**, which is the narrowest, or, as a Workspace administrator, grant it
+domain-wide delegation for `https://www.googleapis.com/auth/drive` and name
+the user to act as. A service account has no storage of its own, so in a
+folder shared from someone's My Drive agents can read and change files but
+not add new ones. To add files, use a shared drive or delegation.
 
-Google Docs are read as text, Sheets as CSV and Slides as text. Watched folders
+Google Docs are read as text, Sheets as CSV of their first tab, and Slides as
+text. Watched folders
 use Drive's change feed.
 
 ## OneDrive and SharePoint
@@ -426,12 +438,16 @@ Settings: `service_account_json`, `subject` (optional).
 
 1. In a Google Cloud project, enable the Google Docs API and the Google Drive
    API, and create a service account with a JSON key.
-2. Either **share the documents**, or a folder holding them, with the service
-   account's email, as Editor for agents that write, or, as a Workspace
-   administrator, grant it domain-wide delegation for
-   `https://www.googleapis.com/auth/documents`,
-   `https://www.googleapis.com/auth/drive.metadata.readonly` and
-   `https://www.googleapis.com/auth/drive.file`, and name the user to act as.
+2. Give it access in one of two ways:
+   - **Share the documents**, or a folder holding them, with the service
+     account's email, as Editor for agents that write. A service account has
+     no storage of its own, so agents can then change documents but not
+     create new ones.
+   - Or, as a Workspace administrator, under **Security → Access and data
+     control → API controls → Domain-wide delegation**, add the service
+     account's client ID with the scopes
+     `https://www.googleapis.com/auth/documents,https://www.googleapis.com/auth/drive.metadata.readonly,https://www.googleapis.com/auth/drive.file`,
+     and name the user to act as.
 
 Agents get `gdocs_find` (documents by a part of their name), `gdocs_read` (a
 document as text: headings as `#`, lists, and tables as `| a | b |` rows, up to
@@ -441,10 +457,10 @@ document as text: headings as `#`, lists, and tables as `| a | b |` rows, up to
 
 A binding names one document, by its link or ID, or `*` for every document the
 connector can see. With one document, every tool works on that one only, and
-`gdocs_create` is refused. A service account has no storage of its own, so a
-new document goes into a folder the agent names, unless the connector acts as
-a user. Drive is used only to find files and create them: `drive.file` reaches
-only files the connector created or was shared.
+`gdocs_create` is refused. A service account has no storage of its own, so
+only a connector that acts as a user, or one people sign in to, creates
+documents. Drive is used only to find files and create them: `drive.file`
+reaches only files the connector created or was shared.
 
 ## Google Sheets
 
@@ -452,12 +468,16 @@ Settings: `service_account_json`, `subject` (optional).
 
 1. In a Google Cloud project, enable the Google Sheets API and the Google Drive
    API, and create a service account with a JSON key.
-2. Either **share the spreadsheets**, or a folder holding them, with the
-   service account's email, as Editor for agents that write, or, as a Workspace
-   administrator, grant it domain-wide delegation for
-   `https://www.googleapis.com/auth/spreadsheets`,
-   `https://www.googleapis.com/auth/drive.metadata.readonly` and
-   `https://www.googleapis.com/auth/drive.file`, and name the user to act as.
+2. Give it access in one of two ways:
+   - **Share the spreadsheets**, or a folder holding them, with the service
+     account's email, as Editor for agents that write. A service account has
+     no storage of its own, so agents can then change spreadsheets but not
+     create new ones.
+   - Or, as a Workspace administrator, under **Security → Access and data
+     control → API controls → Domain-wide delegation**, add the service
+     account's client ID with the scopes
+     `https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive.metadata.readonly,https://www.googleapis.com/auth/drive.file`,
+     and name the user to act as.
 
 Agents get `gsheets_find` (spreadsheets by a part of their name), `gsheets_get`
 (the title, and each tab's size) and `gsheets_read_range` (a range in A1
@@ -468,8 +488,8 @@ formulas work.
 
 A binding names one spreadsheet, by its link or ID, or `*` for every
 spreadsheet the connector can see. With one spreadsheet, every tool works on
-that one only, and `gsheets_create` is refused. A new spreadsheet goes into a
-folder the agent names, as with [Google Docs](#google-docs).
+that one only, and `gsheets_create` is refused. Only a connector that acts as
+a user creates spreadsheets, as with [Google Docs](#google-docs).
 
 ## Google Slides
 
@@ -477,12 +497,14 @@ Settings: `service_account_json`, `subject` (optional).
 
 1. In a Google Cloud project, enable the Google Slides API and the Google
    Drive API, and create a service account with a JSON key.
-2. Either **share the presentations**, or a folder holding them, with the
-   service account's email, as Editor for agents that write, or, as a Workspace
-   administrator, grant it domain-wide delegation for
-   `https://www.googleapis.com/auth/presentations`,
-   `https://www.googleapis.com/auth/drive.metadata.readonly` and
-   `https://www.googleapis.com/auth/drive.file`, and name the user to act as.
+2. Give it access in one of two ways:
+   - **Share the presentations**, or a folder holding them, with the service
+     account's email, as Editor for agents that write.
+   - Or, as a Workspace administrator, under **Security → Access and data
+     control → API controls → Domain-wide delegation**, add the service
+     account's client ID with the scopes
+     `https://www.googleapis.com/auth/presentations,https://www.googleapis.com/auth/drive.metadata.readonly,https://www.googleapis.com/auth/drive.file`,
+     and name the user to act as.
 
 Agents get `gslides_find` (presentations by a part of their name) and
 `gslides_read` (each slide's number, ID, title, text and speaker notes). To
@@ -500,10 +522,14 @@ Settings: `service_account_json`, `subject` (optional).
 
 1. In a Google Cloud project, enable the Google Calendar API and create a
    service account with a JSON key.
-2. Either **share each calendar** with the service account's email, with
-   **Make changes to events** for agents that write, or, as a Workspace
-   administrator, grant it domain-wide delegation for
-   `https://www.googleapis.com/auth/calendar` and name the user to act as.
+2. Give it access in one of two ways:
+   - **Share each calendar** with the service account's email, with
+     **Make changes to events** for agents that write. Agents can then invite
+     no guests.
+   - Or, as a Workspace administrator, under **Security → Access and data
+     control → API controls → Domain-wide delegation**, add the service
+     account's client ID with the scope
+     `https://www.googleapis.com/auth/calendar`, and name the user to act as.
 
 Agents get `gcalendar_list_events` (a time range, the next seven days by
 default, optionally searched; recurring events one occurrence at a time),
@@ -581,8 +607,9 @@ Settings: `service_account_json`.
 
 1. In a Google Cloud project, enable the Gmail API, and create a service
    account with a JSON key.
-2. As a Workspace administrator, under Security, API controls, Domain-wide
-   delegation, grant the service account's client ID the scope
+2. As a Workspace administrator, under **Security → Access and data control →
+   API controls → Domain-wide delegation**, add the service account's client ID
+   with the scope
    `https://www.googleapis.com/auth/gmail.modify`.
 3. Bind each agent to one mailbox, best one made for it.
 
@@ -613,14 +640,17 @@ Agents get these tools:
 
 ## HubSpot
 
-Settings: `access_token`.
+Settings: `access_token`, a service key.
 
-1. In HubSpot, open **Settings → Integrations → Private apps** (legacy apps
-   in newer accounts) and create an app for your agents.
-2. Give it the scopes `crm.objects.contacts.read` and `.write`, the same for
-   `companies` and `deals`, `tickets`, and `crm.objects.owners.read`. Leave
-   out the write scopes if agents should only read.
-3. Copy the app's access token into the connector.
+1. In HubSpot, go to **Development → Keys → Service keys** and create a
+   service key. HubSpot no longer creates private apps, but a legacy private
+   app's access token works too.
+2. Give it the scopes agents need. To read: `crm.objects.contacts.read`,
+   `crm.objects.companies.read`, `crm.objects.deals.read`, `tickets` (which
+   allows writing too) and `crm.objects.owners.read`. To write as well:
+   `crm.objects.contacts.write`, `crm.objects.companies.write` and
+   `crm.objects.deals.write`.
+3. Copy the key into the connector.
 
 The connector is checked by listing one contact, so a missing contacts scope
 fails at once.
@@ -636,7 +666,7 @@ Agents get these tools, on contacts, companies, deals and tickets:
 - `hubspot_list_owners`: list the users records can be assigned to.
 
 A HubSpot connector has nothing to narrow to: a binding reaches the whole CRM,
-as far as the private app's scopes allow. Grant only the scopes agents need.
+as far as the key's scopes allow. Grant only the scopes agents need.
 
 ## Salesforce
 

@@ -73,13 +73,14 @@ var sharedDrive = connectors.Field{
 
 func (a *Adapter) Descriptor() connectors.Descriptor {
 	return connectors.Descriptor{
-		Kind:        connectors.GoogleDrive,
-		Label:       "Google Drive",
-		Vendor:      "Google",
-		Category:    "Files",
-		Summary:     "Agents watch folders for new files, and read and write files in them.",
-		Fields:      append(workspace.Fields("Google Drive API"), sharedDrive),
-		Setup:       workspace.Setup("Google Drive API", "the folders or shared drive", scope),
+		Kind:     connectors.GoogleDrive,
+		Label:    "Google Drive",
+		Vendor:   "Google",
+		Category: "Files",
+		Summary:  "Agents watch folders for new files, and read and write files in them.",
+		Fields:   append(workspace.Fields("Google Drive API"), sharedDrive),
+		Setup: workspace.Setup("Google Drive API", "the folders, or a shared drive,",
+			"A service account has no storage of its own, so agents can then add files only in a shared drive.", scope),
 		TargetLabel: "Folder",
 		TargetHelp: "A folder's ID, the last part of its URL, or root. On a connector people sign in to, " +
 			"root is the My Drive of whoever the agent works for.",
