@@ -5,6 +5,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/connectors/aws"
 	"github.com/bespinian/keera-agents/internal/connectors/azure"
+	"github.com/bespinian/keera-agents/internal/connectors/brave"
 	"github.com/bespinian/keera-agents/internal/connectors/confluence"
 	"github.com/bespinian/keera-agents/internal/connectors/freshdesk"
 	"github.com/bespinian/keera-agents/internal/connectors/gcalendar"
@@ -51,5 +52,6 @@ func adapters(opts connectors.Options) []connectors.Adapter {
 		outlook.New(opts), outlookcalendar.New(opts),
 		hubspot.New(opts), salesforce.New(opts), freshdesk.New(opts), postgres.New(opts),
 		kubernetes.New(opts), aws.New(opts), azure.New(opts), gcp.New(opts),
+		brave.New(opts),
 	}
 }

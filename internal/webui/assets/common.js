@@ -164,7 +164,7 @@ export const BUILTINS = {
   memory: ["Memory", "Remembers notes between tasks."],
   files: ["Files", "Reads and writes files in its own workspace."],
   shell: ["Shell", "Runs commands in its own machine."],
-  web: ["Web", "Searches the web and reads pages."],
+  web: ["Web", "Reads web pages."],
 };
 
 /** ACCESS is who may give an agent work. */

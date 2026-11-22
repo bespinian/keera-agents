@@ -2,7 +2,7 @@
 // services (Microsoft Teams, Google Chat, Slack), file stores (Google Drive,
 // OneDrive and SharePoint), code hosts (GitHub, GitLab), and the business's
 // other services, which agents call through typed tools (Jira, Salesforce,
-// AWS and more).
+// AWS, web search and more).
 //
 // A Connection is one organisation's credentials for one service, such as
 // its Slack app. Each kind has an adapter in a package of its own, which
@@ -51,6 +51,7 @@ const (
 	AWS             Kind = "aws"
 	Azure           Kind = "azure"
 	GCP             Kind = "gcp"
+	Brave           Kind = "brave"
 )
 
 // AnyTarget is a binding to everything a connection reaches: every

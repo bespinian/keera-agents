@@ -10,7 +10,8 @@ and opens a pull or merge request for a person to review. And it works in the
 business's other services through typed tools: **Jira**, **Confluence**,
 **Trello**, **Google Docs, Sheets, Slides and Calendar**, **Gmail**,
 **Outlook Mail and Calendar**, **HubSpot**, **Salesforce**, **Freshdesk**,
-**PostgreSQL**, **Kubernetes**, **AWS**, **Azure** and **Google Cloud**.
+**PostgreSQL**, **Kubernetes**, **AWS**, **Azure** and **Google Cloud**. It
+searches the web with **Brave Search**.
 
 It is built on **Keera Gateway**. People sign in with the gateway's sign-in.
 Every model call an agent makes goes through the gateway, with a key of the

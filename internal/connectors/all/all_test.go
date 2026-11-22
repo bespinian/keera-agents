@@ -41,6 +41,7 @@ func TestRegister(t *testing.T) {
 		{connectors.AWS, "api"},
 		{connectors.Azure, "api"},
 		{connectors.GCP, "api"},
+		{connectors.Brave, "api"},
 	}
 	ds := connectors.Descriptors()
 	if len(ds) != len(want) || len(ds) != len(adapters(connectors.Options{})) {

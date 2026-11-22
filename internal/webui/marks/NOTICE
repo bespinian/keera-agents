@@ -1,6 +1,6 @@
 The panel shows the logos of Microsoft, Google, GitHub, GitLab, Slack,
-Atlassian, HubSpot, Salesforce, Freshworks, AWS, Kubernetes and PostgreSQL to
-name the services an agent connects to and the sign-in they provide. They are drawn in
+Atlassian, HubSpot, Salesforce, Freshworks, AWS, Kubernetes, PostgreSQL and
+Brave to name the services an agent connects to and the sign-in they provide. They are drawn in
 internal/webui/assets/ui.js.
 
 The logos are trademarks of their owners and are used only for that. They

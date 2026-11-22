@@ -37,6 +37,7 @@ panel shows the same setup steps next to the form.
 | AWS                     | `aws`             | EC2, S3, CloudWatch, logs, costs       | an access key, and a role to assume   |
 | Azure                   | `azure`           | resource, cost and VM tools            | an Entra app (Resource Manager)       |
 | Google Cloud            | `gcp`             | resources, logs, metrics, storage, VMs | a service account                     |
+| Brave Search            | `brave`           | web and news search                    | an API key                            |
 
 **Credentials are sealed** with `KEERA_AGENTS_SECRET_KEY` and opened only to
 make a call. The panel never shows them again; leaving a secret field empty
@@ -230,7 +231,8 @@ Kubernetes namespace, an AWS region. Every tool stays within it: a search is
 narrowed to it, and an issue, event or resource outside it is refused. Where
 a service's section says so, `*` reaches everything the connector does.
 HubSpot, Salesforce and PostgreSQL name nothing: the service's own
-permissions are the limit.
+permissions are the limit. Brave Search names nothing either: it searches the
+public web.
 
 **A binding may only read, or read and write.** One that only reads never
 gets the tools that change something, and is refused them. Give the
@@ -244,12 +246,12 @@ Most services can also act as each person instead of one shared account; see
 
 A connector usually holds one account, and every agent connected to it acts as
 that account, whoever gives it work. Every connector but the chats, HubSpot,
-PostgreSQL, Trello and Freshdesk can instead let **each person sign in with their own account**. An agent then
+PostgreSQL, Trello, Freshdesk and Brave Search can instead let **each person sign in with their own account**. An agent then
 works there as the person the task is for, and reaches only what they may. A
 chat's bot stays the organisation's: who may talk to an agent is decided by the
 sender. HubSpot's OAuth tokens reach the whole account, whoever signs in, so
 they would not narrow anything. PostgreSQL, Trello and Freshdesk have no
-sign-in of this kind.
+sign-in of this kind, and Brave Search has nothing private to sign in to.
 
 The administrator chooses this when adding the connector, and enters an OAuth
 client instead of a shared account. Its redirect URI, or callback URL, is
@@ -946,6 +948,29 @@ Agents get these tools:
 names are global, so a bucket is used only after checking it belongs to the
 project. The panel checks the service account can see the project when an
 agent is connected.
+
+## Brave Search
+
+Settings: `api_key`.
+
+1. Sign up at [api-dashboard.search.brave.com](https://api-dashboard.search.brave.com)
+   and choose a **Search** plan.
+2. Under **API keys**, add a key.
+
+Agents get these tools:
+
+- `brave_search`: search the web. Each result has its title, URL, a snippet
+  and its age.
+- `brave_news`: search news articles, with the same fields.
+
+Both take a query, which may use operators such as `"exact words"`, `-word`
+and `site:example.com`, and may narrow it to a country, a language, and the
+past day, week, month or year or a date range. They return up to 20 results a
+page, and up to 10 pages. To read a page it found, an agent needs the `web`
+tool group, with its `web_fetch` ([agents.md](agents.md#the-runtime)).
+
+A binding names nothing, and both tools only read. Each search counts as one
+query on Brave's plan, as does checking the connector when it is saved.
 
 ## What an agent can reach
 
