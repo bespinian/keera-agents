@@ -175,6 +175,23 @@ func TestReconcileResumesASuspendedBusyAgent(t *testing.T) {
 	}
 }
 
+func TestASuspendedAgentOverTheLimitsIsNotResumed(t *testing.T) {
+	f := newFixture(t, Options{Limits: runtime.Limits{MaxCPU: "2"}})
+	a := f.agent(t, func(a *store.Agent) { a.Class = runtime.Class{CPU: "4"} })
+	f.driver.set(a.ID, runtime.Status{State: runtime.Suspended})
+	f.setState(t, a.ID, store.AgentSuspended)
+
+	if err := f.m.Wake(context.Background(), a.ID); err == nil {
+		t.Fatal("Wake resumed an agent over the limits")
+	}
+	if f.driver.count("resume "+a.ID) != 0 {
+		t.Fatalf("calls = %v, want no resume", f.driver.calls)
+	}
+	if got := f.load(t, a.ID); got.State != store.AgentFailed || !strings.Contains(got.StateDetail, "CPU can be at most 2") {
+		t.Fatalf("state = %q %q", got.State, got.StateDetail)
+	}
+}
+
 func TestReconcileStartsNothingForAnAgentWithoutWork(t *testing.T) {
 	f := newFixture(t, Options{})
 	idle := f.agent(t)

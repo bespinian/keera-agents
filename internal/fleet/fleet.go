@@ -461,6 +461,11 @@ func (m *Manager) Wake(ctx context.Context, agentID string) error {
 	case runtime.Gone, runtime.Failed:
 		return m.start(ctx, a)
 	case runtime.Suspended:
+		// The limits may have changed since it was suspended. start marks
+		// it failed, saying why.
+		if m.opts.Limits.Check(a.Class.WithDefaults()) != nil {
+			return m.start(ctx, a)
+		}
 		if err := m.mayRun(ctx, a); err != nil {
 			return err
 		}
