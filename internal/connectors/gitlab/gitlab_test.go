@@ -61,10 +61,23 @@ func newFake(t *testing.T) (*fake, *Adapter) {
 				t.Errorf("state = %s", r.URL.Query().Get("state"))
 			}
 			reply(`[{"iid":7,"title":"Fix login","description":"long","state":"opened","labels":["bug"],"author":{"username":"ada"}}]`)(w, r)
+		case "GET " + web + "/merge_requests":
+			switch r.URL.Query().Get("state") {
+			case "closed":
+				reply(`[{"iid":5,"title":"Dropped","state":"closed","updated_at":"2026-01-01T00:00:00Z"}]`)(w, r)
+			case "merged":
+				reply(`[{"iid":6,"title":"Shipped","state":"merged","updated_at":"2026-02-01T00:00:00Z"}]`)(w, r)
+			default:
+				t.Errorf("state = %s", r.URL.Query().Get("state"))
+			}
 		case "GET " + web + "/merge_requests/8":
 			reply(`{"iid":8,"title":"MR","state":"opened","source_branch":"keera/fix"}`)(w, r)
 		case "GET " + web + "/merge_requests/8/notes":
-			reply(`[{"body":"changed the description","system":true},{"body":"Looks good","author":{"username":"bob"}}]`)(w, r)
+			if r.URL.Query().Get("sort") != "desc" {
+				t.Errorf("notes sort = %s", r.URL.Query().Get("sort"))
+			}
+			reply(`[{"body":"Looks good","author":{"username":"bob"}},{"body":"changed the description","system":true},
+				{"body":"Please review","author":{"username":"ada"}}]`)(w, r)
 		case "POST " + web + "/issues/7/notes", "POST " + web + "/merge_requests":
 			reply(`{"iid":9,"title":"Draft: Fix login","state":"opened","web_url":"https://gitlab.test/acme/apps/web/-/merge_requests/9"}`)(w, r)
 		default:
@@ -128,8 +141,14 @@ func TestIssuesAndChanges(t *testing.T) {
 		t.Fatalf("Issues = %+v, %v", list, err)
 	}
 	mr, err := a.Issue(ctx, conn("tok"), "acme/apps/web", 8, true)
-	if err != nil || !mr.Change || mr.Branch != "keera/fix" || len(mr.Comments) != 1 || mr.Comments[0].Author != "bob" {
+	if err != nil || !mr.Change || mr.Branch != "keera/fix" || len(mr.Comments) != 2 ||
+		mr.Comments[0].Author != "ada" || mr.Comments[1].Author != "bob" {
 		t.Fatalf("merge request = %+v, %v", mr, err)
+	}
+	// Closed takes in merged, as on GitHub, newest change first.
+	closed, err := a.Issues(ctx, conn("tok"), "acme/apps/web", "closed", true)
+	if err != nil || len(closed) != 2 || closed[0].Number != 6 || closed[1].Number != 5 {
+		t.Fatalf("closed changes = %+v, %v", closed, err)
 	}
 	if err := a.Comment(ctx, conn("tok"), "acme/apps/web", 7, false, "Fixed"); err != nil {
 		t.Fatal(err)

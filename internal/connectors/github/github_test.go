@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -176,5 +177,45 @@ func TestPerUser(t *testing.T) {
 	user.Token = ""
 	if _, err := a.Remote(ctx, user, "acme/web"); err == nil {
 		t.Error("a remote for nobody")
+	}
+}
+
+// A busy repository's newest items can all be pull requests, and a long
+// thread's newest comments are on its last page.
+func TestIssuesBusy(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/repos/acme/busy/issues", func(w http.ResponseWriter, r *http.Request) {
+		var items []string
+		if r.URL.Query().Get("page") == "1" {
+			for i := range 100 {
+				items = append(items, fmt.Sprintf(`{"number":%d,"pull_request":{}}`, 1000+i))
+			}
+		} else {
+			items = append(items, `{"number":7,"title":"Old bug","state":"open"}`, `{"number":8,"pull_request":{}}`)
+		}
+		_, _ = w.Write([]byte("[" + strings.Join(items, ",") + "]"))
+	})
+	mux.HandleFunc("GET /api/repos/acme/busy/issues/7", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"number":7,"title":"Old bug","state":"open","comments":150}`))
+	})
+	mux.HandleFunc("GET /api/repos/acme/busy/issues/7/comments", func(w http.ResponseWriter, r *http.Request) {
+		first := map[string]int{"1": 1, "2": 101}[r.URL.Query().Get("page")]
+		var items []string
+		for n := first; first > 0 && n < first+100 && n <= 150; n++ {
+			items = append(items, fmt.Sprintf(`{"body":"c%d"}`, n))
+		}
+		_, _ = w.Write([]byte("[" + strings.Join(items, ",") + "]"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	a := New(connectors.Options{Endpoints: map[string]string{"api": srv.URL + "/api"}})
+	ctx := context.Background()
+	list, err := a.Issues(ctx, conn("tok"), "acme/busy", "open", false)
+	if err != nil || len(list) != 1 || list[0].Number != 7 {
+		t.Fatalf("Issues = %+v, %v", list, err)
+	}
+	i, err := a.Issue(ctx, conn("tok"), "acme/busy", 7, false)
+	if err != nil || len(i.Comments) != maxComments || i.Comments[0].Body != "c51" || i.Comments[99].Body != "c150" {
+		t.Fatalf("Issue = %d comments, %v", len(i.Comments), err)
 	}
 }

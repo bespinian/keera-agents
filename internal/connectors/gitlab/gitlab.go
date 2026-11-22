@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"time"
 
@@ -281,16 +282,27 @@ func (a *Adapter) Issues(ctx context.Context, conn connectors.Connection, path, 
 	if err != nil {
 		return nil, err
 	}
-	if st == "open" {
-		st = "opened"
+	states := []string{st}
+	switch {
+	case st == "open":
+		states = []string{"opened"}
+	case st == "closed" && changes:
+		// A merged merge request is not closed to GitLab, but it is to
+		// GitHub and the tools.
+		states = []string{"closed", "merged"}
 	}
-	q := url.Values{"state": {st}, "per_page": {"50"}, "order_by": {"updated_at"}, "sort": {"desc"}}
 	var list []issue
-	if err := a.call(ctx, s, http.MethodGet, project(path)+kindOf(changes)+"?"+q.Encode(), nil, &list); err != nil {
-		return nil, err
+	for _, st := range states {
+		q := url.Values{"state": {st}, "per_page": {"50"}, "order_by": {"updated_at"}, "sort": {"desc"}}
+		var more []issue
+		if err := a.call(ctx, s, http.MethodGet, project(path)+kindOf(changes)+"?"+q.Encode(), nil, &more); err != nil {
+			return nil, err
+		}
+		list = append(list, more...)
 	}
+	slices.SortStableFunc(list, func(x, y issue) int { return y.UpdatedAt.Compare(x.UpdatedAt) })
 	out := []connectors.Issue{}
-	for _, i := range list {
+	for _, i := range list[:min(len(list), 50)] {
 		out = append(out, i.view(changes).Brief())
 	}
 	return out, nil
@@ -315,10 +327,12 @@ func (a *Adapter) Issue(ctx context.Context, conn connectors.Connection, path st
 			Username string `json:"username"`
 		} `json:"author"`
 	}
-	q := url.Values{"sort": {"asc"}, "order_by": {"created_at"}, "per_page": {strconv.Itoa(maxComments)}}
+	// The newest, so a long thread keeps its end; shown oldest first.
+	q := url.Values{"sort": {"desc"}, "order_by": {"created_at"}, "per_page": {strconv.Itoa(maxComments)}}
 	if err := a.call(ctx, s, http.MethodGet, base+"/notes?"+q.Encode(), nil, &notes); err != nil {
 		return connectors.Issue{}, err
 	}
+	slices.Reverse(notes)
 	for _, n := range notes {
 		// System notes are GitLab's own, such as "changed the description".
 		if !n.System {

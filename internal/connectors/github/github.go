@@ -37,6 +37,13 @@ var validPath = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 // model's context.
 const maxComments = 100
 
+// maxIssues is how many issues Issues lists, read from at most maxPages
+// pages.
+const (
+	maxIssues = 50
+	maxPages  = 5
+)
+
 type Adapter struct {
 	hc  *http.Client
 	api string
@@ -259,6 +266,7 @@ type issue struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 	User        user      `json:"user"`
 	Labels      []label   `json:"labels"`
+	Comments    int       `json:"comments"`
 	PullRequest *struct{} `json:"pull_request"`
 	Head        *struct {
 		Ref string `json:"ref"`
@@ -299,18 +307,26 @@ func (a *Adapter) Issues(ctx context.Context, conn connectors.Connection, path, 
 	if err != nil {
 		return nil, err
 	}
-	q := url.Values{"state": {st}, "per_page": {"50"}, "sort": {"updated"}, "direction": {"desc"}}
-	var list []issue
-	if err := a.call(ctx, s, http.MethodGet, "/repos/"+path+kindOf(changes)+"?"+q.Encode(), nil, &list); err != nil {
-		return nil, err
-	}
 	out := []connectors.Issue{}
-	for _, i := range list {
-		// GitHub lists pull requests among issues.
-		if !changes && i.PullRequest != nil {
-			continue
+	// GitHub lists pull requests among issues, so a page of them can hold
+	// few issues or none: read on until there are enough.
+	for page := 1; page <= maxPages && len(out) < maxIssues; page++ {
+		q := url.Values{
+			"state": {st}, "per_page": {"100"}, "page": {strconv.Itoa(page)},
+			"sort": {"updated"}, "direction": {"desc"},
 		}
-		out = append(out, i.view(changes).Brief())
+		var list []issue
+		if err := a.call(ctx, s, http.MethodGet, "/repos/"+path+kindOf(changes)+"?"+q.Encode(), nil, &list); err != nil {
+			return nil, err
+		}
+		for _, i := range list {
+			if (changes || i.PullRequest == nil) && len(out) < maxIssues {
+				out = append(out, i.view(changes).Brief())
+			}
+		}
+		if len(list) < 100 {
+			break
+		}
 	}
 	return out, nil
 }
@@ -332,10 +348,22 @@ func (a *Adapter) Issue(ctx context.Context, conn connectors.Connection, path st
 		User      user      `json:"user"`
 		CreatedAt time.Time `json:"created_at"`
 	}
-	q := url.Values{"per_page": {strconv.Itoa(maxComments)}}
-	if err := a.call(ctx, s, http.MethodGet, "/repos/"+path+"/issues/"+n+"/comments?"+q.Encode(), nil, &comments); err != nil {
-		return connectors.Issue{}, err
+	// GitHub lists them oldest first, and has no other order, so the
+	// newest are on the last pages.
+	last := max(1, (i.Comments+maxComments-1)/maxComments)
+	for page := max(1, last-1); page <= last; page++ {
+		var more []struct {
+			Body      string    `json:"body"`
+			User      user      `json:"user"`
+			CreatedAt time.Time `json:"created_at"`
+		}
+		q := url.Values{"per_page": {strconv.Itoa(maxComments)}, "page": {strconv.Itoa(page)}}
+		if err := a.call(ctx, s, http.MethodGet, "/repos/"+path+"/issues/"+n+"/comments?"+q.Encode(), nil, &more); err != nil {
+			return connectors.Issue{}, err
+		}
+		comments = append(comments, more...)
 	}
+	comments = comments[max(0, len(comments)-maxComments):]
 	for _, c := range comments {
 		out.Comments = append(out.Comments, connectors.Comment{Author: c.User.Login, Body: c.Body, At: c.CreatedAt})
 	}
