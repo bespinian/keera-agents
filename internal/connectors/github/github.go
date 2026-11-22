@@ -125,9 +125,10 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		},
 		Setup: "1. Create a GitHub user for your agents.\n" +
 			"2. Add it to the repositories they work in.\n" +
-			"3. As that user, create a fine-grained personal access token for those repositories with the permissions " +
-			"Contents, Issues and Pull requests set to Read and write.\n" +
-			"4. Agents push only to branches starting with keera/, so protect your main branches as you would for a person.",
+			"3. As that user, create a **fine-grained personal access token**. As its resource owner, choose the organisation " +
+			"that owns the repositories, if it is not the user; an owner of the organisation may need to approve the token.\n" +
+			"4. Give it only those repositories, with **Contents**, **Issues** and **Pull requests** set to Read and write.\n" +
+			"5. Agents push only to branches starting with keera/, so protect your main branches as you would for a person.",
 		TargetLabel: "Repository",
 		TargetHelp:  "owner/name, such as acme/website.",
 	}

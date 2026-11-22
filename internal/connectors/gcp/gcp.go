@@ -86,12 +86,12 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 				Help: "The JSON key file of a service account with access to the projects agents work in.",
 			},
 		},
-		Setup: "1. In the project agents work in, create a service account, such as keera-agents.\n" +
-			"2. Grant it the roles Viewer, Logs Viewer, Monitoring Viewer and Cloud Asset Viewer on the project. " +
-			"Add Compute Instance Admin (v1) only if agents may start and stop VMs.\n" +
-			"3. Create a JSON key for it and paste the whole file here.\n" +
-			"4. Enable the Cloud Resource Manager, Cloud Asset, Compute Engine, Cloud Logging and Cloud Monitoring APIs " +
-			"in the project the service account belongs to.\n" +
+		Setup: "1. In the project agents work in, enable the Cloud Resource Manager, Cloud Asset, Compute Engine, " +
+			"Cloud Logging and Cloud Monitoring APIs.\n" +
+			"2. Create a service account there, such as keera-agents.\n" +
+			"3. Grant it the roles **Viewer**, **Logs Viewer**, **Monitoring Viewer** and **Cloud Asset Viewer** on the project. " +
+			"Add **Compute Instance Admin (v1)** only if agents may start and stop VMs.\n" +
+			"4. Create a JSON key for it and paste the whole file here.\n" +
 			"5. For more projects, grant the same roles there; one connector can serve them all.",
 		TargetLabel: "Project",
 		TargetHelp:  "The project ID, such as acme-prod-1234. Everything agents do stays in it.",

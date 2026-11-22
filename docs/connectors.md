@@ -153,9 +153,11 @@ use Drive's change feed.
 Settings: `tenant_id`, `client_id`, `client_secret`, `drive_id`.
 
 Register an app in Microsoft Entra with a client secret. Give it the Microsoft
-Graph application permission **`Sites.Selected`** with access to one site, or
-`Files.ReadWrite.All` or `Sites.ReadWrite.All` for more, and grant admin
-consent. Find the drive's ID in Graph Explorer: `GET /users/{email}/drive` for
+Graph application permission **`Sites.Selected`**, and grant admin consent.
+Then, as a SharePoint administrator in Graph Explorer, give the app write
+access to the one site agents use: `POST /sites/{site-id}/permissions` with
+the role `write` and the app's client ID. For more than one site, use
+`Files.ReadWrite.All` or `Sites.ReadWrite.All` instead. Find the drive's ID in Graph Explorer: `GET /users/{email}/drive` for
 someone's OneDrive, `GET /sites/{host}:/sites/{site}:/drives` for a SharePoint
 library.
 
@@ -170,7 +172,8 @@ Settings: `token`, `base_url` (only for GitHub Enterprise Server).
    repositories they work in.
 2. As that user, create a **fine-grained personal access token** for those
    repositories, with **Contents**, **Issues** and **Pull requests** set to
-   Read and write.
+   Read and write. For an organisation's repositories, choose the
+   organisation as its resource owner; an owner may need to approve it.
 3. Protect your main branches as you would for a person.
 
 When an agent is connected to a repository, the panel checks the token can
@@ -710,10 +713,10 @@ the run-as user may, so that user's permission set is the limit.
 
 Settings: `domain` (such as `acme.freshdesk.com`), `api_key`.
 
-1. In Freshdesk, add an agent for your agents to work as, in the groups they
-   work in. Give it a role that may do what they should, such as reply to
+1. In Freshdesk, add an agent account for Keera's agents to work as, in the
+   groups they work in. Give it a role that may do what they should, such as reply to
    tickets.
-2. Signed in as that agent, open **Profile settings** and copy the **API
+2. Signed in as that account, open **Profile settings** and copy the **API
    key**.
 3. Enter your helpdesk's `freshdesk.com` address, not a custom domain.
    keera-agents sends the key only to a `freshdesk.com` address, so whoever
@@ -915,14 +918,13 @@ only where agents may.
 
 Settings: `service_account_json`.
 
-1. In the project agents work in, create a **service account**, such as
-   `keera-agents`.
-2. Grant it the roles **Viewer**, **Logs Viewer**, **Monitoring Viewer** and
+1. In the project agents work in, enable the Cloud Resource Manager, Cloud
+   Asset, Compute Engine, Cloud Logging and Cloud Monitoring APIs.
+2. Create a **service account** there, such as `keera-agents`.
+3. Grant it the roles **Viewer**, **Logs Viewer**, **Monitoring Viewer** and
    **Cloud Asset Viewer** on the project. Add **Compute Instance Admin (v1)**
    only if agents may start and stop VMs.
-3. Create a JSON key for it.
-4. Enable the Cloud Resource Manager, Cloud Asset, Compute Engine, Cloud
-   Logging and Cloud Monitoring APIs in the service account's project.
+4. Create a JSON key for it.
 
 One connector can serve several projects: grant the same roles in each.
 

@@ -65,8 +65,9 @@ func New(opts connectors.Options) *Adapter {
 // driveField is a setting of both kinds of connector.
 var driveField = connectors.Field{
 	Name: "drive_id", Label: "Drive ID", Required: true,
-	Help: "The drive to work in, starting with b!. In Graph Explorer, a user's OneDrive is " +
-		"GET /users/{email}/drive, and a SharePoint site's libraries are GET /sites/{host}:/sites/{site}:/drives.",
+	Help: "The drive to work in, starting with b!. In Graph Explorer, a SharePoint site's libraries are " +
+		"GET /sites/{host}:/sites/{site}:/drives, and a person's OneDrive is GET /users/{email}/drive. " +
+		"On a connector people sign in to, use a drive they share, such as a library.",
 }
 
 func (a *Adapter) Descriptor() connectors.Descriptor {
@@ -78,10 +79,12 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Summary:  "Agents watch folders in OneDrive or a SharePoint library, and read and write files in them.",
 		Fields:   append(microsoft.Fields(), driveField),
 		Setup: "1. In Microsoft Entra, register an app and create a client secret.\n" +
-			"2. Under API permissions, add the Microsoft Graph application permission Files.ReadWrite.All " +
-			"(or Sites.ReadWrite.All, or Sites.Selected with access to one site).\n" +
-			"3. Grant admin consent.\n" +
-			"4. Look up the ID of the drive to use.",
+			"2. Under **API permissions**, add the Microsoft Graph application permission `Files.ReadWrite.All` or `Sites.ReadWrite.All`, " +
+			"and grant admin consent.\n" +
+			"3. Or, to reach one SharePoint site only, add `Sites.Selected` instead, grant admin consent, and then give the app " +
+			"write access to the site: as a SharePoint administrator, in Graph Explorer, " +
+			"`POST /sites/{site-id}/permissions` with the role `write` and the app's client ID.\n" +
+			"4. Look up the ID of the drive to use, as the Drive ID field says.",
 		TargetLabel: "Folder",
 		TargetHelp:  "A folder's item ID, or root.",
 	}

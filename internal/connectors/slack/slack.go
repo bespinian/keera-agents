@@ -64,7 +64,7 @@ const setup = "1. At [api.slack.com/apps](https://api.slack.com/apps), choose **
 	"         - users:read\n" +
 	"         - users:read.email\n" +
 	"   ```\n" +
-	"3. Under **Install App**, install it to your workspace. Under **Your app credentials**, copy the **Bot token** into Bot token.\n" +
+	"3. Under **Install App**, install it to your workspace, and copy the **Bot User OAuth Token** into Bot token.\n" +
 	"4. Under **Basic Information**, copy the **Signing Secret** into Signing secret. Save this connector.\n" +
 	"5. Under **Event Subscriptions**, turn events on and set the **Request URL** to {webhook}. " +
 	"Under **Subscribe to bot events**, add `app_mention` and `message.im`. Save, and reinstall the app if Slack asks.\n" +
@@ -97,7 +97,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Fields: []connectors.Field{
 			{
 				Name: "bot_token", Label: "Bot token", Secret: true, Required: true,
-				Help: "From Your app credentials, starting with xoxb-.",
+				Help: "The Bot User OAuth Token, under Install App, starting with xoxb-.",
 			},
 			{
 				Name: "signing_secret", Label: "Signing secret", Secret: true, Required: true,

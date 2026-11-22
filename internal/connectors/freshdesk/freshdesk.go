@@ -61,12 +61,12 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 			},
 			{
 				Name: "api_key", Label: "API key", Secret: true, Required: true,
-				Help: "The API key of the Freshdesk agent your agents work as.",
+				Help: "The API key of the Freshdesk agent account Keera's agents work as.",
 			},
 		},
-		Setup: "1. In Freshdesk, add an agent for your agents to work as, in the groups they work in. " +
+		Setup: "1. In Freshdesk, add an agent account for Keera's agents to work as, in the groups they work in. " +
 			"Give it a role that may do what they should, such as reply to tickets.\n" +
-			"2. Signed in as that agent, open **Profile settings** and copy the **API key** here.\n" +
+			"2. Signed in as that account, open **Profile settings** and copy the **API key** here.\n" +
 			"3. Enter your helpdesk's address, such as acme.freshdesk.com, not a custom domain.",
 		TargetLabel: "Group",
 		TargetHelp:  "The group's name or id, such as Billing.",
