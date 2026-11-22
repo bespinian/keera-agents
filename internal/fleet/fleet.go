@@ -151,6 +151,18 @@ func (m *Manager) lock(ctx context.Context, id string) (func(), error) {
 	}
 }
 
+// tryLock takes the agent's lock if it is free.
+func (m *Manager) tryLock(id string) (func(), bool) {
+	held, _ := m.locks.LoadOrStore(id, make(chan struct{}, 1))
+	ch := held.(chan struct{})
+	select {
+	case ch <- struct{}{}:
+		return func() { <-ch }, true
+	default:
+		return nil, false
+	}
+}
+
 // keyName is how an agent's key is named in the gateway, so people reading
 // its usage reports know what spent it.
 func keyName(a store.Agent) string {
@@ -583,8 +595,8 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 		}
 		st.State = runtime.Suspended
 	case !a.Enabled && (st.State == runtime.Running || st.State == runtime.Pending):
-		if err := m.driver.Suspend(ctx, a.ID); err != nil {
-			m.log.Warn("could not suspend a stopped agent", "agent", a.ID, "error", err)
+		if !m.suspendStopped(ctx, a.ID) {
+			return
 		}
 		st.State = runtime.Suspended
 	case a.Enabled && busy && st.State != runtime.Running && st.State != runtime.Pending:
@@ -632,6 +644,27 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 	if state != a.State || st.Detail != a.StateDetail {
 		_ = m.st.SetAgentState(ctx, a.ID, state, st.Detail)
 	}
+}
+
+// suspendStopped suspends the machine of an agent that is stopped. The list
+// Reconcile went by may be old, and someone may have started the agent
+// since, so it checks again under the lock. A held lock means a change is
+// under way, such as a start pulling an image: the next round looks again.
+// It reports whether the agent is still stopped.
+func (m *Manager) suspendStopped(ctx context.Context, agentID string) bool {
+	unlock, ok := m.tryLock(agentID)
+	if !ok {
+		return false
+	}
+	defer unlock()
+	a, err := m.st.Agent(ctx, agentID)
+	if err != nil || a.Enabled {
+		return false
+	}
+	if err := m.driver.Suspend(ctx, agentID); err != nil && !errors.Is(err, runtime.ErrNotFound) {
+		m.log.Warn("could not suspend a stopped agent", "agent", agentID, "error", err)
+	}
+	return true
 }
 
 // suspendIdle suspends an agent that has been idle since idleSince and still

@@ -571,8 +571,7 @@ func TestBindingsAndWatches(t *testing.T) {
 		t.Fatalf("BindingCounts = %v", counts)
 	}
 	// A stopped agent listens to nothing.
-	a.Enabled = false
-	if _, err := st.UpdateAgent(ctx, a); err != nil {
+	if _, err := st.SetEnabled(ctx, a.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if chats, _ := st.ChatBindings(ctx, c.ID); len(chats) != 0 {

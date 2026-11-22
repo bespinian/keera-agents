@@ -305,6 +305,27 @@ func TestReconcileSuspendsADisabledAgentsContainer(t *testing.T) {
 	}
 }
 
+// Reconcile's list can be older than a start: it must not suspend the
+// machine the start just made, nor mark the agent stopped.
+func TestReconcileLeavesAnAgentStartedSinceItsList(t *testing.T) {
+	f := newFixture(t, Options{})
+	ctx := context.Background()
+	listed := f.agent(t, func(a *store.Agent) { a.Enabled = false })
+	if _, err := f.st.SetEnabled(ctx, listed.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	f.driver.set(listed.ID, runtime.Status{State: runtime.Pending})
+	f.setState(t, listed.ID, store.AgentStarting)
+
+	f.m.reconcileOne(ctx, listed)
+	if n := f.driver.count("suspend " + listed.ID); n != 0 {
+		t.Fatalf("suspended %d times", n)
+	}
+	if got := f.load(t, listed.ID); got.State != store.AgentStarting {
+		t.Fatalf("state = %q, want starting", got.State)
+	}
+}
+
 func TestReconcileSuspendsAnAgentIdleForItsLimit(t *testing.T) {
 	for _, c := range []struct {
 		name    string
@@ -824,9 +845,7 @@ func TestAStartAppliesTheLatestSettings(t *testing.T) {
 
 	// One stopped meanwhile is not started.
 	stopped := f.agent(t)
-	off := stopped
-	off.Enabled = false
-	if _, err := f.st.UpdateAgent(ctx, off); err != nil {
+	if _, err := f.st.SetEnabled(ctx, stopped.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.m.Start(ctx, stopped); err != nil {

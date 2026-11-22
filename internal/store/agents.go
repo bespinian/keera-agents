@@ -117,17 +117,18 @@ func (s *Store) CreateAgent(ctx context.Context, a Agent) (Agent, error) {
 	return out, conflict(err)
 }
 
-// UpdateAgent writes the fields people edit.
+// UpdateAgent writes the fields people edit. Not enabled: SetEnabled writes
+// that alone, so a save that read the row before a stop cannot undo it.
 func (s *Store) UpdateAgent(ctx context.Context, a Agent) (Agent, error) {
 	class, _ := json.Marshal(a.Class)
 	row := s.pool.QueryRow(ctx, `UPDATE agents SET name = $2, description = $3,
 		instructions = $4, model = $5, builtins = $6, max_steps = $7, access = $8,
-		allowed_emails = $9, budget_micros = $10, image = $11, class = $12, enabled = $13,
-		project_id = $14, icon = $15, experience = $16, updated_at = now()
+		allowed_emails = $9, budget_micros = $10, image = $11, class = $12,
+		project_id = $13, icon = $14, experience = $15, updated_at = now()
 		WHERE id = $1 AND deleted_at IS NULL RETURNING `+agentColumns,
 		a.ID, a.Name, a.Description, a.Instructions, a.Model, emptyIfNil(a.Builtins),
 		a.MaxSteps, a.Access, emptyIfNil(a.AllowedEmails), a.BudgetMicros, a.Image, class,
-		a.Enabled, a.ProjectID, a.Icon, a.Experience)
+		a.ProjectID, a.Icon, a.Experience)
 	out, err := scanAgent(row)
 	return out, conflict(err)
 }
