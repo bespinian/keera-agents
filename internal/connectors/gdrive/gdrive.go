@@ -306,6 +306,10 @@ func (a *Adapter) Write(ctx context.Context, conn connectors.Connection, folder,
 	b, err := a.call(ctx, s, method, path, url.Values{
 		"uploadType": {"multipart"}, "supportsAllDrives": {"true"}, "fields": {fileFields},
 	}, &buf, "multipart/related; boundary="+mw.Boundary(), 1<<20)
+	if err != nil && strings.Contains(err.Error(), "storageQuotaExceeded") {
+		return connectors.File{}, fmt.Errorf("gdrive: a service account has no Drive storage, so it can add files only "+
+			"in a shared drive, or by acting as a user; it can still change files already here (%w)", err)
+	}
 	if err != nil {
 		return connectors.File{}, fmt.Errorf("gdrive: uploading the file: %w", err)
 	}

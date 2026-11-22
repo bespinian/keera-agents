@@ -88,11 +88,11 @@ func New(opts connectors.Options) *Adapter {
 		},
 		{
 			Name: "create",
-			Description: "Create a Google Sheet. Only for a connector bound to every spreadsheet. " +
-				"Give a folder unless the connector acts as a user: a service account has no storage of its own.",
+			Description: "Create a Google Sheet, in the My Drive of the user the connector acts as. Only for a connector bound to every spreadsheet. " +
+				"A service account on its own has no Drive storage, so it cannot create one.",
 			Parameters: apitool.Schema(`{"type":"object","properties":{
 				"title":{"type":"string"},
-				"folder_id":{"type":"string","description":"The id or link of the Drive folder to create it in."},` +
+				"folder_id":{"type":"string","description":"Optional: the id or link of a folder this connector created. Empty for My Drive."},` +
 				strings.Replace(rowsParam, "Rows of cells", "Optional first rows of cells", 1) + `},
 				"required":["title"]}`),
 			Write: true,

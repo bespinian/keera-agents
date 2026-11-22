@@ -393,11 +393,13 @@ func (in writeArgs) body() (map[string]any, error) {
 }
 
 // eventTimeOf is a time as the API takes it: a date for an all-day event, a
-// time otherwise, with an offset or a time zone.
-func eventTimeOf(s, zone string) (map[string]string, error) {
+// time otherwise, with an offset or a time zone. The other is null: an update
+// merges into the event, and one with both a date and a time is refused, so
+// an event could not turn all-day or back.
+func eventTimeOf(s, zone string) (map[string]any, error) {
 	s = strings.TrimSpace(s)
 	if _, err := time.Parse(time.DateOnly, s); err == nil {
-		return map[string]string{"date": s}, nil
+		return map[string]any{"date": s, "dateTime": nil, "timeZone": nil}, nil
 	}
 	_, err := time.Parse(time.RFC3339, s)
 	if err != nil && zone != "" {
@@ -407,7 +409,7 @@ func eventTimeOf(s, zone string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%q is not a time; %s", web.Short(s, 60), strings.ToLower(timeHelp[:1])+timeHelp[1:])
 	}
-	t := map[string]string{"dateTime": s}
+	t := map[string]any{"dateTime": s, "date": nil}
 	if zone != "" {
 		t["timeZone"] = zone
 	}

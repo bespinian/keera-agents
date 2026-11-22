@@ -164,6 +164,10 @@ func TestWrites(t *testing.T) {
 	if c.method != http.MethodPatch || c.query != "sendUpdates=none" || start["timeZone"] != "Europe/Zurich" || c.body["summary"] != nil {
 		t.Errorf("update sent %+v", c)
 	}
+	// The patch clears the date an all-day event had, or Google refuses it.
+	if v, ok := start["date"]; !ok || v != nil {
+		t.Errorf("update leaves the date: %+v", start)
+	}
 	if _, err := call(t, a, conn, cal, "update_event", `{"event_id":"ev1"}`); err == nil {
 		t.Error("an empty update passed")
 	}

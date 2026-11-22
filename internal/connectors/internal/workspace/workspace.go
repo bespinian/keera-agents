@@ -368,7 +368,15 @@ func (f Files) Create(ctx context.Context, s Settings, target, name, folder stri
 	err := f.Do(ctx, s, http.MethodPost, f.drive+"/drive/v3/files?"+url.Values{
 		"fields": {fileFields}, "supportsAllDrives": {"true"},
 	}.Encode(), meta, &d)
-	if err != nil {
+	switch {
+	case err != nil && strings.Contains(err.Error(), "storageQuotaExceeded"):
+		return File{}, fmt.Errorf("a service account has no Drive storage, so it cannot create a %s; "+
+			"the connector must act as a user (%w)", f.Noun, err)
+	case err != nil && folder != "" && web.Status(err) == http.StatusNotFound:
+		// drive.file reaches only what the connector made or was shared.
+		return File{}, fmt.Errorf("the folder was not found, or the connector may not add to it: "+
+			"it adds only to folders it created; leave the folder out for My Drive (%w)", err)
+	case err != nil:
 		return File{}, fmt.Errorf("creating the %s: %w", f.Noun, err)
 	}
 	return d.file(), nil
