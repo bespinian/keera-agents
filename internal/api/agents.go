@@ -312,6 +312,15 @@ func (s *Server) apply(ctx context.Context, p Principal, a *store.Agent, in agen
 		if err := s.fleet.CheckClass(c); err != nil {
 			return err
 		}
+		// A machine's volume keeps the size it was made with: Kubernetes
+		// cannot change a StatefulSet's claims. Billing goes by the class, so
+		// it must keep saying that size. A new agent has no class yet.
+		if _, _, was := a.Class.Size(); a.Class.Disk != "" {
+			if _, _, now := c.Size(); now != was {
+				return errors.New("the disk is fixed once the machine exists")
+			}
+			c.Disk = a.Class.Disk
+		}
 		if tiers := s.fleet.Tiers(); len(tiers) > 0 && !slices.Contains(tiers, c.Isolation) {
 			return fmt.Errorf("this deployment has no %q isolation", c.Isolation)
 		}

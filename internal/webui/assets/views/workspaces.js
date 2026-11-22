@@ -255,6 +255,7 @@ export async function workspaceForm(ctx, workspace) {
     memory: "Such as 2Gi or 8Gi.",
     disk: "Your files and what you install. Fixed once the workspace exists.",
     diskSize: "5Gi",
+    diskFixed: Boolean(workspace),
   });
 
   rest.append(

@@ -161,7 +161,7 @@ Nothing needs to be installed on the cluster. The service account needs the
 Role in [Hardening](#hardening), in that namespace only. A changed spec patches the
 StatefulSet's pod template, and the StatefulSet replaces the pod on the same
 claim. Deleting an agent deletes its claim too. `volumeClaimTemplates` cannot
-change, so a larger disk applies to new agents only. The claim retention
+change, so an agent's disk is fixed once it exists, and billed at that size. The claim retention
 policy that deletes the workspace needs Kubernetes 1.27 or later.
 
 **Egress.** Agents need the gateway and keera-agents' runtime URL, nothing

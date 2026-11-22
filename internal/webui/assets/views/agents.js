@@ -324,8 +324,9 @@ export async function agentForm(ctx, agent) {
 
   const machine = machineFold(me, a.class || {}, {
     memory: "Such as 512Mi or 2Gi.",
-    disk: "Its workspace and memory. They survive restarts.",
+    disk: "Its workspace and memory. They survive restarts. Fixed once the agent exists.",
     diskSize: "10Gi",
+    diskFixed: Boolean(agent),
   });
   const maxSteps = h("input", {
     class: "input",

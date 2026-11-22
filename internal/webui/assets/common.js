@@ -200,8 +200,8 @@ export const TIERS = {
 };
 
 /** machineFold is the Machine section of an agent's or a workspace's form.
- *  hints says what its memory and disk are for. value() is the class to
- *  send. */
+ *  hints says what its memory and disk are for, and whether the disk is
+ *  fixed, as once the machine exists. value() is the class to send. */
 export function machineFold(me, cls, hints) {
   const tiers = (me.runtime && me.runtime.tiers) || ["standard"];
   // Tiers come weakest first. A new machine gets the strongest, as the server
@@ -224,7 +224,12 @@ export function machineFold(me, cls, hints) {
   );
   const cpu = h("input", { class: "input", value: cls.cpu || "", placeholder: "1", inputmode: "decimal" });
   const memory = h("input", { class: "input", value: cls.memory || "", placeholder: "2Gi" });
-  const disk = h("input", { class: "input", value: cls.disk || "", placeholder: hints.diskSize });
+  const disk = h("input", {
+    class: "input",
+    value: cls.disk || "",
+    placeholder: hints.diskSize,
+    readonly: Boolean(hints.diskFixed),
+  });
   // With nothing to choose, the field only takes room. Its value still goes.
   const isolationField = field("Isolation", isolation, "How strongly its machine is kept apart from others.");
   isolationField.hidden = tiers.length === 1 && !stale;

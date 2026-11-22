@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/connectors"
+	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
+	"github.com/bespinian/keera-agents/internal/runtime"
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
@@ -86,6 +88,40 @@ func TestNewOwner(t *testing.T) {
 		}
 		if ok && u.Email != "bob@acme.ch" {
 			t.Errorf("%s: owner %+v", tc.name, u)
+		}
+	}
+}
+
+// A machine's disk keeps the size it was made with, as its volume does, so
+// it is billed for what it has.
+func TestTheDiskIsFixedOnceTheMachineExists(t *testing.T) {
+	s := testServer(t)
+	s.fleet = fleet.New(nil, nil, nil, nil, fleet.Options{})
+	existing := store.Agent{
+		Name: "Scout", Access: store.AccessOwner,
+		Class: runtime.Class{Isolation: runtime.Isolated, CPU: "1", Memory: "2Gi", Disk: "5Gi"},
+	}
+	for _, c := range []struct {
+		name string
+		a    store.Agent
+		disk string
+		ok   bool
+	}{
+		{"a new agent chooses", store.Agent{Name: "Scout", Access: store.AccessOwner}, "100Gi", true},
+		{"the same size", existing, "5Gi", true},
+		{"the same size written otherwise", existing, "5120Mi", true},
+		{"smaller", existing, "64Mi", false},
+		{"larger", existing, "100Gi", false},
+	} {
+		a := c.a
+		class := existing.Class
+		class.Disk = c.disk
+		err := s.apply(t.Context(), admin, &a, agentInput{Class: &class})
+		if (err == nil) != c.ok {
+			t.Errorf("%s: %v", c.name, err)
+		}
+		if err == nil && c.a.Class.Disk != "" && a.Class.Disk != c.a.Class.Disk {
+			t.Errorf("%s: disk became %q", c.name, a.Class.Disk)
 		}
 	}
 }
