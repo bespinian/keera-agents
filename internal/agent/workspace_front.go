@@ -65,13 +65,20 @@ func (r *runner) front(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var outside io.ReadWriteCloser = conn
-	if req.URL.Query().Get("port") == protocol.PortWeb {
+	if browserPort(port) {
 		if outside, ok = fromLoopback(conn); !ok {
 			_ = inside.Close()
 			return
 		}
 	}
 	stream.Join(outside, inside)
+}
+
+// browserPort reports whether a port is the terminal's or VS Code's, which
+// only a browser on the loopback may reach. It goes by the number, not by
+// "web": asking for 8080 reaches VS Code just as well.
+func browserPort(port int) bool {
+	return port == terminalPort || port == vscodePort
 }
 
 // maxHead bounds the first request's line and headers.

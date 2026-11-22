@@ -203,6 +203,17 @@ func TestFrontPort(t *testing.T) {
 			t.Errorf("frontPort(%q, %q) = %d, %v", c.name, c.experience, got, ok)
 		}
 	}
+	// The browser check must not depend on asking for "web".
+	for _, name := range []string{"web", "7681", "8080"} {
+		if port, _ := frontPort(name, "vscode"); !browserPort(port) {
+			t.Errorf("port %q skips the browser check", name)
+		}
+	}
+	for _, name := range []string{"ssh", "3000"} {
+		if port, _ := frontPort(name, "vscode"); browserPort(port) {
+			t.Errorf("port %q gets the browser check", name)
+		}
+	}
 }
 
 func TestMergeJSONKeepsWhatTheOwnerWrote(t *testing.T) {
