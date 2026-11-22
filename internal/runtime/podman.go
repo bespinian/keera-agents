@@ -68,24 +68,36 @@ func (p *Podman) Create(ctx context.Context, spec Spec) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	args, env := p.runArgs(spec, rt)
-
 	// Every start brings a new runtime token, so a container that is there is
-	// always replaced. The volume is named, so removing the container keeps
-	// it, and the new container mounts it again.
-	if err := p.removeContainer(ctx, containerName(spec.AgentID)); err != nil {
+	// always replaced. The new one is created first, under another name: a
+	// pull or an image that fails then leaves the old one running. The volume
+	// is named, so removing the old container keeps it, and the new one
+	// mounts it again.
+	name := containerName(spec.AgentID)
+	next := name + "-next"
+	if err := p.removeContainer(ctx, next); err != nil {
 		return Status{}, err
 	}
-
+	args, env := p.createArgs(spec, rt, next)
 	if _, err := p.runEnv(ctx, env, args...); err != nil {
+		return Status{}, err
+	}
+	if err := p.removeContainer(ctx, name); err != nil {
+		_ = p.removeContainer(ctx, next)
+		return Status{}, err
+	}
+	if _, err := p.run(ctx, "rename", next, name); err != nil {
+		return Status{}, err
+	}
+	if _, err := p.run(ctx, "start", name); err != nil {
 		return Status{}, err
 	}
 	return p.Status(ctx, spec.AgentID)
 }
 
-// runArgs is the `podman run` command line and podman's environment.
-func (p *Podman) runArgs(spec Spec, rt string) (args, env []string) {
-	args = []string{"run", "--detach", "--name", containerName(spec.AgentID)}
+// createArgs is the `podman create` command line and podman's environment.
+func (p *Podman) createArgs(spec Spec, rt, name string) (args, env []string) {
+	args = []string{"create", "--name", name}
 	if rt != "" {
 		args = append(args, "--runtime", rt)
 	}
@@ -316,7 +328,7 @@ func (l *podmanLogs) Close() error {
 	return l.PipeReader.Close()
 }
 
-// podmanTimeout is generous because `run` may include an image pull.
+// podmanTimeout is generous because `create` may include an image pull.
 const podmanTimeout = 5 * time.Minute
 
 func (p *Podman) run(ctx context.Context, args ...string) ([]byte, error) {

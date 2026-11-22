@@ -16,7 +16,7 @@ func TestPodmanKeepsSecretsOffItsCommandLine(t *testing.T) {
 	p := &Podman{}
 	spec := testSpec()
 	spec.Env["PATH"] = "/opt/bin:/usr/bin"
-	args, env := p.runArgs(spec, "")
+	args, env := p.createArgs(spec, "", containerName(spec.AgentID))
 	line := strings.Join(args, " ")
 	if strings.Contains(line, "rt_secret") {
 		t.Errorf("the command line holds the runtime token: %s", line)
@@ -34,9 +34,9 @@ func TestPodmanKeepsSecretsOffItsCommandLine(t *testing.T) {
 // standardClass is a complete class, as drivers get one.
 var standardClass = Class{Isolation: Standard}.WithDefaults()
 
-func TestPodmanRunArgs(t *testing.T) {
+func TestPodmanCreateArgs(t *testing.T) {
 	p := &Podman{opts: PodmanOptions{Network: "keera"}}
-	args, _ := p.runArgs(testSpec(), "krun")
+	args, _ := p.createArgs(testSpec(), "krun", containerName(testSpec().AgentID))
 	line := strings.Join(args, " ")
 	for _, want := range []string{
 		"--name keera-agent-agt-06c1k2rt8g3m4n5p6q7r8s9t0v",
@@ -106,7 +106,7 @@ const noSuchContainer = "if [ \"$1\" = inspect ]; then echo 'Error: no such cont
 func TestPodmanCreateRunsANewContainer(t *testing.T) {
 	p, log := scriptedPodman(t, noSuchContainer+
 		"if [ \"$1\" = rm ]; then echo 'Error: no such container' >&2; exit 1; fi\n"+
-		"if [ \"$1\" = run ]; then exit 0; fi\n")
+		"if [ \"$1\" = create ] || [ \"$1\" = rename ] || [ \"$1\" = start ]; then exit 0; fi\n")
 	st, err := p.Create(context.Background(), Spec{AgentID: "agt_1", Image: "img", Class: standardClass})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -115,8 +115,12 @@ func TestPodmanCreateRunsANewContainer(t *testing.T) {
 	if st.State != Gone {
 		t.Errorf("state = %s", st.State)
 	}
-	if runs := callsStarting(calls(t, log), "run "); len(runs) != 1 {
-		t.Errorf("runs = %v, want one", runs)
+	all := calls(t, log)
+	if c := callsStarting(all, "create "); len(c) != 1 || !strings.Contains(c[0], "--name keera-agent-agt-1-next ") {
+		t.Errorf("creates = %v, want one under the next name", c)
+	}
+	if c := callsStarting(all, "start "); len(c) != 1 || c[0] != "start keera-agent-agt-1" {
+		t.Errorf("starts = %v, want the agent's name", c)
 	}
 }
 
@@ -124,20 +128,52 @@ func TestPodmanCreateRunsANewContainer(t *testing.T) {
 func TestPodmanCreateReplacesTheContainerAndKeepsTheVolume(t *testing.T) {
 	p, log := scriptedPodman(t,
 		inspectReturns(`{"Status":"running","Running":true}`, "{}")+
-			"if [ \"$1\" = rm ] || [ \"$1\" = run ]; then exit 0; fi\n")
+			"case \"$1\" in rm|create|rename|start) exit 0;; esac\n")
 	if _, err := p.Create(context.Background(), Spec{AgentID: "agt_1", Image: "img:2", Class: standardClass}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	all := calls(t, log)
-	rms, runs := callsStarting(all, "rm "), callsStarting(all, "run ")
-	if len(rms) != 1 || len(runs) != 1 {
-		t.Fatalf("calls = %v, want one rm and one run", all)
+	var order []string
+	for _, c := range all {
+		if verb, _, _ := strings.Cut(c, " "); verb != "inspect" {
+			order = append(order, c)
+		}
 	}
-	if strings.Contains(rms[0], "--volumes") || len(callsStarting(all, "volume ")) != 0 {
+	want := []string{
+		"rm --force --time 20 keera-agent-agt-1-next",
+		"create ",
+		"rm --force --time 20 keera-agent-agt-1",
+		"rename keera-agent-agt-1-next keera-agent-agt-1",
+		"start keera-agent-agt-1",
+	}
+	if len(order) != len(want) {
+		t.Fatalf("calls = %v, want %v", order, want)
+	}
+	for i := range want {
+		if !strings.HasPrefix(order[i], want[i]) || (want[i] != "create " && order[i] != want[i]) {
+			t.Errorf("call %d = %q, want %q", i, order[i], want[i])
+		}
+	}
+	if strings.Contains(strings.Join(all, "\n"), "--volumes") || len(callsStarting(all, "volume ")) != 0 {
 		t.Errorf("the volume must be kept: %v", all)
 	}
-	if !strings.Contains(runs[0], "--volume keera-agent-agt-1-workspace:/workspace") {
-		t.Errorf("the new container does not mount the old volume: %s", runs[0])
+	if !strings.Contains(order[1], "--volume keera-agent-agt-1-workspace:/workspace") {
+		t.Errorf("the new container does not mount the old volume: %s", order[1])
+	}
+}
+
+// A start that fails leaves the old container running with the old token.
+func TestPodmanCreateThatFailsKeepsTheOldContainer(t *testing.T) {
+	p, log := scriptedPodman(t,
+		"if [ \"$1\" = rm ]; then exit 0; fi\n"+
+			"if [ \"$1\" = create ]; then echo 'Error: image not known' >&2; exit 125; fi\n")
+	if _, err := p.Create(context.Background(), Spec{AgentID: "agt_1", Image: "img:bad", Class: standardClass}); err == nil {
+		t.Fatal("create succeeded")
+	}
+	for _, c := range calls(t, log) {
+		if c == "rm --force --time 20 keera-agent-agt-1" {
+			t.Errorf("the old container was removed: %v", calls(t, log))
+		}
 	}
 }
 
@@ -208,19 +244,19 @@ func TestPodmanSuspendAMissingAgent(t *testing.T) {
 func TestPodmanPublishesAWorkspacesFrontOnTheLoopback(t *testing.T) {
 	p := &Podman{}
 	spec := testSpec()
-	args, _ := p.runArgs(spec, "")
+	args, _ := p.createArgs(spec, "", containerName(spec.AgentID))
 	if slices.Contains(args, "--publish") {
 		t.Errorf("an agent takes no connections, so it publishes nothing: %v", args)
 	}
 	spec.Workspace = true
-	args, _ = p.runArgs(spec, "")
+	args, _ = p.createArgs(spec, "", containerName(spec.AgentID))
 	if line := strings.Join(args, " "); !strings.Contains(line, "--publish 127.0.0.1::7420") {
 		t.Errorf("a workspace's front is not published on the loopback: %s", line)
 	}
 	// On a network of its own, keera-agents is in a container there and
 	// reaches the workspace by name.
 	p.opts.Network = "keera"
-	args, _ = p.runArgs(spec, "")
+	args, _ = p.createArgs(spec, "", containerName(spec.AgentID))
 	if slices.Contains(args, "--publish") {
 		t.Errorf("a workspace on a podman network publishes a port: %v", args)
 	}
