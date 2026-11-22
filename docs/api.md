@@ -88,7 +88,7 @@ default robot. A name the panel does not know shows the default.
 - `GET /api/v1/agents` → `{data:[Agent]}`
 - `POST /api/v1/agents` body: `{name,icon,description,instructions,model,builtins,max_steps,access,allowed_emails,budget_micros,class,image,project_id,owner_id}` → 201 Agent
   (name: 1–60 chars; unique in the org, case-insensitive; max_steps: 0, for no limit, to 10000;
-  owner_id: administrators only, an active member; the caller by default)
+  access: "owner" by default; owner_id: administrators only, an active member; the caller by default)
 - `GET /api/v1/agents/{id}` → Agent + `{bindings:[Binding], schedules:[Schedule], stats:{last_task_at}}`
 - `GET /api/v1/agents/{id}/activity?since=168h` → `{tasks:{queued,running,succeeded,failed}, series:[{at,tasks,failed}], bucket:"hour"|"day"}` (the overview's counts and chart, for one agent)
 - `PATCH /api/v1/agents/{id}` (any subset of the POST fields, but not another owner_id: see take-over) → Agent

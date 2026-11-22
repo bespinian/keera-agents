@@ -373,7 +373,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	a := store.Agent{
 		ID: id.New("agt"), OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email,
-		Access: store.AccessOrg, Enabled: true,
+		Access: store.AccessOwner, Enabled: true,
 		Builtins: []string{protocol.BuiltinMemory, protocol.BuiltinFiles},
 	}
 	if in.OwnerID != nil && *in.OwnerID != "" && *in.OwnerID != p.UserID {

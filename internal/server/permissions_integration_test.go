@@ -111,7 +111,7 @@ func seed(t *testing.T, ta *testApp) fixture {
 		return out.ID
 	}
 	f.adaAgent = mk(ada, "/api/v1/agents", map[string]any{"name": "Scout", "model": "keera-speed", "access": "owner"})
-	f.bobAgent = mk(bob, "/api/v1/agents", map[string]any{"name": "Helper", "model": "keera-speed"})
+	f.bobAgent = mk(bob, "/api/v1/agents", map[string]any{"name": "Helper", "model": "keera-speed", "access": "org"})
 	f.adaWorkspace = mk(ada, "/api/v1/workspaces", map[string]any{"name": "dev", "experience": "terminal"})
 	f.bobWorkspace = mk(bob, "/api/v1/workspaces", map[string]any{"name": "lab", "experience": "vscode"})
 	f.conn = mk(ada, "/api/v1/connections", map[string]any{
@@ -471,6 +471,18 @@ func TestPermissions(t *testing.T) {
 }
 
 // The owner and administrators can do what the table refuses others.
+// The API's default is the panel's: only the owner gives a new agent work.
+func TestANewAgentServesOnlyItsOwner(t *testing.T) {
+	ta := startApp(t)
+	var out struct {
+		Access string `json:"access"`
+	}
+	must(t, ta.as(t, "tok-ada"), "POST", "/api/v1/agents", map[string]any{"name": "Quiet", "model": "keera-speed"}, http.StatusCreated, &out)
+	if out.Access != "owner" {
+		t.Fatalf("access = %q, want owner", out.Access)
+	}
+}
+
 func TestOwnersAndAdmins(t *testing.T) {
 	ta := startApp(t)
 	f := seed(t, ta)
