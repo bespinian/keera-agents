@@ -700,6 +700,28 @@ func TestToolsRunThroughDispatchForTheAgentsOrganisation(t *testing.T) {
 	}
 }
 
+// A tool may outlast the server's write timeout. Its answer must still
+// reach the runtime, or the model might do the work again.
+func TestAToolAnswersPastTheWriteTimeout(t *testing.T) {
+	tr := openTest(t)
+	a, token := tr.agent(t, "org_a", "scout", store.KindAgent, true)
+	task := tr.task(t, a, "now")
+	if _, code := tr.claim(t, token); code != http.StatusOK {
+		t.Fatalf("claim = %d", code)
+	}
+	// Every answer is late on this server.
+	srv := httptest.NewUnstartedServer(tr.rn.Handler())
+	srv.Config.WriteTimeout = time.Nanosecond
+	srv.Start()
+	t.Cleanup(srv.Close)
+	late := *tr
+	late.url = srv.URL
+	var res protocol.ToolResult
+	if code := late.do(t, "POST", taskPath(task.ID, "/tools/board_list_cards"), token, map[string]any{}, &res); code != http.StatusOK {
+		t.Errorf("a tool past the write timeout = %d, want 200", code)
+	}
+}
+
 func TestOnlyAWorkspaceCallsToolsWithoutATask(t *testing.T) {
 	tr := openTest(t)
 	_, agentToken := tr.agent(t, "org_a", "scout", store.KindAgent, true)

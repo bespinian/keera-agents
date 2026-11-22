@@ -209,7 +209,7 @@ func (c Cron) Next(t time.Time, loc *time.Location) (time.Time, error) {
 			continue
 		}
 		if !has(c.hour, t.Hour()) {
-			next := time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, loc)
+			next := first(time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, loc))
 			if !next.After(t) {
 				// A repeated hour at the end of daylight saving.
 				next = t.Add(time.Hour).Truncate(time.Hour)
@@ -265,6 +265,18 @@ func repeated(t time.Time) bool {
 	return uy == ty && um == tm && ud == td && u.Hour() == t.Hour() && u.Minute() == t.Minute()
 }
 
+// first is the first time t's wall clock came, where the clocks went back.
+// time.Date may give the second, as it does east of UTC; Next would then
+// pass the first and skip the second as repeated, and miss the run.
+func first(t time.Time) time.Time {
+	if !repeated(t) {
+		return t
+	}
+	_, now := t.Zone()
+	_, before := t.Add(-3 * time.Hour).Zone()
+	return t.Add(-time.Duration(before-now) * time.Second)
+}
+
 // dayStart is the first moment of a day in loc. Where daylight saving skips
 // midnight, time.Date may return the evening before, which would keep Next
 // on the same day forever. The day then starts when the clocks change: at
@@ -274,7 +286,7 @@ func dayStart(year int, month time.Month, day int, loc *time.Location) time.Time
 	// Normalised, as 32 March is 1 April.
 	y, m, d := time.Date(year, month, day, 12, 0, 0, 0, time.UTC).Date()
 	if ty, tm, td := t.Date(); ty == y && tm == m && td == d {
-		return t
+		return first(t)
 	}
 	_, offset := t.Zone()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.FixedZone("", offset)).In(loc)

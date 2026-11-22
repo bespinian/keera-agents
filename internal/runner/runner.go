@@ -423,6 +423,10 @@ func (rn *Runner) callTool(w http.ResponseWriter, r *http.Request, a store.Agent
 		writeError(w, http.StatusRequestEntityTooLarge, "invalid_request", "the arguments are too large")
 		return
 	}
+	// A tool may take longer than the server allows other requests, and the
+	// runtime waits up to 5 minutes. Cut off, the tool's work would be done
+	// but its answer lost, and the model might do it again.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	res := rn.disp.CallTool(r.Context(), a, t, r.PathValue("name"), args)
 	_ = rn.st.TouchAgent(r.Context(), a.ID)
 	writeJSON(w, http.StatusOK, res)

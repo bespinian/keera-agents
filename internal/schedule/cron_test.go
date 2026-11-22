@@ -96,6 +96,25 @@ func TestNextRepeatedHour(t *testing.T) {
 		{"Europe/Zurich", "15,45 2 * * *", time.Date(2026, 10, 25, 0, 20, 0, 0, time.UTC), []string{
 			"2026-10-25T02:45:00+02:00", "2026-10-26T02:15:00+01:00",
 		}},
+		// From before the repeated hour, as after the previous day's run.
+		{"Europe/Zurich", "30 2 * * *", time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC), []string{
+			"2026-10-25T02:30:00+02:00", "2026-10-26T02:30:00+01:00",
+		}},
+		{"Europe/Zurich", "30 2 * * 0", time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC), []string{
+			"2026-10-25T02:30:00+02:00", "2026-11-01T02:30:00+01:00",
+		}},
+		{"Europe/Zurich", "0 */2 * * *", time.Date(2026, 10, 24, 23, 30, 0, 0, time.UTC), []string{
+			"2026-10-25T02:00:00+02:00", "2026-10-25T04:00:00+01:00",
+		}},
+		{"Europe/London", "30 1 * * *", time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC), []string{
+			"2026-10-25T01:30:00+01:00", "2026-10-26T01:30:00Z",
+		}},
+		{"Australia/Sydney", "30 2 * * *", time.Date(2026, 4, 4, 0, 0, 0, 0, time.UTC), []string{
+			"2026-04-05T02:30:00+11:00", "2026-04-06T02:30:00+10:00",
+		}},
+		{"America/New_York", "30 1 * * *", time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC), []string{
+			"2026-11-01T01:30:00-04:00", "2026-11-02T01:30:00-05:00",
+		}},
 	} {
 		loc := mustLoc(t, tc.zone)
 		c, err := Parse(tc.expr)
