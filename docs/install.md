@@ -34,9 +34,8 @@ Every setting is an environment variable.
 | `KEERA_AGENTS_DATABASE_URL` | Postgres, such as `postgres://keera:…@db:5432/keera_agents`                   |
 | `KEERA_AGENTS_SECRET_KEY`   | Seals cookies, agents' keys and connector credentials: `openssl rand -hex 32` |
 
-**Back up `KEERA_AGENTS_SECRET_KEY` with the database.** Without it, every
-stored connector credential and agent key is unreadable: connectors must be
-entered again, and agents get new keys at their next start.
+**Back up `KEERA_AGENTS_SECRET_KEY` with the database.** Without it, what
+it sealed is lost ([Backups](#backups)).
 
 ### Where agents run
 
@@ -277,11 +276,11 @@ agent image on, too. `make sbom` writes the SBOMs of locally built images to
 
 Three things hold state. Back up all three, on the same schedule.
 
-| What                      | Holds                                              | Without it                                             |
-| ------------------------- | -------------------------------------------------- | ------------------------------------------------------ |
-| The database              | agents, connectors, tasks, schedules, the board    | everything is gone                                     |
-| `KEERA_AGENTS_SECRET_KEY` | the key the database's credentials are sealed with | connectors must be entered again, people sign in again |
-| Agents' workspaces        | `MEMORY.md`, chat histories, files and clones      | agents forget, and unpushed work is lost               |
+| What                      | Holds                                              | Without it                                                                                                  |
+| ------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| The database              | agents, connectors, tasks, schedules, the board    | everything is gone                                                                                          |
+| `KEERA_AGENTS_SECRET_KEY` | the key the database's credentials are sealed with | connectors must be entered again, and each person's own sign-ins; people sign in again; agents get new keys |
+| Agents' workspaces        | `MEMORY.md`, chat histories, files and clones      | agents forget, and unpushed work is lost                                                                    |
 
 Back up the database with `pg_dump`, and keep the secret key apart from it,
 in your secret store. A workspace is a volume per agent: on Kubernetes, the

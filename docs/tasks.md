@@ -61,8 +61,8 @@ cancels the task. An agent's page in the panel has a **Chat** button that
 starts a chat with it in Keera Chat.
 
 The agent keeps the chat's history in its workspace, one per person and chat,
-as for any other chat. So Keera Chat sends only the new message. Agents take
-text only: no images or files.
+so Keera Chat sends only the new message. Agents take text only: no images or
+files.
 
 ## Schedules
 

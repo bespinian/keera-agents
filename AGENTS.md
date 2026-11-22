@@ -48,6 +48,7 @@ make build             # the binary, to build/
 make check             # test + vet + fmt-check, and check-js when node is there
 make test-integration  # tests that need Postgres, against a throwaway one
 make check-all         # check + test-integration
+make fmt               # format with golangci-lint fmt
 make lint              # golangci-lint
 make dev               # Postgres in a container, keera-agents under air, podman driver
 make image             # the control plane's image

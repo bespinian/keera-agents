@@ -55,7 +55,7 @@ cookies are only kept there.
 
 ```sh
 make check             # unit tests, vet, formatting, the panel's JavaScript
-make test-integration  # store, PostgreSQL connector and end-to-end tests, against a throwaway Postgres
+make test-integration  # the tests that need Postgres, against a throwaway one
 ```
 
 The end-to-end test in `internal/server` runs the control plane with a

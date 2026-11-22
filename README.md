@@ -52,7 +52,8 @@ StatefulSet each.
   it connected.
 - **Schedules** in cron syntax, in a time zone, post their result to a chat.
 - **The board** has five columns. A card in To do assigned to an agent is
-  picked up, worked on, commented on and moved to Review.
+  picked up, worked on, commented on and moved to Review, or back to Backlog
+  if it failed.
 - **Folders.** A new or changed file in a watched Drive or OneDrive folder
   becomes a task.
   Agents read and write files only in the folders they are connected to.
@@ -61,8 +62,8 @@ StatefulSet each.
   pull or merge requests. It cannot push to any other branch.
 - **Services.** An agent connected to a service, such as a Jira project or an
   AWS region, gets tools for it, such as searching issues or reading costs.
-  A connection may only read, or also write, and the tools stay within what it
-  names ([docs/connectors.md](docs/connectors.md#services)).
+  A binding, an agent's link to a service, may only read or also write, and
+  its tools stay within what it names ([docs/connectors.md](docs/connectors.md#services)).
 - **Credentials stay out of agents.** The control plane makes the calls that
   need them ([docs/agents.md](docs/agents.md#what-an-agent-holds)).
 - **Workspaces.** An engineer gets a machine of their own with a coding
@@ -79,8 +80,8 @@ open <http://localhost:8070>. [docs/install.md](docs/install.md) has every
 setting.
 
 A new organisation sees **Getting started** in place of the dashboard: connect
-your services, create an agent and give it a first task. It stays until the
-organisation's first task ([docs/api.md](docs/api.md#overview)).
+your services, create an agent and give it a first task
+([docs/api.md](docs/api.md#overview)).
 
 ## Docs
 

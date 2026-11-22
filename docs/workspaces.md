@@ -130,7 +130,7 @@ add their own credentials in the workspace.
 ## Lifecycle
 
 A workspace's states are an agent's ([agents.md](agents.md#lifecycle)). It
-differs in three ways:
+differs in two ways:
 
 - **Nothing but a connection wakes it.** A connect to a suspended workspace
   resumes it and waits up to three minutes for it to be up.
@@ -138,8 +138,8 @@ differs in three ways:
   keera-agents notes it every minute. After
   `KEERA_AGENTS_WORKSPACE_IDLE_SUSPEND` (`2h`) without one, the workspace is
   suspended. Its files stay. Programs that were running stop.
-- **When its owner leaves**, it is stopped and its key revoked, as an agent
-  is.
+
+When its owner leaves, it is stopped and its key revoked, as an agent is.
 
 ## The image
 

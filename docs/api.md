@@ -46,8 +46,8 @@ builtins:["memory","files","shell","web"], timezone_default:"Europe/Zurich",
 billing:true (only when machines are billed), credit_refusal:{code,message} (only when no machine may start)}`
 - `POST /api/v1/me/org {org_id}` → switches organisation; reload after.
 - `GET /api/v1/catalog?project_id=` → `{project_id, projects:[{id,name}], models:[{alias,kind:"model"|"router"}], mcp_servers:[{alias}]}`
-- `GET /api/v1/members` → `{data:[{id,email,name}]}` (administrators: the organisation's active members, whom they may create an agent or a workspace for)
   What an agent in that project may use. `projects` is only filled for admins (members get the default project).
+- `GET /api/v1/members` → `{data:[{id,email,name}]}` (administrators: the organisation's active members, whom they may create an agent or a workspace for)
 
 ## Overview
 

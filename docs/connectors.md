@@ -210,8 +210,9 @@ service's tools in the connector's form.
 **A binding names what it reaches**: a Jira project, a calendar, a
 Kubernetes namespace, an AWS region. Every tool stays within it: a search is
 narrowed to it, and an issue, event or resource outside it is refused. Where
-the table says so, `*` reaches everything the connector does. HubSpot and
-Salesforce name nothing: their own user and app permissions are the limit.
+a service's section says so, `*` reaches everything the connector does.
+HubSpot, Salesforce and PostgreSQL name nothing: the service's own
+permissions are the limit.
 
 **A binding may only read, or read and write.** One that only reads never
 gets the tools that change something, and is refused them. Give the
@@ -554,9 +555,9 @@ Outlook Mail gives agents these tools:
   text or unread only.
 - `outlook_list_folders`: list the mail folders, with their ids.
 - `outlook_read_message`: read a message as text, with its attachments' names.
-- `outlook_send_message`: send a new email, as plain text. Needs write.
-- `outlook_reply`: reply, or reply to all. Needs write.
-- `outlook_move_message`: move a message to another folder. Needs write.
+- `outlook_send_message` (write): send a new email, as plain text.
+- `outlook_reply` (write): reply, or reply to all.
+- `outlook_move_message` (write): move a message to another folder.
 
 Outlook Calendar gives agents these tools:
 
@@ -564,12 +565,12 @@ Outlook Calendar gives agents these tools:
 - `outlookcalendar_get_event`: read an event, with its description and
   attendees' answers.
 - `outlookcalendar_free_busy`: when the calendar is busy, without details.
-- `outlookcalendar_create_event`: create an event, with invitations and a
-  Teams meeting if asked. Needs write.
-- `outlookcalendar_update_event`: change only the fields given. Attendees get
-  the update. Needs write.
-- `outlookcalendar_delete_event`: delete an event. If the mailbox organised
-  it, attendees get a cancellation. Needs write.
+- `outlookcalendar_create_event` (write): create an event, with invitations and a
+  Teams meeting if asked.
+- `outlookcalendar_update_event` (write): change only the fields given. Attendees get
+  the update.
+- `outlookcalendar_delete_event` (write): delete an event. If the mailbox organised
+  it, attendees get a cancellation.
 
 Times are local times in a time zone the agent names, such as
 `Europe/Zurich`, or RFC 3339. A range is at most 93 days.
@@ -602,13 +603,13 @@ Agents get these tools:
   An HTML-only message is turned into text.
 - `gmail_read_thread`: read a conversation, each message cut short.
 - `gmail_list_labels`: list the labels, the system ones and the mailbox's own.
-- `gmail_send_message`: send a new email, as plain text. Needs write.
-- `gmail_reply`: reply, or reply to all, in the thread, above the quoted
-  original. Needs write.
-- `gmail_create_draft`: save a draft for a person to check and send, or a
-  draft reply. Needs write.
-- `gmail_change_labels`: add or remove labels: archive by removing `INBOX`,
-  mark read by removing `UNREAD`. Needs write.
+- `gmail_send_message` (write): send a new email, as plain text.
+- `gmail_reply` (write): reply, or reply to all, in the thread, above the quoted
+  original.
+- `gmail_create_draft` (write): save a draft for a person to check and send, or a
+  draft reply.
+- `gmail_change_labels` (write): add or remove labels: archive by removing `INBOX`,
+  mark read by removing `UNREAD`.
 
 ## HubSpot
 
@@ -629,9 +630,9 @@ Agents get these tools, on contacts, companies, deals and tickets:
 - `hubspot_search`: find records by text and exact property values.
 - `hubspot_get`: read one record, with the ids of the records it is
   associated with.
-- `hubspot_create`: create a record. Needs write.
-- `hubspot_update`: change a record's properties. Needs write.
-- `hubspot_add_note`: add a note to a record's timeline. Needs write.
+- `hubspot_create` (write): create a record.
+- `hubspot_update` (write): change a record's properties.
+- `hubspot_add_note` (write): add a note to a record's timeline.
 - `hubspot_list_owners`: list the users records can be assigned to.
 
 A HubSpot connector has nothing to narrow to: a binding reaches the whole CRM,
@@ -653,7 +654,7 @@ Settings: `domain_url`, `client_id`, `client_secret`.
    as `https://acme.my.salesforce.com`, into the connector.
 
 keera-agents signs in at the My Domain URL with the client credentials flow
-and keeps the token until Salesforce refuses it. The API is called on the
+and keeps the token for up to 15 minutes, or until Salesforce refuses it. The API is called on the
 instance Salesforce names only if it is the My Domain server or another
 `*.salesforce.com` or `*.force.com` server, so a forged answer cannot send the
 token elsewhere.
@@ -666,8 +667,8 @@ Agents get these tools:
 - `salesforce_get`: read one record.
 - `salesforce_describe`: list an object's fields, their types and picklist
   values.
-- `salesforce_create`: create a record. Needs write.
-- `salesforce_update`: change a record's fields. Needs write.
+- `salesforce_create` (write): create a record.
+- `salesforce_update` (write): change a record's fields.
 
 A Salesforce connector has nothing to narrow to: a binding reaches whatever
 the run-as user may, so that user's permission set is the limit.
@@ -741,8 +742,8 @@ Agents get these tools:
   and its keys and checks.
 - `postgres_query`: run one read-only statement, up to 1,000 rows, 100 by
   default.
-- `postgres_execute`: run one statement that changes data and commit it, with
-  the rows it changed and those of a `RETURNING` clause. Needs write.
+- `postgres_execute` (write): run one statement that changes data and commit it, with
+  the rows it changed and those of a `RETURNING` clause.
 
 ## Kubernetes
 
@@ -818,12 +819,12 @@ binding that may write gets them.
 - `aws_whoami`: the account and the ARN the agent acts as.
 - `aws_ec2_instances`: instances, by id or EC2 filters such as `tag:Name`:
   name, state, type, zone, IP addresses, launch time.
-- `aws_ec2_start`, `aws_ec2_stop`, `aws_ec2_reboot` (_write_): by instance id.
+- `aws_ec2_start`, `aws_ec2_stop`, `aws_ec2_reboot` (write): by instance id.
 - `aws_s3_buckets`: the buckets in the region.
 - `aws_s3_list`: a bucket's objects, one folder at a time or all under a
   prefix.
 - `aws_s3_read`: a text object, 48 KiB at a time.
-- `aws_s3_write` (_write_): a text object up to 4 MiB.
+- `aws_s3_write` (write): a text object up to 4 MiB.
 - `aws_cloudwatch_alarms`: metric alarms, by state or name: state, reason,
   metric, when the state changed.
 - `aws_cloudwatch_metrics`: one metric's statistic over time, such as an
@@ -868,9 +869,9 @@ Agents get these tools:
   CPU; without names, the metrics it has.
 - `azure_costs`: actual costs for a date range, by default this month, in
   total, by resource group or by service, and per day if asked.
-- `azure_vm_start`, `azure_vm_stop`, `azure_vm_restart`: start, stop or
+- `azure_vm_start`, `azure_vm_stop`, `azure_vm_restart` (write): start, stop or
   restart a virtual machine. Stopping deallocates it, so its compute stops
-  costing. Azure does it in the background. Need write.
+  costing. Azure does it in the background.
 
 **A binding names one subscription.** Every resource id an agent passes must
 be in it, or the call is refused. There is no `*`. Azure's roles limit the
