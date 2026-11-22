@@ -18,6 +18,14 @@ const (
 
 var CardStatuses = []string{CardBacklog, CardTodo, CardInProgress, CardReview, CardDone}
 
+// What a card holds, the same whether a person or an agent writes it: cards
+// and comments go into other agents' prompts.
+const (
+	MaxCardTitle = 300
+	MaxCardBody  = 64 << 10
+	MaxComment   = 16 << 10
+)
+
 type Board struct {
 	ID        string    `json:"id"`
 	OrgID     string    `json:"-"`

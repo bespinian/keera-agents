@@ -122,13 +122,13 @@ type cardInput struct {
 func (s *Server) applyCard(ctx context.Context, p Principal, c *store.Card, in cardInput) error {
 	before := *c
 	if in.Title != nil {
-		c.Title = trim(*in.Title, 300)
+		c.Title = trim(*in.Title, store.MaxCardTitle)
 	}
 	if c.Title == "" {
 		return errors.New("give the card a title")
 	}
 	if in.Body != nil {
-		if len(*in.Body) > 64<<10 {
+		if len(*in.Body) > store.MaxCardBody {
 			return errors.New("the description is longer than 64 KiB")
 		}
 		c.Body = *in.Body
@@ -291,7 +291,7 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal)
 	if !readJSON(w, r, &in) {
 		return
 	}
-	if in.Body = strings.TrimSpace(in.Body); in.Body == "" || len(in.Body) > 16<<10 {
+	if in.Body = strings.TrimSpace(in.Body); in.Body == "" || len(in.Body) > store.MaxComment {
 		badRequest(w, "a comment is 1 character to 16 KiB")
 		return
 	}

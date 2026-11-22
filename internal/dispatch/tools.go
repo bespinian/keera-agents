@@ -476,6 +476,9 @@ func (d *Dispatcher) toolCreateCard(ctx context.Context, a store.Agent, t store.
 	if title == "" {
 		return nil, errors.New("a card needs a title")
 	}
+	if err := checkCard(title, value(in.Body)); err != nil {
+		return nil, err
+	}
 	status := cmp.Or(in.Status, store.CardBacklog)
 	if !slices.Contains(store.CardStatuses, status) {
 		return nil, fmt.Errorf("unknown status %q", status)
@@ -504,6 +507,17 @@ func (d *Dispatcher) toolCreateCard(ctx context.Context, a store.Agent, t store.
 	return viewCard(c), nil
 }
 
+// checkCard holds a card to the limits the panel has.
+func checkCard(title, body string) error {
+	if len(title) > store.MaxCardTitle {
+		return fmt.Errorf("the title is longer than %d bytes", store.MaxCardTitle)
+	}
+	if len(body) > store.MaxCardBody {
+		return fmt.Errorf("the description is longer than %d KiB", store.MaxCardBody>>10)
+	}
+	return nil
+}
+
 func (d *Dispatcher) orgCard(ctx context.Context, a store.Agent, cardID string) (store.Card, error) {
 	c, err := d.st.Card(ctx, cardID)
 	if err != nil || c.OrgID != a.OrgID {
@@ -523,6 +537,10 @@ func (d *Dispatcher) toolUpdateCard(ctx context.Context, a store.Agent, t store.
 	}
 	if in.Body != nil {
 		c.Body = *in.Body
+	}
+	// Only what is given: a card from before the limits can still move.
+	if err := checkCard(value(in.Title), value(in.Body)); err != nil {
+		return nil, err
 	}
 	if s := in.Status; s != "" && !slices.Contains(store.CardStatuses, s) {
 		return nil, fmt.Errorf("unknown status %q", s)
@@ -563,6 +581,9 @@ func (d *Dispatcher) toolComment(ctx context.Context, a store.Agent, t store.Tas
 	body := value(in.Body)
 	if body == "" {
 		return nil, errors.New("the comment is empty")
+	}
+	if len(body) > store.MaxComment {
+		return nil, fmt.Errorf("the comment is longer than %d KiB", store.MaxComment>>10)
 	}
 	c, err := d.orgCard(ctx, a, in.CardID)
 	if err != nil {

@@ -256,6 +256,11 @@ func TestBoardToolsStayInTheOrganisation(t *testing.T) {
 	e.call(t, scout, task, "board_create_card", `{"title":"Theirs","agent":"Spy"}`, `no agent called "Spy"`)
 	e.call(t, scout, task, "board_create_card", `{"title":"  "}`, "needs a title")
 	e.call(t, scout, task, "board_create_card", `{"title":"x","status":"later"}`, "unknown status")
+	long := func(field string, n int) string {
+		return fmt.Sprintf(`{"title":"x",%q:%q}`, field, strings.Repeat("a", n))
+	}
+	e.call(t, scout, task, "board_create_card", long("title", store.MaxCardTitle+1), "title is longer")
+	e.call(t, scout, task, "board_create_card", long("body", store.MaxCardBody+1), "description is longer")
 	e.call(t, scout, task, "board_list_cards", `{"status":"later"}`, "unknown status")
 
 	var listed []cardView
@@ -273,6 +278,10 @@ func TestBoardToolsStayInTheOrganisation(t *testing.T) {
 	}
 	e.call(t, scout, task, "board_comment", fmt.Sprintf(`{"card_id":%q,"body":" "}`, listed[0].ID), "empty")
 	e.call(t, scout, task, "board_comment", fmt.Sprintf(`{"card_id":%q,"body":"noted"}`, listed[0].ID), "ok")
+	e.call(t, scout, task, "board_comment", fmt.Sprintf(`{"card_id":%q,"body":%q}`, listed[0].ID,
+		strings.Repeat("a", store.MaxComment+1)), "longer than")
+	e.call(t, scout, task, "board_update_card", fmt.Sprintf(`{"card_id":%q,"body":%q}`, listed[0].ID,
+		strings.Repeat("a", store.MaxCardBody+1)), "description is longer")
 }
 
 func TestBoardToolsApplyTheOtherAgentsAccess(t *testing.T) {
