@@ -421,13 +421,14 @@ func (s *Server) newOwner(w http.ResponseWriter, r *http.Request, p Principal, u
 }
 
 // rekeyIfChanged gives a changed agent or workspace a new key when its
-// project or budget changed, as the key carries both.
-func (s *Server) rekeyIfChanged(ctx context.Context, before, after store.Agent) {
-	if after.GatewayKeyID == "" || (before.ProjectID == after.ProjectID && before.BudgetMicros == after.BudgetMicros) {
+// project or budget changed, as the key carries both. If that fails, the
+// background rounds try again.
+func (s *Server) rekeyIfChanged(ctx context.Context, a store.Agent) {
+	if !a.KeyStale() {
 		return
 	}
-	if err := s.fleet.Rekey(ctx, after); err != nil {
-		s.log.Warn("could not replace a key", after.Kind, after.ID, "error", err)
+	if err := s.fleet.Rekey(ctx, a); err != nil {
+		s.log.Warn("could not replace a key; trying again later", a.Kind, a.ID, "error", err)
 	}
 }
 
@@ -470,7 +471,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	s.record(r.Context(), p, "agent.update", out.ID, map[string]any{"name": out.Name})
 	// Instructions and the model reach the runtime at its next task.
-	s.rekeyIfChanged(r.Context(), before, out)
+	s.rekeyIfChanged(r.Context(), out)
 	if out.Enabled && (before.Image != out.Image || before.Class != out.Class) {
 		s.startLater(out)
 	}

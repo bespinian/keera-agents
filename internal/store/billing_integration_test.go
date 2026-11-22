@@ -37,6 +37,25 @@ func TestAgentUsage(t *testing.T) {
 	}
 }
 
+// Rounds rarely come on the whole second; what is left over counts later.
+func TestMeterKeepsPartsOfASecond(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	newAgent(t, st, "org_a", "Scout")
+	ten := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
+	var total int64
+	for i, at := range []time.Duration{0, 59600 * time.Millisecond, 119200 * time.Millisecond, 180 * time.Second} {
+		got, err := st.Meter(ctx, ten.Add(at), 15*time.Minute, perSecond)
+		if err != nil {
+			t.Fatalf("round %d: %v", i, err)
+		}
+		total += got
+	}
+	if total != 180 {
+		t.Errorf("metered %d seconds in 3 minutes", total)
+	}
+}
+
 func TestMeterCountsEachSecondOnceIntoItsHour(t *testing.T) {
 	st := openTest(t)
 	ctx := context.Background()

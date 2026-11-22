@@ -131,7 +131,7 @@ func (p Prices) Cost(u store.MachineUse) int64 {
 // Hour is what an hour of a's machine running costs at its size now: CPU,
 // memory and its share of the disk. a need not be running.
 func (p Prices) Hour(a store.Agent) int64 {
-	a.State = store.AgentRunning
+	a.State, a.HasDisk = store.AgentRunning, true
 	return p.Cost(measure(a, secondsPerHour))
 }
 
@@ -148,7 +148,10 @@ func scale(q, m, d int64) int64 {
 // a pod waiting for a node, is not charged for CPU and memory.
 func measure(a store.Agent, seconds int64) store.MachineUse {
 	cpu, mem, disk := a.Class.Size()
-	u := store.MachineUse{DiskMiBSeconds: disk * seconds}
+	var u store.MachineUse
+	if a.HasDisk {
+		u.DiskMiBSeconds = disk * seconds
+	}
 	if a.State == store.AgentRunning {
 		u.CPUMilliSeconds, u.MemoryMiBSeconds = cpu*seconds, mem*seconds
 	}

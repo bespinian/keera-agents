@@ -608,31 +608,53 @@ func (d *Dispatcher) toolComment(ctx context.Context, a store.Agent, t store.Tas
 // so it can open those and nothing else the connection could reach. It is
 // per replica; a task whose calls land on another replica lists again.
 type grants struct {
-	mu  sync.Mutex
-	ids map[string]time.Time // task|binding|id -> when granted
+	mu     sync.Mutex
+	tasks  map[string]*taskGrants
+	pruned time.Time
 }
 
-func newGrants() *grants { return &grants{ids: map[string]time.Time{}} }
+// taskGrants are one task's grants, and when it was last given one.
+type taskGrants struct {
+	last time.Time
+	ids  map[string]struct{} // binding|id
+}
+
+func newGrants() *grants { return &grants{tasks: map[string]*taskGrants{}} }
+
+// pruneEvery is how often grants of tasks quiet for a day are forgotten.
+// Tasks end within hours. Not on every add: a busy replica would scan
+// every grant for every file listed.
+const pruneEvery = time.Hour
 
 func (g *grants) add(taskID, bindingID, id string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	now := time.Now()
-	g.ids[taskID+"|"+bindingID+"|"+id] = now
-	// Tasks end within hours; forget older grants.
-	if len(g.ids) > 10000 {
-		for k, at := range g.ids {
-			if now.Sub(at) > 24*time.Hour {
-				delete(g.ids, k)
+	if now.Sub(g.pruned) > pruneEvery {
+		for k, t := range g.tasks {
+			if now.Sub(t.last) > 24*time.Hour {
+				delete(g.tasks, k)
 			}
 		}
+		g.pruned = now
 	}
+	t := g.tasks[taskID]
+	if t == nil {
+		t = &taskGrants{ids: map[string]struct{}{}}
+		g.tasks[taskID] = t
+	}
+	t.last = now
+	t.ids[bindingID+"|"+id] = struct{}{}
 }
 
 func (g *grants) has(taskID, bindingID, id string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	_, ok := g.ids[taskID+"|"+bindingID+"|"+id]
+	t := g.tasks[taskID]
+	if t == nil {
+		return false
+	}
+	_, ok := t.ids[bindingID+"|"+id]
 	return ok
 }
 

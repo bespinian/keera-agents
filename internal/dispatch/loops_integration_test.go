@@ -350,6 +350,7 @@ func TestACardCommentThatFailsIsTriedAgain(t *testing.T) {
 	}
 
 	e.exec(t, `DROP TRIGGER no_comments ON card_comments`)
+	e.due(t, task.ID)
 	e.d.Deliver(e.ctx)
 	e.d.Deliver(e.ctx)
 	got, _ = e.st.Task(e.ctx, task.ID)
@@ -360,6 +361,12 @@ func TestACardCommentThatFailsIsTriedAgain(t *testing.T) {
 	if card, _ := e.st.Card(e.ctx, c.ID); card.Status != store.CardReview {
 		t.Fatalf("card in %s after the retry", card.Status)
 	}
+}
+
+// due makes a result handed back after a failed send due to be tried now.
+func (e *testEnv) due(t *testing.T, taskID string) {
+	t.Helper()
+	e.exec(t, `UPDATE tasks SET deliver_after = now() WHERE id = '`+taskID+`'`)
 }
 
 // chatTask is a finished task from a message in sales, thread m1.
@@ -437,6 +444,12 @@ func TestAChatSendThatNeverLeftIsTriedAgain(t *testing.T) {
 		t.Fatal("a result that never left counts as delivered")
 	}
 	e.chat.failWith(nil)
+	// It waits a while first, so others go before it.
+	e.d.Deliver(e.ctx)
+	if got := e.chat.messages(); len(got) != 0 {
+		t.Fatalf("tried again at once: sent %q", got)
+	}
+	e.due(t, task.ID)
 	e.d.Deliver(e.ctx)
 	e.d.Deliver(e.ctx)
 	if got := e.chat.messages(); len(got) != 1 {

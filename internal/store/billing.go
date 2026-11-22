@@ -38,7 +38,8 @@ func (s *Store) Meter(ctx context.Context, now time.Time, maxGap time.Duration,
 		if err != nil {
 			return err
 		}
-		seconds = int64(min(now.Sub(from), maxGap) / time.Second)
+		gap := now.Sub(from)
+		seconds = int64(min(gap, maxGap) / time.Second)
 		if seconds <= 0 {
 			// Less than a second, or a clock behind the mark: leave the
 			// mark, so no time is lost or counted twice.
@@ -70,7 +71,14 @@ func (s *Store) Meter(ctx context.Context, now time.Time, maxGap time.Duration,
 					disk_mib_seconds = machine_usage.disk_mib_seconds + excluded.disk_mib_seconds`,
 				a.ID, a.OrgID, hour, u.CPUMilliSeconds, u.MemoryMiBSeconds, u.DiskMiBSeconds)
 		}
-		batch.Queue(`UPDATE metering SET metered_until = $1`, now)
+		// The mark moves by the whole seconds metered, so the part of a
+		// second left over counts next round. Past maxGap, the rest is
+		// dropped: nobody saw what ran.
+		until := from.Add(time.Duration(seconds) * time.Second)
+		if gap > maxGap {
+			until = now
+		}
+		batch.Queue(`UPDATE metering SET metered_until = $1`, until)
 		return tx.SendBatch(ctx, batch).Close()
 	})
 	if err != nil {

@@ -145,6 +145,10 @@ func TestOneTaskAtATime(t *testing.T) {
 	if err := st.UnmarkDelivered(ctx, first.ID); err != nil {
 		t.Fatal(err)
 	}
+	// It waits before it is listed again, so other results go first.
+	if undelivered, err := st.Undelivered(ctx); err != nil || len(undelivered) != 0 {
+		t.Fatalf("Undelivered right after handing back = %d, %v", len(undelivered), err)
+	}
 	if won, _ := st.MarkDelivered(ctx, first.ID); !won {
 		t.Fatal("a handed-back delivery was not claimed again")
 	}

@@ -94,6 +94,9 @@ func (d *Dispatcher) ForgetSignIns(ctx context.Context, connectionID string) (in
 	return n, err
 }
 
+// refreshTimeout bounds refreshing a person's token and storing the new one.
+const refreshTimeout = 30 * time.Second
+
 // asPerson gives a connection people sign in to the access token of the
 // person a call is for. who names them in errors. Any other connection is
 // returned as it is.
@@ -123,6 +126,11 @@ func (d *Dispatcher) asPerson(ctx context.Context, conn connectors.Connection, n
 		return conn, errors.New(again)
 	}
 	access, err := d.tokens.get(ctx, conn.ID, userID, string(refresh), func(ctx context.Context) (connectors.Grant, error) {
+		// A service that rotates refresh tokens has dropped the old one once
+		// it answers, so the new one must be stored even if the call that
+		// asked gives up meanwhile.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshTimeout)
+		defer cancel()
 		// Read again under a lock: another replica may have rotated the
 		// token since.
 		var g connectors.Grant

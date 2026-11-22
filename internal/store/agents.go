@@ -69,17 +69,41 @@ type Agent struct {
 	Enabled       bool          `json:"enabled"`
 	GatewayKeyID  string        `json:"-"`
 	// GatewayKey is sealed; only the runtime API opens it.
-	GatewayKey       []byte     `json:"-"`
+	GatewayKey []byte `json:"-"`
+	// Key is what the gateway key carries, as it was minted.
+	Key KeyFor `json:"-"`
+	// HasDisk says whether its machine exists, as Reconcile last saw. Only
+	// then is its disk billed.
+	HasDisk          bool       `json:"-"`
 	RuntimeTokenHash []byte     `json:"-"`
 	LastActiveAt     *time.Time `json:"last_active_at"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
+// KeyFor is what a gateway key carries: whose it is, its project and its
+// budget.
+type KeyFor struct {
+	OwnerID      string
+	ProjectID    string
+	BudgetMicros int64
+}
+
+// KeyFor is what a's key should carry now.
+func (a Agent) KeyFor() KeyFor {
+	return KeyFor{OwnerID: a.OwnerID, ProjectID: a.ProjectID, BudgetMicros: a.BudgetMicros}
+}
+
+// KeyStale reports whether a has a key minted for other settings, as when a
+// change could not reach the gateway.
+func (a Agent) KeyStale() bool {
+	return a.GatewayKeyID != "" && a.Key != a.KeyFor()
+}
+
 const agentColumns = `id, kind, experience, org_id, project_id, owner_id, owner_email, name, icon, description,
 	instructions, model, builtins, max_steps, access, allowed_emails, budget_micros, image,
 	class, state, state_detail, enabled, gateway_key_id, gateway_key, runtime_token_hash,
-	last_active_at, created_at, updated_at`
+	last_active_at, created_at, updated_at, key_owner_id, key_project_id, key_budget_micros, has_disk`
 
 func scanAgent(row pgx.Row) (Agent, error) {
 	var a Agent
@@ -88,7 +112,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&a.Description, &a.Instructions, &a.Model, &a.Builtins, &a.MaxSteps, &a.Access,
 		&a.AllowedEmails, &a.BudgetMicros, &a.Image, &class, &a.State, &a.StateDetail,
 		&a.Enabled, &a.GatewayKeyID, &a.GatewayKey, &a.RuntimeTokenHash, &a.LastActiveAt,
-		&a.CreatedAt, &a.UpdatedAt)
+		&a.CreatedAt, &a.UpdatedAt, &a.Key.OwnerID, &a.Key.ProjectID, &a.Key.BudgetMicros, &a.HasDisk)
 	if err != nil {
 		return a, notFound(err)
 	}
@@ -138,6 +162,14 @@ func (s *Store) UpdateAgent(ctx context.Context, a Agent) (Agent, error) {
 func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) (Agent, error) {
 	return scanAgent(s.pool.QueryRow(ctx, `UPDATE agents SET enabled = $2, updated_at = now()
 		WHERE id = $1 AND deleted_at IS NULL RETURNING `+agentColumns, id, enabled))
+}
+
+// DisableIfOwner stops an agent, but only while ownerID owns it: an
+// administrator may have taken it over since it was read. It is
+// ErrNotFound otherwise.
+func (s *Store) DisableIfOwner(ctx context.Context, id, ownerID string) (Agent, error) {
+	return scanAgent(s.pool.QueryRow(ctx, `UPDATE agents SET enabled = false, updated_at = now()
+		WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL RETURNING `+agentColumns, id, ownerID))
 }
 
 // Agent loads an agent or a workspace by id; callers that serve only one
@@ -194,13 +226,31 @@ func (s *Store) SetAgentState(ctx context.Context, id, state, detail string) err
 		WHERE id = $1 AND deleted_at IS NULL`, id, state, detail))
 }
 
-// ReplaceAgentKey records a gateway key, sealed, in place of the key old,
-// or of none when old is empty. It is ErrNotFound when the agent holds
-// another key by now: another replica replaced it meanwhile, and that key
-// stands. An empty keyID clears the key.
-func (s *Store) ReplaceAgentKey(ctx context.Context, id, old, keyID string, sealed []byte) error {
-	return one(s.pool.Exec(ctx, `UPDATE agents SET gateway_key_id = $3, gateway_key = $4
-		WHERE id = $1 AND gateway_key_id = $2 AND deleted_at IS NULL`, id, old, keyID, sealed))
+// SetHasDisk records whether the agent's machine exists.
+func (s *Store) SetHasDisk(ctx context.Context, id string, has bool) error {
+	_, err := s.pool.Exec(ctx, `UPDATE agents SET has_disk = $2 WHERE id = $1 AND deleted_at IS NULL`, id, has)
+	return err
+}
+
+// ReplaceAgentKey records a gateway key, sealed, and what it carries, in
+// place of the key old, or of none when old is empty. It is ErrNotFound
+// when the agent holds another key by now: another replica replaced it
+// meanwhile, and that key stands. An empty keyID clears the key.
+func (s *Store) ReplaceAgentKey(ctx context.Context, id, old, keyID string, sealed []byte, carries KeyFor) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET gateway_key_id = $3, gateway_key = $4,
+		key_owner_id = $5, key_project_id = $6, key_budget_micros = $7
+		WHERE id = $1 AND gateway_key_id = $2 AND deleted_at IS NULL`,
+		id, old, keyID, sealed, carries.OwnerID, carries.ProjectID, carries.BudgetMicros))
+}
+
+// StaleKeys lists agents whose key was minted for other settings than
+// theirs now.
+func (s *Store) StaleKeys(ctx context.Context) ([]Agent, error) {
+	return queryAll(ctx, s, scanAgent, `SELECT `+agentColumns+` FROM agents
+		WHERE deleted_at IS NULL AND gateway_key_id <> ''
+		AND (key_owner_id, key_project_id, key_budget_micros) IS DISTINCT FROM
+			(owner_id, project_id, budget_micros)
+		ORDER BY id LIMIT 100`)
 }
 
 // DeletedKeys are deleted agents whose key is not revoked yet, with only

@@ -280,9 +280,11 @@ func (s *Store) FailQueuedTasks(ctx context.Context, agentID string, before time
 	return tag.RowsAffected(), err
 }
 
-// Undelivered are finished tasks whose result has not gone back yet.
+// Undelivered are finished tasks whose result has not gone back yet, and is
+// due to be tried.
 func (s *Store) Undelivered(ctx context.Context) ([]Task, error) {
 	return s.queryTasks(ctx, `WHERE NOT t.delivered AND t.state IN ('succeeded', 'failed', 'cancelled')
+		AND (t.deliver_after IS NULL OR t.deliver_after <= now())
 		ORDER BY t.finished_at LIMIT 100`)
 }
 
@@ -293,9 +295,14 @@ func (s *Store) MarkDelivered(ctx context.Context, id string) (bool, error) {
 }
 
 // UnmarkDelivered hands a claimed delivery back, for one that failed before
-// anything went out.
+// anything went out. It is tried again after as long as the task has been
+// finished, between 30 seconds and 10 minutes, so the ones that keep failing
+// do not crowd out the rest.
 func (s *Store) UnmarkDelivered(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE tasks SET delivered = false WHERE id = $1`, id)
+	_, err := s.pool.Exec(ctx, `UPDATE tasks SET delivered = false,
+		deliver_after = now() + least(greatest(now() - coalesce(finished_at, now()),
+			interval '30 seconds'), interval '10 minutes')
+		WHERE id = $1`, id)
 	return err
 }
 
@@ -403,6 +410,13 @@ func (s *Store) AddEvents(ctx context.Context, taskID string, events []Event) er
 			taskID, e.Kind, e.Text, data, at)
 	}
 	return s.pool.SendBatch(ctx, batch).Close()
+}
+
+// EventCount is how many events a task has.
+func (s *Store) EventCount(ctx context.Context, taskID string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM task_events WHERE task_id = $1`, taskID).Scan(&n)
+	return n, err
 }
 
 func (s *Store) Events(ctx context.Context, taskID string, after int64) ([]Event, error) {

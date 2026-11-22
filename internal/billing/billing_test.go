@@ -77,7 +77,7 @@ func TestScale(t *testing.T) {
 }
 
 func TestMeasure(t *testing.T) {
-	a := store.Agent{Class: runtime.Class{CPU: "2", Memory: "1Gi", Disk: "10Gi"}, State: store.AgentRunning}
+	a := store.Agent{Class: runtime.Class{CPU: "2", Memory: "1Gi", Disk: "10Gi"}, State: store.AgentRunning, HasDisk: true}
 	if got := measure(a, 60); got != (store.MachineUse{
 		CPUMilliSeconds: 120_000, MemoryMiBSeconds: 61_440,
 		DiskMiBSeconds: 614_400,
@@ -89,6 +89,11 @@ func TestMeasure(t *testing.T) {
 		if got := measure(a, 60); got != (store.MachineUse{DiskMiBSeconds: 614_400}) {
 			t.Errorf("%s: %+v, want disk only", state, got)
 		}
+	}
+	// A machine never made, as one refused for credit, has no disk to bill.
+	a.State, a.HasDisk = store.AgentStopped, false
+	if got := measure(a, 60); !got.Zero() {
+		t.Errorf("no machine: %+v, want nothing", got)
 	}
 }
 

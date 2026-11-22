@@ -206,11 +206,11 @@ func (m *Manager) replaceKey(ctx context.Context, a *store.Agent) error {
 		return fmt.Errorf("the gateway did not issue a key for this agent: %w", err)
 	}
 	sealed := m.box.Seal(keySealName(a.ID), []byte(k.Secret))
-	if err := m.st.ReplaceAgentKey(ctx, a.ID, a.GatewayKeyID, k.ID, sealed); err != nil {
+	if err := m.st.ReplaceAgentKey(ctx, a.ID, a.GatewayKeyID, k.ID, sealed, a.KeyFor()); err != nil {
 		_ = m.gw.RevokeKey(context.WithoutCancel(ctx), a.OrgID, k.ID)
 		return err
 	}
-	a.GatewayKeyID, a.GatewayKey = k.ID, sealed
+	a.GatewayKeyID, a.GatewayKey, a.Key = k.ID, sealed, a.KeyFor()
 	return nil
 }
 
@@ -221,15 +221,44 @@ func (m *Manager) replaceKey(ctx context.Context, a *store.Agent) error {
 // It reads the agent again, so the key carries what is saved now, and
 // replaces the key the agent holds now, not one it held when a was read.
 // The old key is revoked before the new one is stored: an old key left
-// working would keep the old project and budget, unnoticed.
+// working would keep the old project and budget. If the gateway cannot be
+// reached, the key stays stale and RekeyStale tries again.
 func (m *Manager) Rekey(ctx context.Context, a store.Agent) error {
-	unlock, err := m.lock(ctx, a.ID)
+	return m.rekey(ctx, a.ID, false)
+}
+
+// RekeyStale replaces the keys minted for other settings than their agents'
+// now, as when a change could not reach the gateway at once.
+func (m *Manager) RekeyStale(ctx context.Context) {
+	agents, err := m.st.StaleKeys(ctx)
+	if err != nil {
+		m.log.Warn("could not list stale keys", "error", err)
+		return
+	}
+	for _, a := range agents {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := m.rekey(ctx, a.ID, true); err != nil {
+			m.log.Warn("could not replace a stale key", a.Kind, a.ID, "error", err)
+		}
+	}
+}
+
+// rekey is Rekey. With onlyStale, it leaves a key that matches the agent's
+// settings by the time it holds the lock.
+func (m *Manager) rekey(ctx context.Context, id string, onlyStale bool) error {
+	unlock, err := m.lock(ctx, id)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	if a, err = m.st.Agent(ctx, a.ID); err != nil {
+	a, err := m.st.Agent(ctx, id)
+	if err != nil {
 		return err
+	}
+	if onlyStale && !a.KeyStale() {
+		return nil
 	}
 	old := a.GatewayKeyID
 	if old != "" {
@@ -244,7 +273,7 @@ func (m *Manager) Rekey(ctx context.Context, a store.Agent) error {
 	case err != nil:
 		// The revoked key must not be handed out; without one, the
 		// runtime's next request for a key mints it.
-		_ = m.st.ReplaceAgentKey(context.WithoutCancel(ctx), a.ID, old, "", nil)
+		_ = m.st.ReplaceAgentKey(context.WithoutCancel(ctx), a.ID, old, "", nil, store.KeyFor{})
 		return err
 	}
 	return nil
@@ -364,9 +393,15 @@ func (m *Manager) start(ctx context.Context, a store.Agent) (err error) {
 		_ = m.st.SetAgentState(ctx, a.ID, store.AgentFailed, detail)
 		return errors.New(detail)
 	}
+	_ = m.st.SetHasDisk(context.WithoutCancel(ctx), a.ID, true)
 	// The container has the token now; store it even if the caller gave up.
 	// If this fails, Reconcile starts the agent again.
 	if err := m.st.SetRuntimeToken(context.WithoutCancel(ctx), a.ID, TokenHash(token)); err != nil {
+		// Deleted meanwhile, as through another replica, whose lock this
+		// start did not wait for. Nothing else would remove this machine.
+		if errors.Is(err, store.ErrNotFound) {
+			_ = m.driver.Terminate(context.WithoutCancel(ctx), a.ID)
+		}
 		return err
 	}
 	_ = m.st.TouchAgent(ctx, a.ID)
@@ -556,6 +591,11 @@ func (m *Manager) reconcileOne(ctx context.Context, a store.Agent) {
 	if err != nil {
 		m.log.Warn("could not read an agent's machine", "agent", a.ID, "error", err)
 		return
+	}
+	// Its disk is billed while the machine exists. A start meanwhile sets
+	// it again, so a stale read here costs at most a round's disk.
+	if has := st.State != runtime.Gone; has != a.HasDisk {
+		_ = m.st.SetHasDisk(ctx, a.ID, has)
 	}
 	busy, err := m.st.Busy(ctx, a.ID)
 	if err != nil {
@@ -772,9 +812,11 @@ func (m *Manager) CheckOwners(ctx context.Context) {
 		if !gone {
 			continue
 		}
+		// The list was read before the gateway calls, so an administrator
+		// may have taken the agent over since. Only the owner checked counts.
 		if a.Enabled {
 			m.log.Info("stopping an agent whose owner left", "agent", a.ID, "owner", a.OwnerEmail)
-			if a, err = m.st.SetEnabled(ctx, a.ID, false); err != nil {
+			if a, err = m.st.DisableIfOwner(ctx, a.ID, a.OwnerID); err != nil {
 				continue
 			}
 			_ = m.stop(ctx, a, "the agent's owner no longer has access",
@@ -790,7 +832,7 @@ func (m *Manager) CheckOwners(ctx context.Context) {
 				m.log.Warn("could not revoke the key of an agent whose owner left", "agent", a.ID, "error", err)
 				continue
 			}
-			_ = m.st.ReplaceAgentKey(ctx, a.ID, a.GatewayKeyID, "", nil)
+			_ = m.st.ReplaceAgentKey(ctx, a.ID, a.GatewayKeyID, "", nil, store.KeyFor{})
 		}
 	}
 }

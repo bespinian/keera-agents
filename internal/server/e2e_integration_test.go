@@ -564,7 +564,7 @@ func TestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ReplaceAgentKey(ctx, a.ID, keyed.GatewayKeyID, "", nil); err != nil {
+	if err := st.ReplaceAgentKey(ctx, a.ID, keyed.GatewayKeyID, "", nil, store.KeyFor{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetRuntimeToken(ctx, a.ID, fleet.TokenHash("kat_test")); err != nil {

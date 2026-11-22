@@ -213,7 +213,7 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		return
 	}
 	s.record(r.Context(), p, "workspace.update", out.ID, map[string]any{"name": out.Name})
-	s.rekeyIfChanged(r.Context(), before, out)
+	s.rekeyIfChanged(r.Context(), out)
 	// The runtime starts the experience once, so a new one needs a new
 	// container, as a new image or machine does. The volume stays.
 	if out.Enabled && (before.Image != out.Image || before.Class != out.Class || before.Experience != out.Experience) {

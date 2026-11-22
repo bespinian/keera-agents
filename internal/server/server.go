@@ -317,7 +317,10 @@ func (a *App) Background(ctx context.Context) {
 			step(ctx, func(ctx context.Context) { disp.CheckWatches(ctx, now) })
 			// The rarer steps count as done only if they finished in time;
 			// otherwise the next round tries again.
-			if now.Sub(lastReconcile) >= 15*time.Second && step(ctx, fl.Reconcile) {
+			if now.Sub(lastReconcile) >= 15*time.Second && step(ctx, func(ctx context.Context) {
+				fl.Reconcile(ctx)
+				fl.RekeyStale(ctx)
+			}) {
 				lastReconcile = now
 			}
 			// Metering counts the time since its last round itself, so a

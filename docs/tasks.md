@@ -137,8 +137,10 @@ does not post the same answer ten times once it works again. What fails
 before anything is sent is tried again at the next round: a card's result,
 which is our own write, results a round had no time left for, and sends that
 never reached the service (its name did not resolve, or it took no
-connection) or never started (the database did not answer). Retries stop an
-hour after the task finished, and the task's log says why.
+connection) or never started (the database did not answer). Each retry waits
+as long as the task has been finished, from 30 seconds up to 10 minutes, so
+results that keep failing do not hold up the others. Retries stop an hour
+after the task finished, and the task's log says why.
 
 On shutdown, keera-agents waits up to 30 seconds for results being sent and
 for messages it has already accepted.

@@ -155,6 +155,9 @@ type fakeGateway struct {
 	// revokeFails makes revoking a key fail, as when the gateway is down.
 	revokeFails bool
 	lookups     int
+	// onLookup runs as a user is looked up, as for something to happen
+	// meanwhile.
+	onLookup func(id string)
 	// revoked holds "org/key".
 	revoked []string
 }
@@ -191,6 +194,9 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	case r.URL.Path == "/control/v1/service/users":
 		g.lookups++
+		if g.onLookup != nil {
+			g.onLookup(r.URL.Query().Get("id"))
+		}
 		switch id := r.URL.Query().Get("id"); id {
 		case "usr_gone":
 			refuse(http.StatusNotFound, "not_found", "not a member")

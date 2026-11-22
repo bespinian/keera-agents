@@ -507,6 +507,42 @@ func TestEventsAreStoredInOrderAndCapped(t *testing.T) {
 	}
 }
 
+// A task's events are capped in all, with a note where they stop, and an
+// unknown kind is stored as a log line.
+func TestEventsAreCappedPerTask(t *testing.T) {
+	tr := openTest(t)
+	defer func(n int) { maxTaskEvents = n }(maxTaskEvents)
+	maxTaskEvents = 5
+	a, token := tr.agent(t, "org_a", "scout", store.KindAgent, true)
+	task := tr.task(t, a, "Do it")
+	if _, code := tr.claim(t, token); code != http.StatusOK {
+		t.Fatalf("claim = %d", code)
+	}
+	path := taskPath(task.ID, "/events")
+	report := func(n int, kind string) {
+		var in protocol.Events
+		for range n {
+			in.Events = append(in.Events, protocol.Event{Kind: kind, Text: "e"})
+		}
+		if code := tr.do(t, "POST", path, token, in, nil); code != http.StatusNoContent {
+			t.Fatalf("events = %d", code)
+		}
+	}
+	report(3, "made-up")
+	report(3, protocol.EventLog)
+	report(3, protocol.EventLog)
+	ev := tr.events(t, task.ID)
+	if len(ev) != maxTaskEvents {
+		t.Fatalf("stored %d events, want %d", len(ev), maxTaskEvents)
+	}
+	if ev[0].Kind != protocol.EventLog {
+		t.Errorf("an unknown kind was stored as %q", ev[0].Kind)
+	}
+	if last := ev[len(ev)-1]; !strings.Contains(last.Text, "too many events") {
+		t.Errorf("last event = %q, want the note", last.Text)
+	}
+}
+
 func TestFinishStoresHowTheTaskEnded(t *testing.T) {
 	tr := openTest(t)
 	a, token := tr.agent(t, "org_a", "scout", store.KindAgent, true)

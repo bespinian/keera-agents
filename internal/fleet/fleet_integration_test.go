@@ -532,6 +532,65 @@ func TestCheckOwnersStopsAgentsWhoseOwnerLeft(t *testing.T) {
 	}
 }
 
+// An administrator who takes an agent over while its old owner is looked up
+// keeps it running, with its key.
+func TestCheckOwnersLeavesAnAgentTakenOverMeanwhile(t *testing.T) {
+	f := newFixture(t, Options{})
+	ctx := context.Background()
+	a := f.agent(t, func(a *store.Agent) { a.OwnerID, a.OwnerEmail = "usr_gone", "gone@example.ch" })
+	if err := f.m.Start(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	a = f.load(t, a.ID)
+	f.gw.onLookup = func(id string) {
+		if id == "usr_gone" {
+			if err := f.st.SetOwner(ctx, a.ID, "usr_admin", "admin@example.ch"); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	f.m.CheckOwners(ctx)
+	got := f.load(t, a.ID)
+	if !got.Enabled || got.GatewayKeyID == "" || f.driver.count("suspend "+a.ID) != 0 {
+		t.Fatalf("stopped after a take-over: enabled %v, key %q, calls %v", got.Enabled, got.GatewayKeyID, f.driver.calls)
+	}
+}
+
+// A key the gateway would not replace at once, as after a budget change, is
+// replaced in a later round.
+func TestAStaleKeyIsReplacedLater(t *testing.T) {
+	f := newFixture(t, Options{})
+	ctx := context.Background()
+	a := f.agent(t)
+	if err := f.m.Start(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	a = f.load(t, a.ID)
+	if a.KeyStale() {
+		t.Fatal("a new key is stale")
+	}
+	f.m.RekeyStale(ctx)
+	if got := f.load(t, a.ID); got.GatewayKeyID != a.GatewayKeyID {
+		t.Fatalf("a key that matches was replaced: %q", got.GatewayKeyID)
+	}
+
+	a.BudgetMicros = 50_000_000
+	if _, err := f.st.UpdateAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	f.gw.failRevokes(true)
+	f.m.RekeyStale(ctx)
+	if got := f.load(t, a.ID); got.GatewayKeyID != a.GatewayKeyID || !got.KeyStale() {
+		t.Fatalf("key %q, stale %v while the gateway refused", got.GatewayKeyID, got.KeyStale())
+	}
+	f.gw.failRevokes(false)
+	f.m.RekeyStale(ctx)
+	got := f.load(t, a.ID)
+	if got.GatewayKeyID == a.GatewayKeyID || got.KeyStale() || !f.gw.wasRevoked("org_a", a.GatewayKeyID) {
+		t.Fatalf("key %q, stale %v, old revoked %v", got.GatewayKeyID, got.KeyStale(), f.gw.wasRevoked("org_a", a.GatewayKeyID))
+	}
+}
+
 func TestStopCancelsTasksAndKeepsTheWorkspace(t *testing.T) {
 	f := newFixture(t, Options{})
 	ctx := context.Background()

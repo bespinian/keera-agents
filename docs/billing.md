@@ -45,7 +45,9 @@ that is what they hold on the node.
   starting, such as a pod waiting for a node, is not charged for them, nor is
   a suspended or stopped one.
 - **Disk** counts while the machine exists, suspended and stopped too, since
-  its workspace is kept. It stops when the agent or workspace is deleted.
+  its workspace is kept. It stops when the agent or workspace is deleted. A
+  machine never made, as when its organisation had no credit, has no disk to
+  count.
 - **A month** of disk is 730 hours, a year's twelfth, so every month costs
   the same.
 

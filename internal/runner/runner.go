@@ -261,9 +261,12 @@ func (rn *Runner) task(w http.ResponseWriter, r *http.Request, a store.Agent) (s
 	return t, true
 }
 
-// maxEvents bounds one report, and protocol.MaxEventText one event, so a
-// runaway tool cannot fill the database.
+// maxEvents bounds one report, maxTaskEvents a task's reports together, and
+// protocol.MaxEventText one event, so a runaway or hostile container cannot
+// fill the database.
 const maxEvents = 200
+
+var maxTaskEvents = 5000
 
 func (rn *Runner) events(w http.ResponseWriter, r *http.Request, a store.Agent) {
 	t, ok := rn.task(w, r, a)
@@ -284,9 +287,32 @@ func (rn *Runner) events(w http.ResponseWriter, r *http.Request, a store.Agent) 
 	if len(in.Events) > maxEvents {
 		in.Events = in.Events[:maxEvents]
 	}
-	events := make([]store.Event, 0, len(in.Events))
+	n, err := rn.st.EventCount(r.Context(), t.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "could not count the events")
+		return
+	}
+	// Past the limit, events are dropped, not refused: refused, the runtime
+	// would send them again and again.
+	room := maxTaskEvents - n
+	if room <= 0 {
+		_ = rn.st.TouchAgent(r.Context(), a.ID)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	full := len(in.Events) >= room
+	if full {
+		in.Events = in.Events[:room-1]
+	}
+	events := make([]store.Event, 0, len(in.Events)+1)
 	for _, e := range in.Events {
 		events = append(events, storable(e))
+	}
+	if full {
+		events = append(events, store.Event{
+			Kind: protocol.EventLog,
+			Text: "This task reported too many events, so later ones are left out.",
+		})
 	}
 	if err := rn.st.AddEvents(r.Context(), t.ID, events); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not store the events")
@@ -354,7 +380,14 @@ func storable(e protocol.Event) store.Event {
 	if len(e.Data) <= protocol.MaxEventText && !bytes.Contains(e.Data, []byte(`\u0000`)) {
 		data = e.Data
 	}
-	return store.Event{Kind: e.Kind, Text: text, Data: data, At: e.At}
+	// The kind is shown as it is, so only the known ones are kept.
+	kind := e.Kind
+	switch kind {
+	case protocol.EventMessage, protocol.EventToolCall, protocol.EventToolResult, protocol.EventLog:
+	default:
+		kind = protocol.EventLog
+	}
+	return store.Event{Kind: kind, Text: text, Data: data, At: e.At}
 }
 
 func noNUL(s string) string { return strings.ReplaceAll(s, "\x00", "") }

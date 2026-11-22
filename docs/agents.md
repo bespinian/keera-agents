@@ -78,7 +78,8 @@ starts no machine, and its waiting tasks fail with the reason
 **Changing settings.** Instructions, model and tools reach the runtime at its
 next task, through the bootstrap's version. A changed project or budget gets a
 new key at once; the runtime's next gateway call fails with 401 and it fetches
-the new key. A changed image or machine size replaces the container and keeps
+the new key. If the gateway cannot be reached, the old key is kept and
+replaced in the background once it can, every 15 seconds. A changed image or machine size replaces the container and keeps
 the workspace.
 
 **The runtime token** is new at each start, and stored once the container has
