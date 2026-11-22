@@ -124,3 +124,21 @@ func TestMemoryIsCapped(t *testing.T) {
 		t.Errorf("memory_write: %v, memory %q", err, w.memory())
 	}
 }
+
+// The file tools can write past the cap. What is left out must be said.
+func TestMemoryOverTheCapSaysSo(t *testing.T) {
+	w := newWorkspace(t)
+	if err := os.WriteFile(filepath.Join(w.dir, memoryFile), []byte(strings.Repeat("é", maxMemory)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read, _ := runTool(t, w.memoryTools(), "memory_read", `{}`)
+	for name, got := range map[string]string{"memory_read": read, "prompt": w.memory()} {
+		head, note, ok := strings.Cut(got, "\n\n[MEMORY.md is 64 KiB")
+		if !ok || !strings.Contains(note, "memory_write") {
+			t.Errorf("%s does not say it was cut: %q", name, got[len(got)-100:])
+		}
+		if len(head) > maxMemory || !strings.HasSuffix(head, "é") {
+			t.Errorf("%s: %d bytes, cut in a character", name, len(head))
+		}
+	}
+}

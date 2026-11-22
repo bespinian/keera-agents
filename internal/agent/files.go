@@ -161,11 +161,11 @@ func (w *workspace) memoryTools() []tool {
 			description: "Read your memory file, MEMORY.md: the durable notes you keep across tasks.",
 			parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
 			run: func(context.Context, json.RawMessage) (string, error) {
-				raw, _, err := w.readFile(memoryFile, maxMemory+1)
-				if errors.Is(err, fs.ErrNotExist) || (err == nil && len(raw) == 0) {
+				mem, err := w.readMemory()
+				if errors.Is(err, fs.ErrNotExist) || (err == nil && mem == "") {
 					return "(your memory is empty)", nil
 				}
-				return string(raw), err
+				return mem, err
 			},
 		},
 		{
@@ -233,11 +233,23 @@ func (w *workspace) memoryTools() []tool {
 
 // memory is the memory file for the system prompt, or empty.
 func (w *workspace) memory() string {
-	raw, _, err := w.readFile(memoryFile, maxMemory)
+	mem, err := w.readMemory()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(raw))
+	return strings.TrimSpace(mem)
+}
+
+// readMemory reads at most maxMemory of the memory file. The file and shell
+// tools can make it longer, so it then says what was left out, or the
+// agent's latest notes would go missing unnoticed.
+func (w *workspace) readMemory() (string, error) {
+	raw, size, err := w.readFile(memoryFile, maxMemory)
+	if err != nil || size <= maxMemory {
+		return string(raw), err
+	}
+	return strings.ToValidUTF8(string(raw), "") + fmt.Sprintf("\n\n[%s is %d KiB; only its first %d KiB is shown. "+
+		"Make it shorter with memory_write.]", memoryFile, size>>10, maxMemory>>10), nil
 }
 
 func (w *workspace) fileTools() []tool {
