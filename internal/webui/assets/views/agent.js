@@ -230,17 +230,6 @@ async function overviewTab(ctx, agent) {
                   )
                 : h("span", { class: "faint" }, "None"),
             ),
-            agent.transcription_model || (agent.ask_models || []).length
-              ? fact(
-                  "Other models",
-                  h(
-                    "div",
-                    { class: "wrap-chips" },
-                    agent.transcription_model ? pill(`${agent.transcription_model}, transcribes`) : null,
-                    (agent.ask_models || []).map((m) => pill(`${m}, to ask`)),
-                  ),
-                )
-              : null,
             agent.mcp_servers
               ? fact(
                   "MCP servers",
@@ -251,6 +240,17 @@ async function overviewTab(ctx, agent) {
                         agent.mcp_servers.map((m) => pill(m)),
                       )
                     : h("span", { class: "faint" }, "None"),
+                )
+              : null,
+            agent.transcription_model || (agent.ask_models || []).length
+              ? fact(
+                  "Other models",
+                  h(
+                    "div",
+                    { class: "wrap-chips" },
+                    agent.transcription_model ? pill(`${agent.transcription_model}, transcribes`) : null,
+                    (agent.ask_models || []).map((m) => pill(`${m}, to ask`)),
+                  ),
                 )
               : null,
             fact(

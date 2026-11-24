@@ -419,8 +419,8 @@ export async function agentForm(ctx, agent) {
         tools.map((t) => t.el),
       ),
     ),
-    otherModels,
     mcp,
+    otherModels,
     machine.el,
     fold(
       "Advanced",

@@ -1,6 +1,7 @@
 package azure
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -649,11 +650,8 @@ func (a *Adapter) costs(ctx context.Context, app microsoft.App, sub string, in s
 		}
 	}
 	out.Total = round(out.Total)
-	sort.SliceStable(out.Rows, func(i, j int) bool {
-		if out.Rows[i].Date != out.Rows[j].Date {
-			return out.Rows[i].Date < out.Rows[j].Date
-		}
-		return out.Rows[i].Cost > out.Rows[j].Cost
+	slices.SortStableFunc(out.Rows, func(a, b CostRow) int {
+		return cmp.Or(cmp.Compare(a.Date, b.Date), cmp.Compare(b.Cost, a.Cost))
 	})
 	if len(out.Rows) > 100 {
 		out.More = len(out.Rows) - 100
