@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/dispatch"
+	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
@@ -80,10 +81,22 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request, p Principal) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, struct {
+	out := struct {
 		store.Task
-		Events []store.Event `json:"events"`
-	}{t, events})
+		Events   []store.Event   `json:"events"`
+		Attached *store.Attached `json:"attached,omitempty"`
+	}{Task: t, Events: events}
+	if t.Source == protocol.SourceChat {
+		att, err := s.st.TaskAttached(r.Context(), t.ID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if att.Images > 0 || len(att.Files) > 0 {
+			out.Attached = &att
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) taskEvents(w http.ResponseWriter, r *http.Request, p Principal) {

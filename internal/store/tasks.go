@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/bespinian/keera-agents/internal/protocol"
 )
 
 // Task states.
@@ -67,6 +69,9 @@ type Task struct {
 	StartedAt     *time.Time `json:"started_at"`
 	FinishedAt    *time.Time `json:"finished_at"`
 	Deadline      *time.Time `json:"-"`
+	// Attachments are stored with a new task. Reading a task leaves them
+	// out: they can be megabytes. See TaskAttachments.
+	Attachments protocol.Attachments `json:"-"`
 }
 
 func (t Task) Finished() bool {
@@ -108,15 +113,48 @@ func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 }
 
 const insertTask = `INSERT INTO tasks (id, org_id, agent_id, source, origin,
-	dedupe_key, conversation, prompt, context, requested_by, requested_by_id)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`
+	dedupe_key, conversation, prompt, context, requested_by, requested_by_id, attachments)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`
 
 func taskArgs(t Task) []any {
 	origin, _ := json.Marshal(t.Origin)
+	var attachments []byte
+	if !t.Attachments.Empty() {
+		attachments, _ = json.Marshal(t.Attachments)
+	}
 	return []any{
 		t.ID, t.OrgID, t.AgentID, t.Source, origin, t.DedupeKey, t.Conversation, t.Prompt,
-		t.Context, t.RequestedBy, t.RequestedByID,
+		t.Context, t.RequestedBy, t.RequestedByID, attachments,
 	}
+}
+
+// TaskAttachments are what was attached to a task's message, for the
+// runtime.
+func (s *Store) TaskAttachments(ctx context.Context, id string) (protocol.Attachments, error) {
+	var raw []byte
+	var out protocol.Attachments
+	err := s.pool.QueryRow(ctx, `SELECT attachments FROM tasks WHERE id = $1`, id).Scan(&raw)
+	if err != nil {
+		return out, notFound(err)
+	}
+	if raw != nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	return out, err
+}
+
+// Attached names what was attached to a task's message, for the panel.
+type Attached struct {
+	Images int      `json:"images"`
+	Files  []string `json:"files"`
+}
+
+func (s *Store) TaskAttached(ctx context.Context, id string) (Attached, error) {
+	var out Attached
+	err := s.pool.QueryRow(ctx, `SELECT coalesce(jsonb_array_length(attachments->'images'), 0),
+		coalesce(ARRAY(SELECT jsonb_array_elements(attachments->'files')->>'name'), '{}')
+		FROM tasks WHERE id = $1`, id).Scan(&out.Images, &out.Files)
+	return out, notFound(err)
 }
 
 func (s *Store) Task(ctx context.Context, id string) (Task, error) {

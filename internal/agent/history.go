@@ -29,6 +29,9 @@ type turn struct {
 	Role    string    `json:"role"`
 	Content string    `json:"content"`
 	At      time.Time `json:"at"`
+	// Attachments is the id of the task whose attachments came with this
+	// message, saved in the conversation's folder. See attachments.go.
+	Attachments string `json:"attachments,omitempty"`
 }
 
 func historyPath(ws, conversation string) string {
@@ -117,5 +120,9 @@ func compactHistory(path string) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	pruneAttachments(attachmentsDir(path), turns)
+	return nil
 }

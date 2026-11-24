@@ -333,6 +333,7 @@ export async function taskView(ctx) {
           { class: "grid", style: { alignContent: "start" } },
           card("Prompt", [
             h("div", { class: "prompt-text" }, task.prompt || ""),
+            task.attached ? h("p", { class: "muted small" }, "Attached: " + attachedText(task.attached)) : null,
             task.context
               ? fold("Context the agent was given", h("div", { class: "prompt-text mono" }, task.context))
               : null,
@@ -440,4 +441,12 @@ function eventItem(e) {
     h("div", { class: "tl-body" }, body),
     h("span", { class: "tl-at", title: dateTime(e.at) }, clock(e.at)),
   );
+}
+
+/** attachedText names a chat message's attachments: its files, then how
+ *  many images. A PDF is among the files, or its pages among the images. */
+function attachedText({ images, files }) {
+  const parts = [...files];
+  if (images) parts.push(`${images} ${plural(images, "image")}`);
+  return parts.join(", ");
 }

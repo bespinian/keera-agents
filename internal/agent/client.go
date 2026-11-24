@@ -119,7 +119,8 @@ func (c *controlPlane) do(ctx context.Context, method, path string, in, out any)
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 		return nil
 	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(out)
+	// A task carries its chat message's attachments.
+	return json.NewDecoder(io.LimitReader(resp.Body, protocol.MaxMessageBytes+1<<20)).Decode(out)
 }
 
 func (c *controlPlane) bootstrap(ctx context.Context) (protocol.Bootstrap, error) {

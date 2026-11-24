@@ -61,8 +61,21 @@ cancels the task. An agent's page in the panel has a **Chat** button that
 starts a chat with it in Keera Chat.
 
 The agent keeps the chat's history in its workspace, one per person and chat,
-so Keera Chat sends only the new message. Agents take text only: no images or
-files.
+so Keera Chat sends only the new message.
+
+People can attach images, PDFs and text files, as in a chat with a model.
+Keera Chat reads them in the browser and sends them as the model of the agent
+takes them: images only if the model reads images, and a PDF as its pages'
+images if so, or as its text if not. Up to 10 images and 10 files of 512 KB
+go with one message. keera-agents refuses images for an agent whose model
+reads text only, and the gateway's catalogue says which models read images.
+
+The task keeps the attachments until it is pruned. The panel names them on
+the task's page. The agent saves them in its workspace next to the chat's
+history, so later messages still show them to the model, as a chat with a
+model does. A model that no longer reads images is told they were left out.
+If the history grows too large for the gateway, the agent drops it for that
+message, as it does when the model's context is full.
 
 ## Schedules
 

@@ -26,9 +26,11 @@
 package protocol
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -171,6 +173,9 @@ type Agent struct {
 	// the task's deadline still stops it.
 	MaxSteps int    `json:"max_steps"`
 	Owner    Person `json:"owner"`
+	// TextOnly says the model reads no images, so the runtime leaves them
+	// out. False when the gateway could not be asked.
+	TextOnly bool `json:"text_only,omitempty"`
 }
 
 // The runtime's builtin tools.
@@ -230,7 +235,74 @@ type Task struct {
 	Context  string    `json:"context,omitempty"`
 	Deadline time.Time `json:"deadline"`
 	// Version is the bootstrap's current Version.
-	Version string `json:"version"`
+	Version     string      `json:"version"`
+	Attachments Attachments `json:"attachments,omitzero"`
+}
+
+// Attachments are what someone attached to a chat message, as Keera Chat
+// sends them to a model: images as data URLs, and other files as text. A PDF
+// is its pages' images for a model that reads images, and its text for one
+// that does not.
+type Attachments struct {
+	Images []string `json:"images,omitempty"`
+	Files  []File   `json:"files,omitempty"`
+}
+
+func (a Attachments) Empty() bool { return len(a.Images) == 0 && len(a.Files) == 0 }
+
+type File struct {
+	Name string `json:"name"`
+	Text string `json:"text"`
+}
+
+// Limits on a message's attachments. Keera Chat has the same.
+const (
+	MaxImages    = 10
+	MaxFiles     = 10
+	MaxFileBytes = 512 << 10
+	// MaxMessageBytes bounds a chat message with its attachments, as JSON.
+	MaxMessageBytes = 32 << 20
+)
+
+// imagePrefixes are the image formats every model API accepts.
+var imagePrefixes = []string{
+	"data:image/png;base64,", "data:image/jpeg;base64,",
+	"data:image/gif;base64,", "data:image/webp;base64,",
+}
+
+// Check reports what is wrong with the attachments, in words for the
+// person, or "" when nothing is.
+func (a Attachments) Check() string {
+	if len(a.Images) > MaxImages {
+		return fmt.Sprintf("attach at most %d images to one message", MaxImages)
+	}
+	for _, img := range a.Images {
+		if !validImage(img) {
+			return "images must be PNG, JPEG, GIF or WebP"
+		}
+	}
+	if len(a.Files) > MaxFiles {
+		return fmt.Sprintf("attach at most %d files to one message", MaxFiles)
+	}
+	for _, f := range a.Files {
+		if strings.TrimSpace(f.Name) == "" {
+			return "every file needs a name"
+		}
+		if len(f.Text) > MaxFileBytes {
+			return fmt.Sprintf("%s is larger than %d KB", f.Name, MaxFileBytes>>10)
+		}
+	}
+	return ""
+}
+
+func validImage(url string) bool {
+	for _, p := range imagePrefixes {
+		if data, ok := strings.CutPrefix(url, p); ok {
+			_, err := base64.StdEncoding.DecodeString(data)
+			return data != "" && err == nil
+		}
+	}
+	return false
 }
 
 // Event kinds.

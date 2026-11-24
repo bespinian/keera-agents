@@ -184,7 +184,8 @@ Task:
 - `GET /api/v1/tasks?agent_id=&state=&source=&limit=50&before=<created_at>` → `{data:[Task]}`
 - `GET /api/v1/tasks/facets?agent_id=` → `{agents:[{id,name}], states:[...], sources:[...]}`: what the
   caller's tasks have, so the panel offers only filters that find something
-- `GET /api/v1/tasks/{id}` → Task + `{events:[{id,kind:"message"|"tool_call"|"tool_result"|"log",text,data,at}]}`
+- `GET /api/v1/tasks/{id}` → Task + `{events:[{id,kind:"message"|"tool_call"|"tool_result"|"log",text,data,at}], attached?:{images,files:[name]}}`.
+  `attached` names what came with a message from Keera Chat.
   (`data`, on tool events only: `{tool,call_id,arguments}` or `{tool,call_id,is_error}`)
 - `GET /api/v1/tasks/{id}/events?after=<id>` → `{events:[...], task}` (poll every 2s while running)
 - `POST /api/v1/tasks/{id}/cancel` → Task
@@ -194,9 +195,12 @@ Task:
 What Keera Chat calls, with the person's gateway sign-in. See
 [tasks.md](tasks.md#keera-chat).
 
-- `GET /api/v1/chat/agents` → `{data:[{id,name,icon,description,state}]}`: the started agents the caller may give work to
-- `POST /api/v1/chat/agents/{id}/messages {conversation,text}` → 201 Task (`source` `chat`, `origin_label` "Keera Chat").
+- `GET /api/v1/chat/agents` → `{data:[{id,name,icon,description,state,vision}]}`: the started agents the caller may give work to.
+  `vision` says the agent's model reads images.
+- `POST /api/v1/chat/agents/{id}/messages {conversation,text,images?,files?}` → 201 Task (`source` `chat`, `origin_label` "Keera Chat").
   `conversation` is Keera Chat's id of the chat: 1–64 letters, digits, `-` or `_`.
+  `images` are up to 10 PNG, JPEG, GIF or WebP data URLs, only for an agent with `vision`; `files` up to 10 `{name,text}` of 512 KB.
+  A message may be only attachments. The request may be up to 32 MB.
   Follow it with `GET /api/v1/tasks/{id}/events`, and stop it with `POST /api/v1/tasks/{id}/cancel`.
 
 ## Connectors (admins create/change; everyone may list names to bind)

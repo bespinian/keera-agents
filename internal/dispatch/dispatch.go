@@ -219,7 +219,8 @@ func newTask(t store.Task) (store.Task, error) {
 		t.ID = id.New("task")
 	}
 	t.Prompt = strings.TrimSpace(t.Prompt)
-	if t.Prompt == "" {
+	// A chat message may be only an image or a file.
+	if t.Prompt == "" && t.Attachments.Empty() {
 		return store.Task{}, ErrNoPrompt
 	}
 	return t, nil

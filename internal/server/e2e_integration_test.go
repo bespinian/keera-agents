@@ -115,7 +115,9 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		reply(map[string]any{"error": map[string]string{"code": "not_found", "message": "not a member"}})
 	case r.URL.Path == "/control/v1/service/catalog" && service:
-		reply(gateway.Catalog{ProjectID: "prj_1", Models: []gateway.CatalogRef{{Alias: "keera-speed", Kind: "model"}}})
+		reply(gateway.Catalog{ProjectID: "prj_1", Models: []gateway.CatalogRef{
+			{Alias: "keera-speed", Kind: "model", Capabilities: []string{"tools", "vision"}},
+		}})
 	case r.URL.Path == "/api/v1/chat/completions" && r.Header.Get("Authorization") == "Bearer sk-agent":
 		g.mu.Lock()
 		g.session = r.Header.Get("X-Keera-Session")
@@ -517,6 +519,7 @@ func TestEndToEnd(t *testing.T) {
 		Data []struct {
 			ID           string `json:"id"`
 			Instructions string `json:"instructions"`
+			Vision       bool   `json:"vision"`
 		} `json:"data"`
 	}
 	var detail0 struct {
@@ -526,7 +529,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("the owner may not give the agent work: %+v", detail0)
 	}
 	if chatCall("GET", "/api/v1/chat/agents", nil, &offered) != 200 || len(offered.Data) != 1 ||
-		offered.Data[0].ID != a.ID || offered.Data[0].Instructions != "" {
+		offered.Data[0].ID != a.ID || offered.Data[0].Instructions != "" || !offered.Data[0].Vision {
 		t.Fatalf("agents offered to Keera Chat = %+v", offered.Data)
 	}
 	if code := chatCall("POST", "/api/v1/chat/agents/"+a.ID+"/messages",
@@ -550,6 +553,41 @@ func TestEndToEnd(t *testing.T) {
 	})
 	if n := len(chat.messages()); n != sentBefore {
 		t.Fatalf("a Keera Chat answer was posted to a chat service: %v", chat.messages())
+	}
+
+	// A message may carry images and files, or be only those. The runtime
+	// gets them with the task; the panel names them.
+	if code := chatCall("POST", "/api/v1/chat/agents/"+a.ID+"/messages", map[string]any{
+		"conversation": "c0123", "images": []string{"data:image/svg+xml;base64,PHN2Zz4="},
+	}, nil); code != http.StatusBadRequest {
+		t.Fatalf("an SVG image: %d", code)
+	}
+	png := "data:image/png;base64,iVBORw0KGgo="
+	var withFiles store.Task
+	if code := chatCall("POST", "/api/v1/chat/agents/"+a.ID+"/messages", map[string]any{
+		"conversation": "c0123", "images": []string{png},
+		"files": []map[string]string{{"name": "notes.txt", "text": "Initech: call back"}},
+	}, &withFiles); code != http.StatusCreated || withFiles.Prompt != "" {
+		t.Fatalf("a message of only attachments: %d %+v", code, withFiles)
+	}
+	att, err := st.TaskAttachments(ctx, withFiles.ID)
+	if err != nil || len(att.Images) != 1 || att.Images[0] != png || len(att.Files) != 1 || att.Files[0].Name != "notes.txt" {
+		t.Fatalf("stored attachments = %+v, %v", att, err)
+	}
+	var shown struct {
+		Prompt   string          `json:"prompt"`
+		Attached *store.Attached `json:"attached"`
+	}
+	call("GET", "/api/v1/tasks/"+withFiles.ID, nil, &shown)
+	if shown.Attached == nil || shown.Attached.Images != 1 || !slices.Equal(shown.Attached.Files, []string{"notes.txt"}) {
+		t.Fatalf("the panel's task = %+v", shown)
+	}
+	var plain struct {
+		Attached *store.Attached `json:"attached"`
+	}
+	call("GET", "/api/v1/tasks/"+asked.ID, nil, &plain)
+	if plain.Attached != nil {
+		t.Fatalf("a task without attachments names some: %+v", plain.Attached)
 	}
 
 	// Somebody outside the organisation is told no, and nothing is queued.

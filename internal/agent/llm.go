@@ -19,18 +19,41 @@ import (
 // the panel shows whole steps.
 
 type message struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"-"`
+	Role    string `json:"role"`
+	Content string `json:"-"`
+	// Images are data URLs, sent after Content as parts.
+	Images     []string   `json:"-"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
+type contentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *imageURL `json:"image_url,omitempty"`
+}
+
+type imageURL struct {
+	URL string `json:"url"`
+}
+
 // MarshalJSON sends an assistant's empty content as null: some providers
-// refuse an empty text next to tool calls.
+// refuse an empty text next to tool calls. Content is a list of parts only
+// with images, since models that read only text refuse that form.
 func (m message) MarshalJSON() ([]byte, error) {
 	type plain message
 	var content any = m.Content
-	if m.Content == "" && len(m.ToolCalls) > 0 {
+	switch {
+	case len(m.Images) > 0:
+		parts := make([]contentPart, 0, len(m.Images)+1)
+		if m.Content != "" {
+			parts = append(parts, contentPart{Type: "text", Text: m.Content})
+		}
+		for _, url := range m.Images {
+			parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageURL{URL: url}})
+		}
+		content = parts
+	case m.Content == "" && len(m.ToolCalls) > 0:
 		content = nil
 	}
 	return json.Marshal(struct {
@@ -51,29 +74,27 @@ func (m *message) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 	*m = message(v.plain)
-	m.Content = contentText(v.Content)
+	m.Content, m.Images = readContent(v.Content)
 	return nil
 }
 
-func contentText(raw json.RawMessage) string {
+func readContent(raw json.RawMessage) (text string, images []string) {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return s
+		return s, nil
 	}
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var parts []contentPart
 	if json.Unmarshal(raw, &parts) != nil {
-		return ""
+		return "", nil
 	}
 	var b strings.Builder
 	for _, p := range parts {
-		if p.Text != "" {
-			b.WriteString(p.Text)
+		b.WriteString(p.Text)
+		if p.ImageURL != nil {
+			images = append(images, p.ImageURL.URL)
 		}
 	}
-	return b.String()
+	return b.String(), images
 }
 
 type toolCall struct {
@@ -194,12 +215,13 @@ func (g *gateway) post(ctx context.Context, url, apiKey, taskID string, body []b
 	return msg, nil
 }
 
-// contextTooLong reports whether the model refused the request for its size.
+// contextTooLong reports whether the model refused the request for its size,
+// or the gateway did: images in a chat's history can outgrow its limit.
 func contextTooLong(err error) bool {
 	he, ok := errors.AsType[*httpError](err)
 	if !ok {
 		return false
 	}
-	return he.Code == "context_length_exceeded" ||
+	return he.Code == "context_length_exceeded" || he.Status == http.StatusRequestEntityTooLarge ||
 		(he.Status == http.StatusBadRequest && strings.Contains(strings.ToLower(he.Msg), "context length"))
 }

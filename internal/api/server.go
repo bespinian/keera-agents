@@ -488,7 +488,11 @@ func (s *Server) record(ctx context.Context, p Principal, action, target string,
 // ------------------------------------------------------------ helpers
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	return readJSONUpTo(w, r, v, 1<<20)
+}
+
+func readJSONUpTo(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {

@@ -280,6 +280,21 @@ func (m CatalogRef) CallsTools() bool {
 	return m.Capabilities == nil || slices.Contains(m.Capabilities, "tools")
 }
 
+// ReadsImages reports whether the model reads images. A gateway too old to
+// say is taken to mean no.
+func (m CatalogRef) ReadsImages() bool {
+	return slices.Contains(m.Capabilities, "vision")
+}
+
+// Model finds a model or router by its alias.
+func (c Catalog) Model(alias string) (CatalogRef, bool) {
+	i := slices.IndexFunc(c.Models, func(m CatalogRef) bool { return m.Alias == alias })
+	if i < 0 {
+		return CatalogRef{}, false
+	}
+	return c.Models[i], true
+}
+
 type MCPRef struct {
 	Alias string `json:"alias"`
 }

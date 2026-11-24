@@ -143,6 +143,9 @@ func (rn *Runner) build(ctx context.Context, a store.Agent) (protocol.Bootstrap,
 		Connected: conn,
 	}
 	if cat, err := rn.gw.Catalog(ctx, a.OrgID, a.ProjectID); err == nil {
+		if m, ok := cat.Model(a.Model); ok {
+			b.Agent.TextOnly = !m.ReadsImages()
+		}
 		for _, m := range cat.MCPServers {
 			// The key refuses the others; leaving them out saves the
 			// runtime connecting to each to be told so.
@@ -211,7 +214,13 @@ func (rn *Runner) next(w http.ResponseWriter, r *http.Request, a store.Agent) {
 		}
 		if err == nil {
 			_ = rn.st.TouchAgent(r.Context(), a.ID)
-			writeJSON(w, http.StatusOK, rn.taskFor(r.Context(), a, t))
+			pt, err := rn.taskFor(r.Context(), a, t)
+			if err != nil {
+				// The task stays running, so the next call hands it back.
+				writeError(w, http.StatusInternalServerError, "internal", "could not read the task")
+				return
+			}
+			writeJSON(w, http.StatusOK, pt)
 			return
 		}
 		if !errors.Is(err, store.ErrNotFound) {
@@ -234,7 +243,9 @@ func (rn *Runner) next(w http.ResponseWriter, r *http.Request, a store.Agent) {
 	}
 }
 
-func (rn *Runner) taskFor(ctx context.Context, a store.Agent, t store.Task) protocol.Task {
+// taskFor fails only when the task's attachments cannot be read: running it
+// without them would answer a question about files the agent never saw.
+func (rn *Runner) taskFor(ctx context.Context, a store.Agent, t store.Task) (protocol.Task, error) {
 	pt := protocol.Task{
 		ID: t.ID, Source: t.Source, Prompt: t.Prompt, Conversation: t.Conversation,
 		RequestedBy: protocol.Person{Email: t.RequestedBy},
@@ -248,7 +259,13 @@ func (rn *Runner) taskFor(ctx context.Context, a store.Agent, t store.Task) prot
 	if t.Deadline != nil {
 		pt.Deadline = *t.Deadline
 	}
-	return pt
+	if t.Source == protocol.SourceChat {
+		var err error
+		if pt.Attachments, err = rn.st.TaskAttachments(ctx, t.ID); err != nil {
+			return pt, err
+		}
+	}
+	return pt, nil
 }
 
 // task loads a task of this agent.

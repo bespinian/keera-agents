@@ -687,3 +687,93 @@ func TestThePromptSaysWhatTheAgentIsConnectedTo(t *testing.T) {
 		t.Errorf("prompt with nothing connected:\n%s", got)
 	}
 }
+
+func TestSendsAttachmentsAndKeepsThemWithTheHistory(t *testing.T) {
+	const img = "data:image/png;base64,iVBORw0KGgo="
+	cp := newFakeControlPlane(t)
+	gw := newFakeGateway(t, func(n int, _ gwRequest) (int, string) { return 200, answer(fmt.Sprintf("answer %d", n)) })
+	cp.setBoot(func(b *protocol.Bootstrap) { *b = baseBoot(gw) })
+	cp.push(protocol.Task{
+		ID: "tsk_1", Prompt: "What is in these?", Conversation: "keera-chat:usr_1:c1",
+		Attachments: protocol.Attachments{
+			Images: []string{img},
+			Files:  []protocol.File{{Name: "notes.txt", Text: "Order 42 ships Monday.\n"}},
+		},
+	})
+	cp.push(protocol.Task{ID: "tsk_2", Prompt: "And the image?", Conversation: "keera-chat:usr_1:c1"})
+	ws := startRunner(t, cp)
+	cp.wait(t)
+	cp.wait(t)
+
+	reqs := gw.requests()
+	if len(reqs) != 2 {
+		t.Fatalf("%d model calls, want 2", len(reqs))
+	}
+	first := reqs[0].Body.Messages[1]
+	if !strings.HasPrefix(first.Content, "<file name=\"notes.txt\">\nOrder 42 ships Monday.\n</file>") ||
+		!strings.Contains(first.Content, "What is in these?") || len(first.Images) != 1 || first.Images[0] != img {
+		t.Errorf("first message = %+v", first)
+	}
+	// The second message's history still carries both.
+	msgs := reqs[1].Body.Messages
+	if len(msgs) != 4 || len(msgs[1].Images) != 1 || !strings.Contains(msgs[1].Content, "Order 42") ||
+		len(msgs[3].Images) != 0 {
+		t.Errorf("second request = %+v", msgs)
+	}
+	path := historyPath(ws, "keera-chat:usr_1:c1")
+	if turns := loadHistory(path, 10); turns[0].Attachments != "tsk_1" || strings.Contains(turns[0].Content, "Order 42") {
+		t.Errorf("history = %+v, want the attachments apart from the message", turns)
+	}
+
+	// Compacting drops the attachments of the turns it drops.
+	if err := saveAttachments(attachmentsDir(path), "tsk_gone", protocol.Attachments{Images: []string{img}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := compactHistory(path); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(attachmentsDir(path))
+	if len(entries) != 1 || entries[0].Name() != "tsk_1.json" {
+		t.Errorf("attachments after compacting = %v", entries)
+	}
+}
+
+func TestLeavesImagesOutForATextOnlyModel(t *testing.T) {
+	cp := newFakeControlPlane(t)
+	gw := newFakeGateway(t, func(int, gwRequest) (int, string) { return 200, answer("I cannot see it.") })
+	boot := baseBoot(gw)
+	boot.Agent.TextOnly = true
+	cp.setBoot(func(b *protocol.Bootstrap) { *b = boot })
+	cp.push(protocol.Task{
+		ID: "tsk_1", Prompt: "What is this?", Conversation: "keera-chat:usr_1:c1",
+		Attachments: protocol.Attachments{Images: []string{"data:image/png;base64,iVBORw0KGgo="}},
+	})
+	startRunner(t, cp)
+	cp.wait(t)
+	req := gw.requests()[0]
+	if strings.Contains(req.Raw, "image_url") || !strings.HasPrefix(req.Body.Messages[1].Content,
+		"[1 image left out here: this model reads text only]") {
+		t.Errorf("request = %s", req.Raw)
+	}
+}
+
+func TestDropsTheHistoryWhenTheGatewayFindsTheRequestTooLarge(t *testing.T) {
+	cp := newFakeControlPlane(t)
+	gw := newFakeGateway(t, func(n int, _ gwRequest) (int, string) {
+		if n == 1 {
+			return gatewayError(413, "request_too_large", "the request body exceeds the gateway's limit")
+		}
+		return 200, answer("ok")
+	})
+	cp.setBoot(func(b *protocol.Bootstrap) { *b = baseBoot(gw) })
+	cp.push(protocol.Task{ID: "tsk_1", Prompt: "one", Conversation: "c"})
+	cp.push(protocol.Task{ID: "tsk_2", Prompt: "two", Conversation: "c"})
+	startRunner(t, cp)
+	cp.wait(t)
+	if fin := cp.wait(t); fin.State != protocol.Succeeded {
+		t.Fatalf("finish = %+v", fin)
+	}
+	if reqs := gw.requests(); len(reqs) != 3 || len(reqs[2].Body.Messages) != 2 {
+		t.Errorf("the retry kept the history: %d calls", len(reqs))
+	}
+}

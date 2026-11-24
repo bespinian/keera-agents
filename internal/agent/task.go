@@ -52,8 +52,15 @@ func (r *runner) runTask(ctx context.Context, task protocol.Task) {
 		}
 		path := historyPath(r.cfg.Workspace, task.Conversation)
 		now := r.now()
-		if herr := appendHistory(path, turn{Role: "user", Content: taskMessage(task), At: start},
-			turn{Role: "assistant", Content: answer, At: now}); herr != nil {
+		asked := turn{Role: "user", Content: taskMessage(task), At: start}
+		if !task.Attachments.Empty() {
+			if aerr := saveAttachments(attachmentsDir(path), task.ID, task.Attachments); aerr != nil {
+				log.Warn("agent: saving the attachments failed", "error", aerr)
+			} else {
+				asked.Attachments = task.ID
+			}
+		}
+		if herr := appendHistory(path, asked, turn{Role: "assistant", Content: answer, At: now}); herr != nil {
 			log.Warn("agent: saving the conversation failed", "error", herr)
 		}
 	}
@@ -131,15 +138,23 @@ func (r *runner) work(ctx context.Context, task protocol.Task, ev *eventSink) (s
 	tools := r.toolbox(boot, task)
 
 	var history []turn
+	var attached string
 	if task.Conversation != "" {
-		history = loadHistory(historyPath(r.cfg.Workspace, task.Conversation), historyTurns)
+		path := historyPath(r.cfg.Workspace, task.Conversation)
+		history = loadHistory(path, historyTurns)
+		attached = attachmentsDir(path)
 	}
+	textOnly := boot.Agent.TextOnly
 	conv := &conversation{history: len(history)}
 	conv.msgs = append(conv.msgs, message{Role: "system", Content: r.systemPrompt(boot)})
 	for _, t := range history {
+		if t.Role == "user" && t.Attachments != "" {
+			conv.msgs = append(conv.msgs, userMessage(t.Content, loadAttachments(attached, t.Attachments), textOnly))
+			continue
+		}
 		conv.msgs = append(conv.msgs, message{Role: t.Role, Content: t.Content})
 	}
-	conv.msgs = append(conv.msgs, message{Role: "user", Content: taskMessage(task)})
+	conv.msgs = append(conv.msgs, userMessage(taskMessage(task), task.Attachments, textOnly))
 
 	maxSteps := boot.Agent.MaxSteps
 	last := ""

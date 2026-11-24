@@ -139,7 +139,8 @@ repository, the command that clones it. The same lists are in the tools'
 descriptions, but models tend to miss them there.
 
 A chat thread keeps its history in the workspace, so a follow-up in the same
-thread has the context of the earlier messages.
+thread has the context of the earlier messages, and of what was attached in
+Keera Chat (see [tasks.md](tasks.md#keera-chat)).
 
 The machine is the boundary: the agent may do anything inside it. Pick the
 isolation tier with that in mind. A new agent or workspace gets the strongest
