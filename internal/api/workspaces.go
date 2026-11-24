@@ -7,12 +7,14 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/fleet"
+	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/id"
 	"github.com/bespinian/keera-agents/internal/protocol"
 	"github.com/bespinian/keera-agents/internal/runtime"
@@ -136,7 +138,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 	}
 	a := store.Agent{
 		ID: id.New("wks"), Kind: store.KindWorkspace, OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email,
-		Access: store.AccessOwner, Enabled: true,
+		OwnerName: p.Name, Access: store.AccessOwner, Enabled: true,
 	}
 	// The owner comes first: whether an image may be chosen depends on it.
 	if in.OwnerID != nil && *in.OwnerID != "" && *in.OwnerID != p.UserID {
@@ -144,7 +146,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		if !ok {
 			return
 		}
-		a.OwnerID, a.OwnerEmail = u.ID, u.Email
+		a.OwnerID, a.OwnerEmail, a.OwnerName = u.ID, u.Email, u.Name
 	}
 	if in.Model == nil {
 		// The coding agent lets its user pick any model the key may use;
@@ -159,11 +161,12 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 			s.gatewayFailed(w, err)
 			return
 		}
-		if len(cat.Models) == 0 {
-			badRequest(w, "your project allows no models; ask an administrator")
+		i := slices.IndexFunc(cat.Models, gateway.CatalogRef.CallsTools)
+		if i < 0 {
+			badRequest(w, "your project allows no model that calls tools; ask an administrator")
 			return
 		}
-		in.Model = &cat.Models[0].Alias
+		in.Model = &cat.Models[i].Alias
 	}
 	in.Class = s.newClass(in.Class)
 	if err := s.applyWorkspace(r.Context(), p, &a, in); err != nil {

@@ -98,8 +98,10 @@ func TestToolKind(t *testing.T) {
 		"fakeapi_search":    "fakeapi",
 		"send_message":      "chat",
 		"board_create_card": "board",
+		"squad_list":        "squad",
 		"files_read":        "files",
 		"repo_open_change":  "repo",
+		"model_transcribe":  "model",
 		"nosuch_tool":       "unknown",
 		"rm":                "unknown",
 	} {

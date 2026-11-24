@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -68,6 +69,19 @@ func newFake(t *testing.T) *fake {
 			}
 		case "/conversations.info":
 			_, _ = w.Write([]byte(`{"ok":true,"channel":{"name":"general"}}`))
+		case "/users.conversations":
+			// Two pages, so the cursor is followed.
+			if r.URL.Query().Get("cursor") == "" {
+				_, _ = w.Write([]byte(`{"ok":true,"channels":[{"id":"C1","name":"general"}],"response_metadata":{"next_cursor":"p2"}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"ok":true,"channels":[{"id":"G1","name":"board","is_private":true}],"response_metadata":{"next_cursor":""}}`))
+		case "/users.lookupByEmail":
+			if r.URL.Query().Get("email") != "ana@example.ch" {
+				_, _ = w.Write([]byte(`{"ok":false,"error":"users_not_found"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"ok":true,"user":{"id":"U1"}}`))
 		case "/chat.postMessage":
 			f.posted = nil
 			if err := json.NewDecoder(r.Body).Decode(&f.posted); err != nil {
@@ -156,7 +170,7 @@ func TestReceiveMention(t *testing.T) {
 	m := rc.Messages[0]
 	want := connectors.Inbound{
 		Target:            connectors.Target{Conversation: "C1", Thread: "111.222"},
-		Sender:            connectors.Person{Email: "ana@example.ch"},
+		Sender:            connectors.Person{Email: "ana@example.ch", ID: "U1"},
 		Text:              "what is 1 < 2 for <@U2>?",
 		MessageID:         "C1/111.222",
 		ConversationLabel: "#general",
@@ -189,7 +203,7 @@ func TestReceiveDirect(t *testing.T) {
 		t.Fatalf("messages = %+v, %v", rc.Messages, err)
 	}
 	m := rc.Messages[0]
-	if !m.Direct || m.Target.Thread != "" || m.ConversationLabel != "" || m.Sender.Email != "ana@example.ch" {
+	if !m.Direct || m.Target.Thread != "" || m.ConversationLabel != "" || m.Sender.Email != "ana@example.ch" || m.Sender.ID != "U1" {
 		t.Errorf("direct = %+v", m)
 	}
 }
@@ -197,8 +211,8 @@ func TestReceiveDirect(t *testing.T) {
 func TestReceiveSenderWorkspace(t *testing.T) {
 	a := newFake(t).adapter()
 	for user, want := range map[string]connectors.Person{
-		"UGRID": {Email: "gina@example.ch"},
-		"UEXT":  {Outside: true},
+		"UGRID": {Email: "gina@example.ch", ID: "UGRID"},
+		"UEXT":  {Outside: true, ID: "UEXT"},
 	} {
 		body := callback(`{"type":"message","channel_type":"im","user":"` + user + `","text":"hello","channel":"D1","ts":"5.6"}`)
 		rc, err := a.Receive(context.Background(), conn, signed(t, body, time.Now()), []byte(body))
@@ -280,6 +294,26 @@ func TestSend(t *testing.T) {
 	}
 	if f.posts != 3 || f.posted["thread_ts"] != "111.222" {
 		t.Errorf("%d posts, last %v", f.posts, f.posted["thread_ts"])
+	}
+}
+
+func TestChannels(t *testing.T) {
+	a := newFake(t).adapter()
+	got, err := a.Channels(context.Background(), conn)
+	want := []connectors.Channel{{ID: "C1", Name: "#general"}, {ID: "G1", Name: "#board", Private: true}}
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("Channels = %+v, %v", got, err)
+	}
+}
+
+func TestDirect(t *testing.T) {
+	a := newFake(t).adapter()
+	got, err := a.Direct(context.Background(), conn, "ana@example.ch")
+	if err != nil || got.ID != "U1" || !got.Direct {
+		t.Errorf("Direct = %+v, %v", got, err)
+	}
+	if _, err := a.Direct(context.Background(), conn, "bob@example.ch"); err == nil || !strings.Contains(err.Error(), "nobody with the email bob@example.ch") {
+		t.Errorf("err = %v", err)
 	}
 }
 

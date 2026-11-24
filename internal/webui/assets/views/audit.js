@@ -31,7 +31,7 @@ const TONES = {
   "account.user_left": "warn",
   "ssh_key.add": "accent",
   "ssh_key.delete": "bad",
-  "board.delete": "bad",
+  "squad.delete": "bad",
   "schedule.delete": "bad",
   "binding.delete": "bad",
   "task.cancel": "warn",
@@ -63,8 +63,9 @@ const LABELS = {
   "account.user_left": "Account's user left",
   "ssh_key.add": "SSH key added",
   "ssh_key.delete": "SSH key removed",
-  "board.create": "Board created",
-  "board.delete": "Board deleted",
+  "squad.create": "Squad created",
+  "squad.update": "Squad changed",
+  "squad.delete": "Squad deleted",
   "schedule.create": "Schedule created",
   "schedule.update": "Schedule changed",
   "schedule.delete": "Schedule deleted",
@@ -130,10 +131,11 @@ export async function auditView() {
     ],
     rows,
     {
-      search: (e) => `${e.actor} ${label(e.action)} ${e.action} ${e.target} ${e.detail ? JSON.stringify(e.detail) : ""}`,
+      search: (e) =>
+        `${e.actor} ${label(e.action)} ${e.action} ${e.target} ${e.detail ? JSON.stringify(e.detail) : ""}`,
       searchLabel: "the loaded entries",
       emptyTitle: "Nothing logged yet",
-      emptyBody: "Changes to agents, connectors, schedules and boards show here.",
+      emptyBody: "Changes to agents, connectors, schedules and squads show here.",
     },
   );
   return h(
@@ -142,7 +144,7 @@ export async function auditView() {
     h(
       "div",
       { class: "muted", style: { marginBottom: "16px" } },
-      "Every change to agents, their connectors, schedules and boards, newest first.",
+      "Every change to agents, their connectors, schedules and squads, newest first.",
     ),
     list,
     rows.length === PAGE

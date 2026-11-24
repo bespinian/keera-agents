@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/bespinian/keera-agents/internal/protocol"
 )
 
 // The model is reached through the gateway's OpenAI-compatible Chat
@@ -170,7 +172,7 @@ func (g *gateway) post(ctx context.Context, url, apiKey, taskID string, body []b
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 	if taskID != "" {
-		req.Header.Set(sessionHeader, taskID)
+		req.Header.Set(protocol.SessionHeader, taskID)
 	}
 	resp, err := g.http.Do(req)
 	if err != nil {
@@ -191,10 +193,6 @@ func (g *gateway) post(ctx context.Context, url, apiKey, taskID string, body []b
 	msg.Role = "assistant"
 	return msg, nil
 }
-
-// sessionHeader carries the task's id on every gateway request, so the
-// gateway shows each task as one session.
-const sessionHeader = "X-Keera-Session"
 
 // contextTooLong reports whether the model refused the request for its size.
 func contextTooLong(err error) bool {

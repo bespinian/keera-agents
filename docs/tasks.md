@@ -3,14 +3,14 @@
 A task is one piece of work for one agent. This page explains where tasks
 come from, who they are attributed to, and where their results go.
 
-| Source     | Made when                                       | Attributed to            | Result goes to                        |
-| ---------- | ----------------------------------------------- | ------------------------ | ------------------------------------- |
-| `chat`     | someone writes to the agent in a connected chat | the sender               | a reply in the same thread            |
-| `chat`     | someone writes to the agent in Keera Chat       | the sender               | Keera Chat reads it from the task     |
-| `schedule` | a schedule is due                               | who last changed it      | the schedule's chat, if it has one    |
-| `board`    | a card assigned to the agent sits in To do      | who last gave it work    | a comment, and the card moves on      |
-| `file`     | a file is added or changed in a watched folder  | who connected the folder | the task log                          |
-| `manual`   | someone types a task in the panel               | that person              | the panel                             |
+| Source     | Made when                                       | Attributed to            | Result goes to                     |
+| ---------- | ----------------------------------------------- | ------------------------ | ---------------------------------- |
+| `chat`     | someone writes to the agent in a connected chat | the sender               | a reply in the same thread         |
+| `chat`     | someone writes to the agent in Keera Chat       | the sender               | Keera Chat reads it from the task  |
+| `schedule` | a schedule is due                               | who last changed it      | the schedule's chat, if it has one |
+| `board`    | a card assigned to the agent sits in To do      | who last gave it work    | a comment, and the card moves on   |
+| `file`     | a file is added or changed in a watched folder  | who connected the folder | the task log                       |
+| `manual`   | someone types a task in the panel               | that person              | the panel                          |
 
 Every task is in the panel's task log with what the agent did: its messages,
 tool calls and results. The gateway sees each task as one session, named by
@@ -91,10 +91,24 @@ A schedule runs for whoever changed it last, and a run started from the panel
 runs for whoever started it. So changing someone else's schedule never
 borrows their rights.
 
-## The board
+## Squads
 
-Five columns: Backlog, To do, In progress, Review, Done. Boards belong to the
-organisation; everyone in it can read and change them.
+A squad is a group of agents with a shared board. People put work on the
+board as cards, and the agents hand each other work there. An agent can be in
+several squads. Squads belong to the organisation: everyone in it can read and
+change them.
+
+A squad has:
+
+- **A goal**: what the squad is for. Every member reads it with each card.
+- **Members**: the agents that may be given its cards. A card's agent must be
+  a member. An agent that leaves loses its cards that are not in progress or
+  done.
+- **A lead**, if you choose one: a member that takes the cards put in To do
+  without an agent, and hands out the work. A lead that leaves the squad
+  stops being the lead.
+
+The board has five columns: Backlog, To do, In progress, Review, Done.
 
 A card in To do with an agent is picked up within seconds: it moves to In
 progress, the agent works on it with its title, description and comments, and
@@ -103,18 +117,43 @@ person to check. One that failed moves to Backlog, so it is not picked up
 again in a loop. A card a person moved meanwhile stays where they put it, and
 saving an edit to a card does not move it back.
 
-Agents can use the board too: list, create, update and comment on cards. An
-agent can hand work to another by creating a card assigned to it.
+**Agents on the board.** Members list, read, create, update and comment on
+the cards of their squads; other squads' cards they cannot see. To hand work
+to another member, an agent creates a card assigned to it. `squad_list` shows
+each squad's goal, its lead, and the members it may hand work to, with their
+descriptions, so a clear description helps it choose. The list leaves out
+members that are stopped and those the person the task is for may not give work.
+An agent that is in no squad has no board tools.
 
-Assigning a card, moving an assigned card to To do, and rewriting or
-commenting on an assigned card in any column give its agent work: the title,
-description and comments become the task once the card reaches To do. So
-whoever does it must be allowed to by that agent's `access`, and an agent
-only for the person its task is for. The rule is checked again at pickup: a
-card whose giver may no longer give the agent work goes back to Backlog,
-with a comment saying why. The task then
-runs for whoever gave the work, not whoever created the card, so editing
-someone else's card never borrows their rights.
+**Handing out work.** A card an agent creates while working on a card is
+handed out from it. When the agent finishes, its card does not go to Review:
+it waits in In progress until every card it handed out has left To do and In
+progress. Then it goes back to To do, and the agent picks it up again with
+their results in its task. It may hand out more, or finish the card. A card
+made by a person, or by an agent working on something else, such as a chat,
+goes to Review as usual. Moving a waiting card ends the wait.
+
+So that agents cannot keep each other busy forever:
+
+- a card can be handed on at most 3 times: a card handed out from a card that
+  was handed out from a card, and so on;
+- an agent can hand out at most 20 cards from one card;
+- agents cannot create cards in a squad that has 100 cards in To do and In
+  progress.
+
+People are not held to these limits.
+
+**Who it runs for.** Assigning a card, moving an assigned card to To do, and
+rewriting or commenting on an assigned card in any column give its agent
+work: the title, description and comments become the task once the card
+reaches To do. So whoever does it must be allowed to by that agent's
+`access`, and an agent only for the person its task is for. The rule is
+checked again at pickup: a card whose giver may no longer give the agent work
+goes back to Backlog, with a comment saying why. The task then runs for
+whoever gave the work, not whoever created the card, so editing someone
+else's card never borrows their rights. A card an agent hands out runs for
+the person its own task is for, so work passed along a squad never gains
+rights on the way.
 
 Comments are Markdown, rendered as task results are.
 

@@ -50,6 +50,19 @@ func TestMigrateRefusesANewerDatabase(t *testing.T) {
 	}
 }
 
+func TestMigrateKnowsRenamedMigrations(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	if _, err := st.pool.Exec(ctx,
+		`UPDATE schema_migrations SET version = '0002_retries.sql' WHERE version = '0002_v0.2.0.sql'`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if applied, err := st.Migrate(ctx); err != nil || len(applied) != 0 {
+		t.Fatalf("Migrate = %v, %v", applied, err)
+	}
+}
+
 func newAgent(t *testing.T, st *Store, org, name string) Agent {
 	t.Helper()
 	a, err := st.CreateAgent(context.Background(), Agent{
@@ -73,9 +86,6 @@ func TestAgentNamesAreUniquePerOrg(t *testing.T) {
 		t.Fatalf("same name, other case: %v", err)
 	}
 	newAgent(t, st, "org_b", "Scout")
-	if got, err := st.AgentByName(ctx, "org_a", "SCOUT"); err != nil || got.ID != a.ID {
-		t.Fatalf("AgentByName = %v, %v", got.ID, err)
-	}
 	// A deleted agent frees its name.
 	if err := st.DeleteAgent(ctx, a.ID); err != nil {
 		t.Fatal(err)
@@ -435,17 +445,24 @@ func TestCardPickup(t *testing.T) {
 	st := openTest(t)
 	ctx := context.Background()
 	a := newAgent(t, st, "org_a", "Scout")
-	b, err := st.CreateBoard(ctx, Board{ID: id.New("brd"), OrgID: "org_a", Name: "Ops", CreatedBy: "ada"})
+	b, err := st.CreateSquad(ctx, Squad{ID: id.New("sqd"), OrgID: "org_a", Name: "Ops", CreatedBy: "ada"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c1, _ := st.CreateCard(ctx, Card{ID: id.New("card"), BoardID: b.ID, Title: "one", Status: CardTodo, AgentID: &a.ID, CreatedBy: "ada"})
-	c2, _ := st.CreateCard(ctx, Card{ID: id.New("card"), BoardID: b.ID, Title: "two", Status: CardTodo, CreatedBy: "ada"})
+	c1, _ := st.CreateCard(ctx, Card{ID: id.New("card"), SquadID: b.ID, Title: "one", Status: CardTodo, AgentID: &a.ID, CreatedBy: "ada"})
+	c2, _ := st.CreateCard(ctx, Card{ID: id.New("card"), SquadID: b.ID, Title: "two", Status: CardTodo, CreatedBy: "ada"})
 	if c2.Position <= c1.Position {
 		t.Fatalf("new cards go last: %v then %v", c1.Position, c2.Position)
 	}
 	if c1.AgentName != "Scout" || c1.OrgID != "org_a" {
 		t.Fatalf("card joins: %+v", c1)
+	}
+	// Only a member's card is picked up.
+	if pick, err := st.PickupCards(ctx); err != nil || len(pick) != 0 {
+		t.Fatalf("PickupCards of a non-member = %v, %v", pick, err)
+	}
+	if _, err := st.UpdateSquad(ctx, b, []string{a.ID}); err != nil {
+		t.Fatal(err)
 	}
 	pick, err := st.PickupCards(ctx)
 	if err != nil || len(pick) != 1 || pick[0].ID != c1.ID {
@@ -486,7 +503,7 @@ func TestCardPickup(t *testing.T) {
 	if got, _ := st.Card(ctx, c1.ID); got.RequestedByID != "usr_bob" || got.CreatedBy != "ada" {
 		t.Fatalf("after giving work: %+v", got)
 	}
-	cards, err := st.BoardCards(ctx, b.ID)
+	cards, err := st.SquadCards(ctx, b.ID)
 	if err != nil || len(cards) != 2 || cards[0].ID != c2.ID {
 		t.Fatalf("board order: %v, %v", cards, err)
 	}
@@ -679,9 +696,6 @@ func TestWorkspacesAreNotAgents(t *testing.T) {
 	agents, err := st.Agents(ctx, "org_a")
 	if err != nil || len(agents) != 1 || agents[0].ID != agent.ID {
 		t.Fatalf("Agents = %v, %v", agents, err)
-	}
-	if got, err := st.AgentByName(ctx, "org_a", "dev"); err != nil || got.ID != agent.ID {
-		t.Fatalf("AgentByName found %v, %v", got.ID, err)
 	}
 	ws, err := st.Workspaces(ctx, "org_a", "usr_1")
 	if err != nil || len(ws) != 1 || ws[0].ID != mine.ID || ws[0].Experience != ExperienceTerminal {
@@ -879,5 +893,98 @@ func TestAccounts(t *testing.T) {
 	}
 	if holders, _ := st.AccountHolders(ctx); len(holders) != 0 {
 		t.Errorf("accounts outlived their connector: %+v", holders)
+	}
+}
+
+func TestSquadMembers(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	scout := newAgent(t, st, "org_a", "Scout")
+	writer := newAgent(t, st, "org_a", "Writer")
+	q, err := st.CreateSquad(ctx, Squad{ID: id.New("sqd"), OrgID: "org_a", Name: "Sales", Goal: "Sell.", CreatedBy: "ada"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.LeadID = &writer.ID
+	if _, err := st.UpdateSquad(ctx, q, []string{scout.ID, writer.ID}); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := st.CreateSquad(ctx, Squad{ID: id.New("sqd"), OrgID: "org_a", Name: "Support", CreatedBy: "ada"}, nil)
+	if _, err := st.UpdateSquad(ctx, other, []string{writer.ID}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Squad(ctx, q.ID)
+	if err != nil || len(got.Members) != 2 || got.Members[0].Name != "Scout" || got.LeadID == nil || *got.LeadID != writer.ID {
+		t.Fatalf("Squad = %+v, %v", got, err)
+	}
+	// An agent can be in several squads.
+	if mine, _ := st.AgentSquads(ctx, writer.ID); len(mine) != 2 {
+		t.Fatalf("Writer's squads: %+v", mine)
+	}
+
+	card := func(status string) Card {
+		c, err := st.CreateCard(ctx, Card{ID: id.New("card"), SquadID: q.ID, Title: status, Status: status, AgentID: &writer.ID, CreatedBy: "ada"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	waiting, working := card(CardTodo), card(CardInProgress)
+	// Writer leaves: no longer the lead, and its cards not in progress lose
+	// their agent.
+	if _, err := st.UpdateSquad(ctx, got, []string{scout.ID}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.Squad(ctx, q.ID)
+	if len(got.Members) != 1 || got.LeadID != nil {
+		t.Fatalf("after Writer left: %+v", got)
+	}
+	if c, _ := st.Card(ctx, waiting.ID); c.AgentID != nil {
+		t.Fatal("the card in To do kept its agent")
+	}
+	if c, _ := st.Card(ctx, working.ID); c.AgentID == nil {
+		t.Fatal("the card in progress lost its agent")
+	}
+	if mine, _ := st.AgentSquads(ctx, writer.ID); len(mine) != 1 || mine[0].Name != "Support" {
+		t.Fatalf("Writer's squads: %+v", mine)
+	}
+}
+
+func TestWaitingCardsWakeWhenWhatTheyHandedOutIsFinished(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	a := newAgent(t, st, "org_a", "Scout")
+	q, _ := st.CreateSquad(ctx, Squad{ID: id.New("sqd"), OrgID: "org_a", Name: "Ops", CreatedBy: "ada"}, nil)
+	task, _ := st.CreateTask(ctx, Task{ID: id.New("task"), OrgID: "org_a", AgentID: a.ID, Source: "board", Prompt: "x"})
+	parent, _ := st.CreateCard(ctx, Card{ID: id.New("card"), SquadID: q.ID, Title: "Plan", Status: CardInProgress, AgentID: &a.ID, CreatedBy: "ada"})
+	if err := st.MoveCard(ctx, parent.ID, CardInProgress, &task.ID); err != nil {
+		t.Fatal(err)
+	}
+	child, _ := st.CreateCard(ctx, Card{ID: id.New("card"), SquadID: q.ID, Title: "Part", Status: CardTodo, CreatedBy: "Scout", ParentID: &parent.ID, Depth: 1})
+	if err := st.WaitCard(ctx, parent.ID, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if woken, err := st.WakeCards(ctx); err != nil || woken != 0 {
+		t.Fatalf("woke %v, %v while a part is open", woken, err)
+	}
+	if err := st.MoveCard(ctx, child.ID, CardReview, nil); err != nil {
+		t.Fatal(err)
+	}
+	if woken, err := st.WakeCards(ctx); err != nil || woken != 1 {
+		t.Fatalf("woke %v, %v", woken, err)
+	}
+	if got, _ := st.Card(ctx, parent.ID); got.Status != CardTodo || got.Waiting {
+		t.Fatalf("woken: %+v", got)
+	}
+	// A person moving a waiting card ends the wait.
+	if err := st.MoveCard(ctx, parent.ID, CardInProgress, &task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.WaitCard(ctx, parent.ID, task.ID)
+	before, _ := st.Card(ctx, parent.ID)
+	after := before
+	after.Status = CardDone
+	if got, err := st.UpdateCard(ctx, before, after); err != nil || got.Waiting {
+		t.Fatalf("after a move: %+v, %v", got, err)
 	}
 }

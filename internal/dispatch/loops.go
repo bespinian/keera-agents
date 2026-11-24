@@ -90,7 +90,14 @@ func describe(expr string) string {
 }
 
 // PickUpCards starts a task for every card in To do that has an agent.
+// First it moves waiting cards whose handed-out cards are finished back to
+// To do, so they are picked up in the same round.
 func (d *Dispatcher) PickUpCards(ctx context.Context) {
+	if woken, err := d.st.WakeCards(ctx); err != nil {
+		d.log.Warn("could not wake waiting cards", "error", err)
+	} else if woken > 0 {
+		d.log.Info("cards came back to their agents", "cards", woken)
+	}
 	cards, err := d.st.PickupCards(ctx)
 	if err != nil {
 		d.log.Warn("could not read cards to pick up", "error", err)
@@ -106,14 +113,15 @@ func (d *Dispatcher) PickUpCards(ctx context.Context) {
 			continue
 		}
 		comments, _ := d.st.Comments(ctx, c.ID)
-		board, _ := d.st.Board(ctx, c.BoardID)
+		squad, _ := d.st.Squad(ctx, c.SquadID)
+		children := d.handedOut(ctx, c.ID)
 		dedupe := "card:" + c.ID + ":" + strconv.FormatInt(c.UpdatedAt.UnixNano(), 36)
 		t, err := d.Submit(ctx, store.Task{
 			OrgID: c.OrgID, AgentID: *c.AgentID, Source: protocol.SourceBoard,
 			Origin:        store.Origin{Label: "Card " + c.Title, CardID: c.ID},
 			DedupeKey:     &dedupe,
-			Prompt:        cardPrompt(c, comments),
-			Context:       fmt.Sprintf("Card %s on the board %q, given to you by %s.", c.ID, board.Name, c.RequestedBy),
+			Prompt:        cardPrompt(c, squad, comments, children),
+			Context:       fmt.Sprintf("Card %s of the squad %q, given to you by %s.", c.ID, squad.Name, c.RequestedBy),
 			RequestedBy:   c.RequestedBy,
 			RequestedByID: c.RequestedByID,
 		})
@@ -134,11 +142,50 @@ func (d *Dispatcher) PickUpCards(ctx context.Context) {
 	}
 }
 
+// A handout is a card handed out from another, with its last comment by an
+// agent, which is its result.
+type handout struct {
+	store.Card
+	Result string
+}
+
+// handedOut are the cards handed out from a card.
+func (d *Dispatcher) handedOut(ctx context.Context, cardID string) []handout {
+	children, err := d.st.ChildCards(ctx, cardID)
+	if err != nil {
+		d.log.Warn("could not read the cards handed out from a card", "card", cardID, "error", err)
+		return nil
+	}
+	if len(children) == 0 {
+		return nil
+	}
+	ids := make([]string, len(children))
+	for i, c := range children {
+		ids[i] = c.ID
+	}
+	results, err := d.st.Results(ctx, ids)
+	if err != nil {
+		d.log.Warn("could not read the results of the cards handed out from a card", "card", cardID, "error", err)
+	}
+	out := make([]handout, len(children))
+	for i, c := range children {
+		out[i] = handout{Card: c, Result: results[c.ID]}
+	}
+	return out
+}
+
+// maxHandedOutResult cuts each handed-out card's result in a prompt;
+// board_read_card shows the whole card.
+const maxHandedOutResult = 2000
+
 // cardPrompt is the task a card becomes.
-func cardPrompt(c store.Card, comments []store.Comment) string {
+func cardPrompt(c store.Card, q store.Squad, comments []store.Comment, children []handout) string {
 	var prompt strings.Builder
 	// The title first: the task list shows a task by its first line.
-	prompt.WriteString(c.Title + "\n\nThis task is a card on the board. Do what it asks.\n")
+	prompt.WriteString(c.Title + "\n\nThis task is a card on the board of your squad " + q.Name + ". Do what it asks.\n")
+	if q.Goal != "" {
+		prompt.WriteString("\nThe squad's goal: " + q.Goal + "\n")
+	}
 	if c.Body != "" {
 		prompt.WriteString("\n" + c.Body + "\n")
 	}
@@ -148,11 +195,26 @@ func cardPrompt(c store.Card, comments []store.Comment) string {
 			prompt.WriteString("- " + cm.Author + ": " + cm.Body + "\n")
 		}
 	}
+	if len(children) > 0 {
+		prompt.WriteString("\nCards handed out from this one, and their results so far:\n")
+		for _, ch := range children {
+			fmt.Fprintf(&prompt, "- %s %q, %s", ch.ID, ch.Title, strings.ReplaceAll(ch.Status, "_", " "))
+			if ch.AgentName != "" {
+				prompt.WriteString(", " + ch.AgentName)
+			}
+			prompt.WriteString("\n")
+			if r := ch.Result; r != "" {
+				r = cut(r, maxHandedOutResult, "… (board_read_card shows all of it)")
+				prompt.WriteString("  " + strings.ReplaceAll(r, "\n", "\n  ") + "\n")
+			}
+		}
+	}
 	// Weaker models otherwise comment on the card with board tools
 	// instead of doing the work.
 	prompt.WriteString("\nYour final answer is the result: write the work itself there, not a " +
 		"summary of it. It is added to this card as a comment and the card moves to Review on " +
-		"its own. Use the board tools only for other cards.")
+		"its own. If you hand out parts of the work as new cards, this card waits for them " +
+		"instead and comes back to you with their results. Use the board tools only for other cards.")
 	return prompt.String()
 }
 
@@ -446,8 +508,10 @@ const retryFor = time.Hour
 
 // deliverCard moves the card on and comments the result on it. Done work
 // goes to Review and the rest to Backlog, so it is not picked up again in a
-// loop. Both are our own writes, so a failure is tried again: the move
-// first, since a retry skips a card that has moved, and the comment last.
+// loop. Done work that handed out cards waits for them instead, and
+// WakeCards brings it back. Both are our own writes, so a failure is tried
+// again: the move first, since a retry skips a card that has moved, and
+// the comment last.
 func (d *Dispatcher) deliverCard(ctx context.Context, t store.Task) error {
 	card, err := d.st.Card(ctx, t.Origin.CardID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -459,11 +523,25 @@ func (d *Dispatcher) deliverCard(ctx context.Context, t store.Task) error {
 	// Only move a card that is still where the agent left it; a person may
 	// have moved it meanwhile.
 	if card.Status == store.CardInProgress && card.TaskID != nil && *card.TaskID == t.ID {
-		status := store.CardReview
-		if t.State != store.TaskSucceeded {
-			status = store.CardBacklog
+		// Done work that handed out cards waits for them, even those already
+		// finished: the card comes back with their results.
+		waits := false
+		if t.State == store.TaskSucceeded {
+			n, err := d.st.CountChildCards(ctx, card.ID, t.CreatedAt)
+			if err != nil {
+				return fmt.Errorf("%w: %w", errNotSent, err)
+			}
+			waits = n > 0
 		}
-		if err := d.st.MoveCard(ctx, card.ID, status, nil); err != nil {
+		switch {
+		case waits:
+			err = d.st.WaitCard(ctx, card.ID, t.ID)
+		case t.State == store.TaskSucceeded:
+			err = d.st.MoveCard(ctx, card.ID, store.CardReview, nil)
+		default:
+			err = d.st.MoveCard(ctx, card.ID, store.CardBacklog, nil)
+		}
+		if err != nil {
 			return fmt.Errorf("%w: %w", errNotSent, err)
 		}
 	}

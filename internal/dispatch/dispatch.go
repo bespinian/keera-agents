@@ -262,7 +262,7 @@ func (d *Dispatcher) Cancel(ctx context.Context, t store.Task, by string) error 
 }
 
 // May reports whether a person may give the agent work, and if not, why.
-// Chats, the panel, Keera Chat and the board all apply it.
+// Chats, the panel, Keera Chat and squads' boards all apply it.
 func May(a store.Agent, u gateway.User) (bool, string) {
 	if u.Disabled {
 		return false, "your Keera account is disabled"

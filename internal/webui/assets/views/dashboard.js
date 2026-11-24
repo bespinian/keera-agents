@@ -66,7 +66,7 @@ export async function dashboardView(ctx) {
       { class: "grid grid-4" },
       stat("Agents running", num(agents.running), agentNote(agents)),
       stat("Tasks", num(total), `${num(tasks.running)} running, ${num(tasks.queued)} queued`),
-      stat("Done", num(tasks.succeeded), period),
+      stat("Finished", num(tasks.succeeded), period),
       stat("Failed", num(tasks.failed), period),
     ),
     tasksCard(o),
@@ -78,7 +78,7 @@ export async function dashboardView(ctx) {
         more: link(ctx, "/tasks", "All tasks"),
         rows: recent.map((t) => taskRow(ctx, t)),
         emptyTitle: "No tasks yet",
-        emptyBody: "Give an agent a task, or put a card in To do.",
+        emptyBody: "Give an agent a task, or put a card in To do on a squad's board.",
       }),
       listCard({
         title: "Coming up",

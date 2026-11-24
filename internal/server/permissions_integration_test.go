@@ -81,14 +81,14 @@ type fixture struct {
 	adaWorkspace, bobWorkspace string // called dev and lab
 	conn                       string // a chat connector
 	adaBinding, wksBinding     string // Scout in #sales; dev's folder
-	schedule, board, card      string // Scout's; the card is Scout's, in To do
+	schedule, squad, card      string // Scout's; Scout and Helper; the card is Scout's, in To do
 	task, key                  string // Ada's task for Scout; Ada's SSH key
 }
 
 func (f fixture) ids() []string {
 	return []string{
 		f.adaAgent, f.bobAgent, f.adaWorkspace, f.bobWorkspace, f.conn, f.adaBinding, f.wksBinding,
-		f.schedule, f.board, f.card, f.task, f.key,
+		f.schedule, f.squad, f.card, f.task, f.key,
 	}
 }
 
@@ -131,8 +131,8 @@ func seed(t *testing.T, ta *testApp) fixture {
 	f.schedule = mk(ada, "/api/v1/schedules", map[string]any{
 		"agent_id": f.adaAgent, "name": "Morning", "cron": "0 8 * * *", "prompt": "Report.",
 	})
-	f.board = mk(ada, "/api/v1/boards", map[string]any{"name": "Sales"})
-	f.card = mk(ada, "/api/v1/boards/"+f.board+"/cards",
+	f.squad = mk(ada, "/api/v1/squads", map[string]any{"name": "Sales", "members": []string{f.adaAgent, f.bobAgent}})
+	f.card = mk(ada, "/api/v1/squads/"+f.squad+"/cards",
 		map[string]any{"title": "Call Globex", "status": "todo", "agent_id": f.adaAgent})
 	f.task = mk(ada, "/api/v1/agents/"+f.adaAgent+"/tasks", map[string]any{"prompt": "Summarise the week."})
 	f.key = mk(ada, "/api/v1/me/ssh-keys", map[string]any{"name": "laptop", "public_key": sshKey(1)})
@@ -180,13 +180,13 @@ func orgState(t *testing.T, ta *testApp) string {
 	for _, s := range schedules {
 		fmt.Fprintf(&b, "schedule %s %s %s %q %v %s\n", s.ID, s.Name, s.Cron, s.Prompt, s.Enabled, s.RequestedBy)
 	}
-	boards, err := st.Boards(ctx, "org_a")
+	squads, err := st.Squads(ctx, "org_a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, x := range boards {
-		fmt.Fprintf(&b, "board %s %s\n", x.ID, x.Name)
-		cards, err := st.BoardCards(ctx, x.ID)
+	for _, x := range squads {
+		fmt.Fprintf(&b, "squad %s %s %q %v %+v\n", x.ID, x.Name, x.Goal, x.LeadID != nil, x.Members)
+		cards, err := st.SquadCards(ctx, x.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,14 +317,14 @@ func permissionTable(f fixture) []check {
 		{route: "DELETE /api/v1/schedules/{id}", id: f.schedule, other: notFound, member: forbidden},
 		{route: "POST /api/v1/schedules/{id}/run", id: f.schedule, other: notFound, member: forbidden},
 
-		// Boards are the organisation's: a member reads and changes them, but
+		// Squads are the organisation's: a member reads and changes them, but
 		// gives an agent work only as its access rule allows.
-		{route: "GET /api/v1/boards", other: ok, member: ok},
-		{route: "POST /api/v1/boards", body: map[string]string{"name": "Den"}, other: created},
-		{route: "GET /api/v1/boards/{id}", id: f.board, other: notFound, member: ok},
-		{route: "PATCH /api/v1/boards/{id}", id: f.board, body: map[string]string{"name": "Sales"}, other: notFound, member: ok},
-		{route: "DELETE /api/v1/boards/{id}", id: f.board, other: notFound},
-		{route: "POST /api/v1/boards/{id}/cards", id: f.board, body: sneakyCard, other: notFound, member: bad},
+		{route: "GET /api/v1/squads", other: ok, member: ok},
+		{route: "POST /api/v1/squads", body: map[string]string{"name": "Den"}, other: created},
+		{route: "GET /api/v1/squads/{id}", id: f.squad, other: notFound, member: ok},
+		{route: "PATCH /api/v1/squads/{id}", id: f.squad, body: map[string]string{"name": "Sales"}, other: notFound, member: ok},
+		{route: "DELETE /api/v1/squads/{id}", id: f.squad, other: notFound},
+		{route: "POST /api/v1/squads/{id}/cards", id: f.squad, body: sneakyCard, other: notFound, member: bad},
 		{route: "GET /api/v1/cards/{id}", id: f.card, other: notFound, member: ok},
 		{route: "PATCH /api/v1/cards/{id}", id: f.card, body: map[string]string{"title": "Call Initech"}, other: notFound, member: bad},
 		{route: "DELETE /api/v1/cards/{id}", id: f.card, other: notFound},
@@ -353,8 +353,10 @@ func permissionTable(f fixture) []check {
 		{route: "PATCH /api/v1/connections/{id}", id: f.conn, body: map[string]string{"name": "Mine"}, other: notFound, member: forbidden},
 		{route: "DELETE /api/v1/connections/{id}", id: f.conn, other: notFound, member: forbidden},
 		{route: "POST /api/v1/connections/{id}/check", id: f.conn, other: notFound, member: forbidden},
-		// Members may list folders and sign in; this kind has neither.
+		// Members may list folders and channels and sign in; this kind has
+		// none of them.
 		{route: "GET /api/v1/connections/{id}/folders", id: f.conn, other: notFound, member: bad},
+		{route: "GET /api/v1/connections/{id}/channels", id: f.conn, other: notFound, member: bad},
 		{route: "POST /api/v1/connections/{id}/account", id: f.conn, other: notFound, member: bad},
 		{route: "DELETE /api/v1/connections/{id}/account", id: f.conn, other: notFound, member: notFound},
 	}
@@ -684,12 +686,23 @@ func TestOwnersAndAdmins(t *testing.T) {
 		must(t, ada, "DELETE", pit, nil, http.StatusNoContent, nil)
 	})
 
-	t.Run("boards are the organisation's", func(t *testing.T) {
+	t.Run("squads are the organisation's", func(t *testing.T) {
 		var card struct {
 			ID string `json:"id"`
 		}
-		must(t, bob, "PATCH", "/api/v1/boards/"+f.board, map[string]string{"name": "Pipeline"}, http.StatusOK, nil)
-		must(t, bob, "POST", "/api/v1/boards/"+f.board+"/cards", map[string]string{"title": "Draft offer"}, http.StatusCreated, &card)
+		sq := "/api/v1/squads/" + f.squad
+		must(t, bob, "PATCH", sq, map[string]string{"name": "Pipeline"}, http.StatusOK, nil)
+		// Only the organisation's agents can join, and only a member leads.
+		must(t, bob, "PATCH", sq, map[string]any{"members": []string{"agt_elsewhere"}}, http.StatusBadRequest, nil)
+		must(t, bob, "PATCH", sq, map[string]any{"members": []string{f.adaWorkspace}}, http.StatusBadRequest, nil)
+		must(t, bob, "PATCH", sq, map[string]any{"members": []string{f.adaAgent}, "lead_id": f.bobAgent}, http.StatusBadRequest, nil)
+		// A card goes only to a member.
+		var lone struct {
+			ID string `json:"id"`
+		}
+		must(t, ada, "POST", "/api/v1/squads", map[string]any{"name": "Solo", "members": []string{f.adaAgent}}, http.StatusCreated, &lone)
+		must(t, bob, "POST", "/api/v1/squads/"+lone.ID+"/cards", map[string]string{"title": "x", "agent_id": f.bobAgent}, http.StatusBadRequest, nil)
+		must(t, bob, "POST", sq+"/cards", map[string]string{"title": "Draft offer"}, http.StatusCreated, &card)
 		must(t, bob, "PATCH", "/api/v1/cards/"+card.ID, map[string]string{"status": "in_progress"}, http.StatusOK, nil)
 		must(t, bob, "POST", "/api/v1/cards/"+card.ID+"/comments", map[string]string{"body": "Started"}, http.StatusCreated, nil)
 		must(t, bob, "DELETE", "/api/v1/cards/"+card.ID, nil, http.StatusNoContent, nil)
@@ -697,12 +710,8 @@ func TestOwnersAndAdmins(t *testing.T) {
 		must(t, ada, "PATCH", "/api/v1/cards/"+f.card, map[string]string{"title": "Call Initech"}, http.StatusOK, nil)
 		must(t, ada, "POST", "/api/v1/cards/"+f.card+"/comments", map[string]string{"body": "Today"}, http.StatusCreated, nil)
 
-		var board struct {
-			ID string `json:"id"`
-		}
-		must(t, ada, "POST", "/api/v1/boards", map[string]string{"name": "Scratch"}, http.StatusCreated, &board)
-		must(t, bob, "DELETE", "/api/v1/boards/"+board.ID, nil, http.StatusNoContent, nil)
-		must(t, ada, "GET", "/api/v1/boards/"+board.ID, nil, http.StatusNotFound, nil)
+		must(t, bob, "DELETE", "/api/v1/squads/"+lone.ID, nil, http.StatusNoContent, nil)
+		must(t, ada, "GET", "/api/v1/squads/"+lone.ID, nil, http.StatusNotFound, nil)
 	})
 
 	t.Run("a connector lists only the workspaces the reader may see", func(t *testing.T) {

@@ -578,6 +578,11 @@ func TestCheckOwnersStopsAgentsWhoseOwnerLeft(t *testing.T) {
 		}
 	}
 
+	// An owner who is still there has their name kept as the gateway has it.
+	if got := f.load(t, byOwner["usr_ada"].agent.ID).OwnerName; got != "Ada Lovelace" {
+		t.Errorf("owner name = %q, want the gateway's", got)
+	}
+
 	// Stopped agents with no key are not looked up again.
 	_, before := f.gw.counts()
 	f.m.CheckOwners(ctx)
@@ -598,7 +603,7 @@ func TestCheckOwnersLeavesAnAgentTakenOverMeanwhile(t *testing.T) {
 	a = f.load(t, a.ID)
 	f.gw.onLookup = func(id string) {
 		if id == "usr_gone" {
-			if err := f.st.SetOwner(ctx, a.ID, "usr_admin", "admin@example.ch"); err != nil {
+			if err := f.st.SetOwner(ctx, a.ID, "usr_admin", "admin@example.ch", ""); err != nil {
 				t.Error(err)
 			}
 		}
@@ -642,6 +647,47 @@ func TestAStaleKeyIsReplacedLater(t *testing.T) {
 	got := f.load(t, a.ID)
 	if got.GatewayKeyID == a.GatewayKeyID || got.KeyStale() || !f.gw.wasRevoked("org_a", a.GatewayKeyID) {
 		t.Fatalf("key %q, stale %v, old revoked %v", got.GatewayKeyID, got.KeyStale(), f.gw.wasRevoked("org_a", a.GatewayKeyID))
+	}
+}
+
+// The MCP servers an agent may call sit on its key. nil leaves the field out,
+// for all the project allows; empty is none, and differs from nil.
+func TestAKeyCarriesTheAgentsMCPServers(t *testing.T) {
+	f := newFixture(t, Options{})
+	ctx := context.Background()
+	a := f.agent(t)
+	if err := f.m.Start(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if body := f.gw.lastMint(); strings.Contains(body, "allowed_tools") {
+		t.Fatalf("an agent with all servers sent %s", body)
+	}
+	for _, c := range []struct {
+		servers []string
+		want    string
+	}{
+		{[]string{}, `"allowed_tools":[]`},
+		{[]string{"github"}, `"allowed_tools":["github"]`},
+		{nil, ""},
+	} {
+		a = f.load(t, a.ID)
+		a.MCPServers = c.servers
+		if _, err := f.st.UpdateAgent(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		if got := f.load(t, a.ID); !got.KeyStale() || (got.MCPServers == nil) != (c.servers == nil) {
+			t.Fatalf("%q: stale %v, servers %q", c.servers, got.KeyStale(), got.MCPServers)
+		}
+		if err := f.m.Rekey(ctx, a.ID); err != nil {
+			t.Fatal(err)
+		}
+		body := f.gw.lastMint()
+		if c.want == "" && strings.Contains(body, "allowed_tools") || !strings.Contains(body, c.want) {
+			t.Errorf("%q: minted with %s, want %s", c.servers, body, c.want)
+		}
+		if f.load(t, a.ID).KeyStale() {
+			t.Errorf("%q: stale after the new key", c.servers)
+		}
 	}
 }
 

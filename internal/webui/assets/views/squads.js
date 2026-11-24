@@ -1,4 +1,5 @@
-// The board: cards in five columns, for people and agents alike. A card in
+// Squads: agents that share a board and hand each other work on it. The
+// board has cards in five columns, for people and agents alike. A card in
 // To do with an agent is picked up by it; the agent moves it on as it works.
 
 import { api } from "../api.js";
@@ -9,16 +10,18 @@ import {
   iconButton,
   menu,
   formModal,
+  table,
+  rowLink,
+  checkRow,
+  gone,
+  detailHead,
   fail,
   confirm,
   field,
   toast,
   replace,
   listHead,
-  remembered,
-  remember,
   banner,
-  empty,
   busyButton,
   date,
   ago,
@@ -32,7 +35,7 @@ import {
   plural,
   pad,
 } from "../ui.js";
-import { taskStatePill, taskPath } from "../common.js";
+import { taskStatePill, taskPath, squadPath, agentPath } from "../common.js";
 import { render } from "../markdown.js";
 
 /** STATUSES are the columns, in order. */
@@ -84,24 +87,152 @@ export function dueDay(iso) {
 
 const POLL_MS = 10_000;
 
-export async function boardView(ctx) {
-  const [boardsRes, agentsRes] = await Promise.all([api.boards(), api.agents().catch(() => ({ data: [] }))]);
-  let boards = boardsRes.data || [];
+export async function squadsView(ctx) {
+  const [res, agentsRes] = await Promise.all([api.squads(), api.agents().catch(() => ({ data: [] }))]);
+  const squads = res.data || [];
   const agents = agentsRes.data || [];
-  const iconOf = (id) => (agents.find((a) => a.id === id) || {}).icon;
-  if (!boards.length) {
-    return h(
-      "div",
+  ctx.setSubtitle(`${squads.length} ${plural(squads.length, "squad")}`);
+  return h(
+    "div",
+    { class: "grid" },
+    listHead(null, null, { label: "New squad", onClick: () => squadForm(ctx, agents) }),
+    table(
+      [
+        {
+          label: "Name",
+          cell: (q) =>
+            h(
+              "div",
+              { class: "stack" },
+              rowLink(ctx, squadPath(q.id), q.name),
+              q.goal ? h("div", { class: "faint small clamp-2" }, q.goal) : null,
+            ),
+          sortKey: (q) => q.name,
+        },
+        {
+          label: "Members",
+          cell: (q) =>
+            q.members.length ? memberChips(ctx, q, { small: true }) : h("span", { class: "faint" }, "None yet"),
+          sortKey: (q) => q.members.length,
+        },
+        {
+          label: "Open cards",
+          shrink: true,
+          cell: (q) => h("span", { title: `${q.cards} in all` }, String(q.open)),
+          sortKey: (q) => q.open,
+        },
+      ],
+      squads,
+      {
+        ctx,
+        open: (q) => squadPath(q.id),
+        emptyTitle: "No squad yet",
+        emptyBody: "A squad is agents that share a board. They hand each other work on it as cards.",
+      },
+    ),
+  );
+}
+
+/** memberChips shows a squad's members, its lead first. */
+function memberChips(ctx, q, { small = false } = {}) {
+  const lead = q.members.find((m) => m.id === q.lead_id);
+  const rest = q.members.filter((m) => m !== lead);
+  return h(
+    "div",
+    { class: "wrap-chips" },
+    [lead, ...rest].filter(Boolean).map((m) =>
+      link(
+        ctx,
+        agentPath(m.id),
+        [
+          avatarOf(m.name, { agent: true, icon: m.icon }),
+          small ? null : h("span", {}, m.name),
+          m === lead && !small ? pill("Lead", "accent") : null,
+        ],
+        { class: "who", title: m === lead ? `${m.name}, the lead` : m.description || m.name },
+      ),
+    ),
+  );
+}
+
+/** squadForm creates a squad, or changes the one given. */
+function squadForm(ctx, agents, squad) {
+  const name = h("input", { class: "input", value: squad?.name || "", placeholder: "Sales" });
+  const goal = h(
+    "textarea",
+    { class: "input", rows: 3, placeholder: "Answer every lead within a day, and keep the pipeline up to date." },
+    squad?.goal || "",
+  );
+  const chosen = new Set((squad?.members ?? []).map((m) => m.id));
+  const lead = h("select", { class: "select" });
+  const paintLead = (selected) =>
+    replace(lead, [
+      h("option", { value: "" }, "No lead"),
+      agents
+        .filter((a) => chosen.has(a.id))
+        .map((a) => h("option", { value: a.id, selected: a.id === selected }, a.name)),
+    ]);
+  paintLead(squad?.lead_id || "");
+  const checks = agents.map((a) => {
+    const row = checkRow(a.name, a.description, chosen.has(a.id), {
+      onChange: (e) => {
+        if (e.target.checked) chosen.add(a.id);
+        else chosen.delete(a.id);
+        paintLead(lead.value);
+      },
+    });
+    return row.el;
+  });
+  formModal({
+    title: squad ? `Edit ${squad.name}` : "New squad",
+    wide: true,
+    body: h(
+      "form",
       {},
-      listHead(null, null, { label: "New board", onClick: () => newBoard(ctx) }),
-      h("div", { class: "card" }, empty("No board yet", "A board holds cards for people and agents.")),
-    );
+      field("Name", name),
+      field("Goal", goal, "What the squad is for. Every member reads it with each card."),
+      field(
+        "Members",
+        agents.length ? h("div", { class: "stack" }, checks) : h("div", { class: "faint" }, "No agents yet."),
+        "Members hand each other work as cards. An agent can be in several squads.",
+      ),
+      field("Lead", lead, "Takes the cards put in To do without an agent, and hands out the work."),
+    ),
+    submitLabel: squad ? "Save" : "Create squad",
+    done: (res) => `${res.name} ${squad ? "saved" : "created"}`,
+    ctx: squad ? ctx : undefined,
+    submit: async () => {
+      if (!name.value.trim()) fail(name, "Give the squad a name.");
+      const body = {
+        name: name.value.trim(),
+        goal: goal.value.trim(),
+        members: agents.filter((a) => chosen.has(a.id)).map((a) => a.id),
+        lead_id: lead.value || null,
+      };
+      if (squad) return api.updateSquad(squad.id, body);
+      const created = await api.createSquad(body);
+      ctx.navigate(squadPath(created.id));
+      return created;
+    },
+  });
+}
+
+export async function squadView(ctx) {
+  // Every agent, for names and icons in comments: an agent may have left the
+  // squad since it wrote one.
+  const agentsRes = api.agents().catch(() => ({ data: [] }));
+  let squad;
+  try {
+    squad = await api.squad(ctx.param);
+  } catch (err) {
+    if (err.status === 404) return gone(ctx, "/squads", "Squads", "No such squad", "It was deleted.");
+    throw err;
   }
-  const saved = remembered("keera.board", { lasting: true });
-  const boardID = boards.some((b) => b.id === saved) ? saved : boards[0].id;
-  const board = await api.board(boardID);
-  let cards = board.cards || [];
-  ctx.setTitle(boards.length > 1 ? board.name : "Board", boards.length > 1 ? "Board" : board.name);
+  const agents = (await agentsRes).data || [];
+  const members = squad.members;
+  const iconOf = (id) => (agents.find((a) => a.id === id) || {}).icon;
+  let cards = squad.cards_list || [];
+  ctx.setTitle(squad.name, squad.goal || "", avatarOf(squad.name, { agent: true, glyph: icons.squads, large: true }));
 
   // Moves in flight. A poll then would show the card back where it was.
   let saving = 0;
@@ -225,7 +356,11 @@ export async function boardView(ctx) {
               h("span", {}, c.agent_name),
             )
           : null,
-        c.task_state ? taskStatePill(c.task_state) : null,
+        c.waiting
+          ? h("span", { class: "pill", title: "Waits for the cards its agent handed out" }, "Waiting")
+          : c.task_state
+            ? taskStatePill(c.task_state)
+            : null,
         c.due_at
           ? h(
               "span",
@@ -252,7 +387,7 @@ export async function boardView(ctx) {
     const column = columnOf(cards, c.status);
     const at = column.findIndex((x) => x.id === c.id);
     menu(anchor, [
-      { label: "Open", icon: icons.pencil, onClick: () => openCard(c.id) },
+      { label: "Edit", icon: icons.pencil, onClick: () => openCard(c.id) },
       { separator: true },
       at > 0 ? { label: "Move up", icon: icons.up, onClick: () => move(c.id, c.status, at - 1) } : null,
       at < column.length - 1
@@ -306,10 +441,10 @@ export async function boardView(ctx) {
   }
 
   async function refresh() {
-    const fresh = await api.board(board.id);
+    const fresh = await api.squad(squad.id);
     // Unchanged, the board is left alone, so nothing flickers.
-    if (JSON.stringify(fresh.cards || []) === JSON.stringify(cards)) return;
-    cards = fresh.cards || [];
+    if (JSON.stringify(fresh.cards_list || []) === JSON.stringify(cards)) return;
+    cards = fresh.cards_list || [];
     draw();
   }
 
@@ -319,12 +454,16 @@ export async function boardView(ctx) {
     return refresh();
   });
 
-  function agentSelect(selected) {
+  /** agentSelect offers the members, and the card's agent if it has left
+   *  the squad since. */
+  function agentSelect(selected, selectedName) {
+    const left = selected && !members.some((m) => m.id === selected);
     return h(
       "select",
       { class: "select" },
-      h("option", { value: "" }, "Nobody yet"),
-      agents.map((a) => h("option", { value: a.id, selected: a.id === selected }, a.name)),
+      h("option", { value: "" }, squad.lead_id ? "The lead, in To do" : "Nobody yet"),
+      members.map((a) => h("option", { value: a.id, selected: a.id === selected }, a.name)),
+      left ? h("option", { value: selected, selected: true }, selectedName || "Not a member") : null,
     );
   }
 
@@ -345,7 +484,7 @@ export async function boardView(ctx) {
         c.body || "",
       ),
       status: statusSelect(c.status || "backlog"),
-      agent: agentSelect(c.agent_id || ""),
+      agent: agentSelect(c.agent_id || "", c.agent_name),
       labels: h("input", { class: "input", value: (c.labels || []).join(", "), placeholder: "finance, urgent" }),
       due: h("input", { class: "input", type: "date", value: dueDay(c.due_at) }),
     };
@@ -356,7 +495,7 @@ export async function boardView(ctx) {
         "div",
         { class: "field-row" },
         field("Column", f.status),
-        field("Agent", f.agent, "In To do, the agent picks it up on its own."),
+        field("Agent", f.agent, "In To do, a member picks it up on its own."),
       ),
       h("div", { class: "field-row" }, field("Labels", f.labels, "Comma separated."), field("Due", f.due)),
     ];
@@ -378,13 +517,13 @@ export async function boardView(ctx) {
     const f = cardFields({ status });
     formModal({
       title: "New card",
-      subtitle: board.name,
+      subtitle: squad.name,
       wide: true,
       body: h("form", {}, f.el),
       submitLabel: "Add card",
       done: "Card added",
       submit: async () => {
-        const created = await api.createCard(board.id, f.values());
+        const created = await api.createCard(squad.id, f.values());
         cards.push(created);
         draw();
         return created;
@@ -443,10 +582,49 @@ export async function boardView(ctx) {
       }
     });
 
+    const parent = c.parent_id ? cards.find((x) => x.id === c.parent_id) : null;
+    const children = cards.filter((x) => x.parent_id === c.id);
+    const cardLink = (x) =>
+      h(
+        "a",
+        {
+          href: "#",
+          onClick: (e) => {
+            e.preventDefault();
+            close();
+            openCard(x.id);
+          },
+        },
+        x.title,
+      );
     const body = h(
       "div",
       {},
       h("form", {}, f.el),
+      parent ? h("div", { class: "field" }, h("label", {}, "Handed out from"), h("div", {}, cardLink(parent))) : null,
+      children.length
+        ? h(
+            "div",
+            { class: "field" },
+            h("label", {}, "Handed out"),
+            h(
+              "div",
+              { class: "stack" },
+              children.map((x) =>
+                h(
+                  "div",
+                  { class: "row-tight" },
+                  cardLink(x),
+                  h(
+                    "span",
+                    { class: "faint small" },
+                    `${statusLabel(x.status)}${x.agent_name ? ", " + x.agent_name : ""}`,
+                  ),
+                ),
+              ),
+            ),
+          )
+        : null,
       c.task
         ? h(
             "div",
@@ -533,37 +711,18 @@ export async function boardView(ctx) {
     );
   }
 
-  const picker =
-    boards.length > 1
-      ? h(
-          "select",
-          {
-            class: "select toolbar-select",
-            "aria-label": "Board",
-            onChange: (e) => {
-              remember("keera.board", e.target.value, { lasting: true });
-              ctx.reload();
-            },
-          },
-          boards.map((b) => h("option", { value: b.id, selected: b.id === board.id }, b.name)),
-        )
-      : null;
-
-  const boardMenu = h(
+  const squadMenu = h(
     "button",
     {
       class: "btn",
-      title: "Board actions",
-      "aria-label": "Board actions",
+      title: "Squad actions",
+      "aria-label": "Squad actions",
       "aria-haspopup": "menu",
       onClick: (e) =>
         menu(e.currentTarget, [
-          { label: "Rename board", icon: icons.pencil, onClick: () => renameBoard(ctx, board) },
-          { label: "New board", icon: icons.plus, onClick: () => newBoard(ctx) },
-          boards.length > 1 ? { separator: true } : null,
-          boards.length > 1
-            ? { label: "Delete board", icon: icons.trash, onClick: () => deleteBoard(ctx, board, cards.length) }
-            : null,
+          { label: "Edit squad", icon: icons.pencil, onClick: () => squadForm(ctx, agents, squad) },
+          { separator: true },
+          { label: "Delete squad", icon: icons.trash, onClick: () => deleteSquad(ctx, squad, cards.length) },
         ]),
     },
     icon(icons.more),
@@ -573,66 +732,56 @@ export async function boardView(ctx) {
   return h(
     "div",
     {},
-    listHead(null, [picker, boardMenu], { label: "New card", onClick: () => newCard("backlog") }),
-    agents.length
+    detailHead(
+      ctx,
+      ["/squads", "Squads"],
+      members.length ? [memberChips(ctx, squad)] : [],
+      h(
+        "div",
+        { class: "row-tight" },
+        squadMenu,
+        h("button", { class: "btn btn-primary", onClick: () => newCard("backlog") }, icon(icons.plus), "New card"),
+      ),
+    ),
+    members.length
       ? null
       : banner(
           "info",
-          "No agents yet, so cards are for people only. ",
-          link(ctx, "/agents", "Create an agent"),
+          "No members yet, so cards are for people only. ",
+          h(
+            "a",
+            {
+              href: "#",
+              onClick: (e) => {
+                e.preventDefault();
+                squadForm(ctx, agents, squad);
+              },
+            },
+            "Add agents",
+          ),
           " to hand them work.",
         ),
     kanban,
     h(
       "div",
       { class: "hint", style: { marginTop: "14px" } },
-      "A card in To do with an agent is picked up by it. It comments with its result and moves the card to Review, or to Backlog if it could not finish.",
+      "A card in To do goes to its agent, or to the lead if it has none. The agent comments with the result and moves it to Review. It may hand out parts as new cards and wait for them.",
     ),
   );
 }
 
-function newBoard(ctx) {
-  const name = h("input", { class: "input", placeholder: "Finance" });
-  formModal({
-    title: "New board",
-    body: h("form", {}, field("Name", name)),
-    submitLabel: "Create board",
-    done: "Board created",
-    submit: async () => {
-      if (!name.value.trim()) fail(name, "Give the board a name.");
-      const b = await api.createBoard(name.value.trim());
-      remember("keera.board", b.id, { lasting: true });
-      ctx.reload();
-      return b;
-    },
-  });
-}
-
-function renameBoard(ctx, board) {
-  const name = h("input", { class: "input", value: board.name });
-  formModal({
-    title: "Rename board",
-    body: h("form", {}, field("Name", name)),
-    done: "Board renamed",
-    ctx,
-    submit: () => {
-      if (!name.value.trim()) fail(name, "Give the board a name.");
-      return api.renameBoard(board.id, name.value.trim());
-    },
-  });
-}
-
-function deleteBoard(ctx, board, count) {
+function deleteSquad(ctx, squad, count) {
   confirm({
-    title: `Delete ${board.name}?`,
-    body: count ? `Its ${count} ${plural(count, "card")} go with it. Their tasks stay in Tasks.` : "It has no cards.",
-    confirmLabel: "Delete board",
+    title: `Delete ${squad.name}?`,
+    body: count
+      ? `Its ${count} ${plural(count, "card")} go with it. Their tasks stay in Tasks, and its agents stay.`
+      : "Its agents stay.",
+    confirmLabel: "Delete squad",
     danger: true,
     onConfirm: async () => {
-      await api.deleteBoard(board.id);
-      remember("keera.board", null, { lasting: true });
+      await api.deleteSquad(squad.id);
+      ctx.navigate("/squads");
     },
-    done: `${board.name} deleted`,
-    ctx,
+    done: `${squad.name} deleted`,
   });
 }

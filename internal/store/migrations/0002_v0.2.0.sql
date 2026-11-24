@@ -1,3 +1,5 @@
+-- What v0.2.0 changes in the schema.
+
 -- What an agent's gateway key carries: whose it is, its project and its
 -- budget. A key that differs from the agent's settings is replaced in the
 -- background, so a change that could not reach the gateway at once still

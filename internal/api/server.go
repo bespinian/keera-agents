@@ -141,12 +141,12 @@ func (s *Server) Handler() http.Handler {
 	route("DELETE /api/v1/schedules/{id}", s.deleteSchedule)
 	route("POST /api/v1/schedules/{id}/run", s.runSchedule)
 
-	route("GET /api/v1/boards", s.listBoards)
-	route("POST /api/v1/boards", s.createBoard)
-	route("GET /api/v1/boards/{id}", s.getBoard)
-	route("PATCH /api/v1/boards/{id}", s.renameBoard)
-	route("DELETE /api/v1/boards/{id}", s.deleteBoard)
-	route("POST /api/v1/boards/{id}/cards", s.createCard)
+	route("GET /api/v1/squads", s.listSquads)
+	route("POST /api/v1/squads", s.createSquad)
+	route("GET /api/v1/squads/{id}", s.getSquad)
+	route("PATCH /api/v1/squads/{id}", s.updateSquad)
+	route("DELETE /api/v1/squads/{id}", s.deleteSquad)
+	route("POST /api/v1/squads/{id}/cards", s.createCard)
 	route("GET /api/v1/cards/{id}", s.getCard)
 	route("PATCH /api/v1/cards/{id}", s.updateCard)
 	route("DELETE /api/v1/cards/{id}", s.deleteCard)
@@ -169,6 +169,7 @@ func (s *Server) Handler() http.Handler {
 	route("DELETE /api/v1/connections/{id}", s.deleteConnection)
 	route("POST /api/v1/connections/{id}/check", s.checkConnection)
 	route("GET /api/v1/connections/{id}/folders", s.connectionFolders)
+	route("GET /api/v1/connections/{id}/channels", s.connectionChannels)
 	route("POST /api/v1/connections/{id}/account", s.startSignIn)
 	route("DELETE /api/v1/connections/{id}/account", s.disconnectAccount)
 
@@ -325,6 +326,9 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request, p Principal) {
 	if cat.Models == nil {
 		cat.Models = []gateway.CatalogRef{}
 	}
+	if cat.TranscriptionModels == nil {
+		cat.TranscriptionModels = []gateway.CatalogRef{}
+	}
 	if cat.MCPServers == nil {
 		cat.MCPServers = []gateway.MCPRef{}
 	}
@@ -373,12 +377,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) {
 	if !ok {
 		return
 	}
-	recent, err := s.st.Tasks(ctx, visibleTo(p, store.TaskQuery{OrgID: p.OrgID, Limit: 10}))
+	recent, err := s.st.Tasks(ctx, visibleTo(p, store.TaskQuery{OrgID: p.OrgID, Limit: 7}))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	upcoming, err := s.st.Upcoming(ctx, p.OrgID, 5)
+	upcoming, err := s.st.Upcoming(ctx, p.OrgID, 7)
 	if err != nil {
 		s.fail(w, err)
 		return

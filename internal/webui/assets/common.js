@@ -1,12 +1,33 @@
 // Words, tones and small cells that several screens share, so an agent's or
 // a task's state reads the same everywhere.
 
-import { h, pill, card, icon, icons, duration, num, tabs, replace, loading, banner, field, fold } from "./ui.js";
+import {
+  h,
+  pill,
+  card,
+  icon,
+  icons,
+  duration,
+  num,
+  tabs,
+  replace,
+  loading,
+  banner,
+  field,
+  fold,
+  busyButton,
+  toast,
+} from "./ui.js";
 import { areaChart } from "./chart.js";
 
 /** agentPath is an agent's screen, or one of its tabs. */
 export function agentPath(id, tab) {
   return `/agents/${encodeURIComponent(id)}` + (tab ? `/${tab}` : "");
+}
+
+/** squadPath is a squad's screen. */
+export function squadPath(id) {
+  return `/squads/${encodeURIComponent(id)}`;
 }
 
 /** connectorPath is a connector's screen. */
@@ -91,7 +112,7 @@ export function isUp(state) {
 export const TASK_STATES = {
   queued: ["Queued", ""],
   running: ["Running", "accent"],
-  succeeded: ["Done", "good"],
+  succeeded: ["Finished", "good"],
   failed: ["Failed", "bad"],
   cancelled: ["Cancelled", ""],
 };
@@ -111,7 +132,8 @@ export function isLive(state) {
 export const SOURCES = {
   chat: { label: "Chat", icon: icons.chat },
   schedule: { label: "Schedule", icon: icons.schedules },
-  board: { label: "Board", icon: icons.board },
+  // The API still calls a squad's board this source "board".
+  board: { label: "Squad", icon: icons.squads },
   file: { label: "File", icon: icons.file },
   manual: { label: "Panel", icon: icons.person },
 };
@@ -193,7 +215,7 @@ export function gives(kind) {
 }
 
 /** TIERS name the isolation tiers a deployment may offer. */
-export const TIERS = {
+const TIERS = {
   standard: "Standard container",
   isolated: "gVisor isolated container",
   vm: "microVM",
@@ -247,6 +269,100 @@ export function machineFold(me, cls, hints) {
     disk: disk.value.trim(),
   });
   return { el, value };
+}
+
+/** machineText says in one line what a machine has, such as "Standard
+ *  container · 2 CPU · 2Gi · 10Gi disk". A size left empty is left out. */
+export function machineText(cls = {}) {
+  return [
+    TIERS[cls.isolation] || cls.isolation,
+    cls.cpu && `${cls.cpu} CPU`,
+    cls.memory,
+    cls.disk && `${cls.disk} disk`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** callsTools says whether a catalogue model calls tools, which agents and
+ *  coding agents need. A gateway too old to say sends no capabilities; its
+ *  models are taken to. */
+export function callsTools(m) {
+  return !Array.isArray(m.capabilities) || m.capabilities.includes("tools");
+}
+
+/** fillModels lists the models a project allows in select, grouped by
+ *  kind. Those that call no tools show greyed out. saved is the one already
+ *  chosen: taken away or greyed out since, it keeps showing, so saving does
+ *  not change it unasked. */
+export function fillModels(select, models, saved) {
+  const keep = select.value || saved;
+  const usable = (m) => callsTools(m) || m.alias === saved;
+  const group = (kind, label) => {
+    const items = models.filter((m) => m.kind === kind);
+    return items.length
+      ? h(
+          "optgroup",
+          { label },
+          items.map((m) => {
+            const ok = usable(m);
+            return h(
+              "option",
+              { value: m.alias, selected: ok && m.alias === keep, disabled: !ok },
+              callsTools(m) ? m.alias : `${m.alias} (no tool calling)`,
+            );
+          }),
+        )
+      : null;
+  };
+  const none = !models.length
+    ? "No model is allowed in this project"
+    : !models.some(usable)
+      ? "No model in this project calls tools"
+      : null;
+  replace(
+    select,
+    none ? h("option", { value: "" }, none) : null,
+    saved && keep === saved && !models.some((m) => m.alias === keep)
+      ? h("option", { value: keep, selected: true }, `${keep} (no longer allowed)`)
+      : null,
+    group("model", "Models"),
+    group("router", "Routers"),
+  );
+}
+
+/** settingsCard is a detail screen's Settings form. save stores it and
+ *  returns what the toast says; an error shows above the form. Enter in a
+ *  field saves, as in the dialogs. */
+export function settingsCard(ctx, form, save) {
+  const err = h("div");
+  const button = busyButton({ class: "btn btn-primary" }, "Save changes", async () => {
+    replace(err);
+    let said;
+    try {
+      said = await save();
+    } catch (ex) {
+      replace(err, banner("bad", ex.message || "That did not work."));
+      return;
+    }
+    toast(said, "good");
+    ctx.reload();
+  });
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    button.click();
+  });
+  return h(
+    "div",
+    { class: "card" },
+    h(
+      "div",
+      { class: "card-body" },
+      err,
+      form,
+      h("div", { class: "row", style: { marginTop: "16px" } }, h("div", { class: "spacer" }), button),
+    ),
+  );
 }
 
 /** taskTotal counts an overview's tasks; cancelled ones are not counted. */

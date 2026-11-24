@@ -9,6 +9,8 @@ import {
   stat,
   num,
   ago,
+  stamp,
+  dash,
   date,
   dateTime,
   money,
@@ -18,7 +20,6 @@ import {
   busyButton,
   detailHead,
   gone,
-  replace,
   banner,
   confirm,
   toast,
@@ -41,7 +42,6 @@ import {
   isUp,
   BUILTINS,
   ACCESS,
-  TIERS,
   taskStatePill,
   firstLine,
   sourceCell,
@@ -49,7 +49,10 @@ import {
   taskTotal,
   agentPath,
   taskPath,
+  squadPath,
   detailTabs,
+  settingsCard,
+  machineText,
 } from "../common.js";
 import { agentForm, noRuntime } from "./agents.js";
 import { bindingsTab } from "./bindings.js";
@@ -180,22 +183,15 @@ async function overviewTab(ctx, agent) {
   const period = rangeOf(since).long.toLowerCase();
   // What its machine costs, for those who can change its size.
   const showCost = ctx.state.me.billing && agent.can_edit;
-  const [recentRes, act, cost] = await Promise.all([
+  const [recentRes, act, cost, squadsRes] = await Promise.all([
     api.tasks({ agent_id: agent.id, limit: 8 }).catch(() => ({ data: [] })),
     api.agentActivity(agent.id, since),
     showCost ? api.agentCost(agent.id).catch(() => null) : null,
+    api.squads().catch(() => ({ data: [] })),
   ]);
+  const squads = (squadsRes.data || []).filter((q) => q.members.some((m) => m.id === agent.id));
   const recent = recentRes.data || [];
   const tasks = act.tasks || {};
-  const cls = agent.class || {};
-  const machine = [
-    TIERS[cls.isolation] || cls.isolation,
-    cls.cpu && `${cls.cpu} CPU`,
-    cls.memory,
-    cls.disk && `${cls.disk} disk`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
 
   return h(
     "div",
@@ -209,7 +205,7 @@ async function overviewTab(ctx, agent) {
       stat("Queued", num(agent.queued), agent.running_task_id ? "and one running" : "none running"),
       stat(
         "Last task",
-        stats.last_task_at ? ago(stats.last_task_at) : "-",
+        stats.last_task_at ? ago(stats.last_task_at) : dash(),
         stats.last_task_at ? dateTime(stats.last_task_at) : "none yet",
       ),
     ),
@@ -234,14 +230,54 @@ async function overviewTab(ctx, agent) {
                   )
                 : h("span", { class: "faint" }, "None"),
             ),
+            agent.transcription_model || (agent.ask_models || []).length
+              ? fact(
+                  "Other models",
+                  h(
+                    "div",
+                    { class: "wrap-chips" },
+                    agent.transcription_model ? pill(`${agent.transcription_model}, transcribes`) : null,
+                    (agent.ask_models || []).map((m) => pill(`${m}, to ask`)),
+                  ),
+                )
+              : null,
+            agent.mcp_servers
+              ? fact(
+                  "MCP servers",
+                  agent.mcp_servers.length
+                    ? h(
+                        "div",
+                        { class: "wrap-chips" },
+                        agent.mcp_servers.map((m) => pill(m)),
+                      )
+                    : h("span", { class: "faint" }, "None"),
+                )
+              : null,
             fact(
               "Takes work from",
               agent.access === "people"
                 ? `${ACCESS.people}: ${(agent.allowed_emails || []).join(", ")}`
                 : ACCESS[agent.access] || agent.access,
             ),
+            fact(
+              "Squads",
+              squads.length
+                ? h(
+                    "div",
+                    { class: "wrap-chips" },
+                    squads.map((q) =>
+                      link(
+                        ctx,
+                        squadPath(q.id),
+                        [h("span", {}, q.name), q.lead_id === agent.id ? pill("Lead", "accent") : null],
+                        { class: "who" },
+                      ),
+                    ),
+                  )
+                : h("span", { class: "faint" }, "None"),
+            ),
             fact("Budget", agent.budget_micros ? `${money(agent.budget_micros)} a month` : "None of its own"),
-            fact("Machine", machine),
+            fact("Machine", machineText(agent.class)),
             fact("Owner", agent.owner_email),
             fact("Created", date(agent.created_at)),
           ],
@@ -264,7 +300,7 @@ async function overviewTab(ctx, agent) {
         ),
         rows: recent.map((t) => taskRow(ctx, t)),
         emptyTitle: "No tasks yet",
-        emptyBody: "Give it one with Give a task.",
+        emptyBody: "Give it one with Give a task, above.",
       }),
     ),
     agent.instructions ? card("Instructions", h("div", { class: "prompt-text" }, agent.instructions)) : null,
@@ -277,7 +313,7 @@ export function taskRow(ctx, t) {
     ctx,
     taskPath(t.id),
     firstLine(t.prompt, 90) || "Untitled task",
-    [sourceCell(t), h("span", {}, "·"), h("span", { class: "nowrap" }, ago(t.created_at))],
+    [sourceCell(t), h("span", {}, "·"), stamp(t.created_at, { cls: "nowrap" })],
     taskStatePill(t.state),
   );
 }
@@ -287,39 +323,16 @@ async function settingsTab(ctx, agent) {
     return banner("info", "Only its owner or an administrator can change this agent.");
   }
   const form = await agentForm(ctx, agent);
-  const err = h("div");
-  const save = busyButton({ class: "btn btn-primary" }, "Save changes", async () => {
-    replace(err);
-    try {
-      await api.updateAgent(agent.id, form.values());
-    } catch (ex) {
-      replace(err, banner("bad", ex.message || "That did not work."));
-      return;
-    }
-    toast("Changes saved. A running agent picks them up with its next task.", "good");
-    ctx.reload();
-  });
-  // Enter in a field saves, as in the dialogs.
-  form.el.addEventListener("submit", (e) => {
-    e.preventDefault();
-    save.click();
+  const settings = settingsCard(ctx, form.el, async () => {
+    await api.updateAgent(agent.id, form.values());
+    return "Changes saved. A running agent picks them up with its next task.";
   });
 
   // A form as wide as the screen is hard to read down.
   return h(
     "div",
     { class: "grid", style: { maxWidth: "820px" } },
-    h(
-      "div",
-      { class: "card" },
-      h(
-        "div",
-        { class: "card-body" },
-        err,
-        form.el,
-        h("div", { class: "row", style: { marginTop: "16px" } }, h("div", { class: "spacer" }), save),
-      ),
-    ),
+    settings,
     takeOverCard(ctx, agent),
     h(
       "div",

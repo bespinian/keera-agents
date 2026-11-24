@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -88,5 +89,27 @@ func TestMembersUsesTheCallersTokenAndSkipsDisabled(t *testing.T) {
 	}
 	if want := []User{{ID: "usr_1", Email: "anna@example.ch", Name: "Anna"}}; !slices.Equal(got, want) {
 		t.Errorf("members = %+v, want %+v", got, want)
+	}
+}
+
+// A gateway too old to list capabilities sends none; its models are taken to
+// call tools, so updating keera-agents first does not grey out every one.
+func TestCallsTools(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want bool
+	}{
+		"tools":     {`{"alias":"a","capabilities":["tools","vision"]}`, true},
+		"no tools":  {`{"alias":"a","capabilities":["vision"]}`, false},
+		"none":      {`{"alias":"a","capabilities":[]}`, false},
+		"older one": {`{"alias":"a"}`, true},
+	} {
+		var m CatalogRef
+		if err := json.Unmarshal([]byte(tc.body), &m); err != nil {
+			t.Fatal(err)
+		}
+		if got := m.CallsTools(); got != tc.want {
+			t.Errorf("%s: CallsTools() = %v, want %v", name, got, tc.want)
+		}
 	}
 }

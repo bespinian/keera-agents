@@ -8,7 +8,7 @@ import {
   dueISO,
   dueDay,
   STATUSES,
-} from "../assets/views/board.js";
+} from "../assets/views/squads.js";
 
 test("a dropped card goes between its neighbours", () => {
   assert.equal(positionBetween(1, 2), 1.5);

@@ -54,41 +54,14 @@ func (d *Dispatcher) Tools(ctx context.Context, a store.Agent) ([]protocol.ToolS
 				"channel":{"type":"string","description":"A channel id from the list, or empty for the task's own conversation."}},
 				"required":["text"]}`),
 		},
-		{
-			Name:        "board_list_cards",
-			Description: "List cards on the organisation's boards, newest change first.",
-			Parameters: schema(`{"type":"object","properties":{
-				"status":{"type":"string","enum":["backlog","todo","in_progress","review","done"]},
-				"mine":{"type":"boolean","description":"Only cards assigned to you."}}}`),
-		},
-		{
-			Name: "board_create_card",
-			Description: "Create a card. Assign it to an agent by name to have that agent work on it " +
-				"once it is in todo.",
-			Parameters: schema(`{"type":"object","properties":{
-				"title":{"type":"string"},"body":{"type":"string"},
-				"status":{"type":"string","enum":["backlog","todo","in_progress","review","done"]},
-				"agent":{"type":"string","description":"An agent's name, or empty."},
-				"labels":{"type":"array","items":{"type":"string"}}},
-				"required":["title"]}`),
-		},
-		{
-			Name:        "board_update_card",
-			Description: "Change a card's title, description, status or agent.",
-			Parameters: schema(`{"type":"object","properties":{
-				"card_id":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},
-				"status":{"type":"string","enum":["backlog","todo","in_progress","review","done"]},
-				"agent":{"type":"string","description":"An agent's name; \"none\" unassigns."}},
-				"required":["card_id"]}`),
-		},
-		{
-			Name:        "board_comment",
-			Description: "Add a comment to a card.",
-			Parameters: schema(`{"type":"object","properties":{
-				"card_id":{"type":"string"},"body":{"type":"string"}},"required":["card_id","body"]}`),
-		},
 	}
-	if folders := bindingList(bindings, "Your folders", isFolder); folders != "" {
+	squads, err := d.st.AgentSquads(ctx, a.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	tools = append(tools, squadTools(squads)...)
+	folders := bindingList(bindings, "Your folders", isFolder)
+	if folders != "" {
 		tools = append(tools,
 			protocol.ToolSpec{
 				Name:        "files_list",
@@ -115,13 +88,22 @@ func (d *Dispatcher) Tools(ctx context.Context, a store.Agent) ([]protocol.ToolS
 			},
 		)
 	}
+	tools = append(tools, modelTools(a, folders)...)
 	tools = append(tools, codeTools(bindings)...)
 	tools = append(tools, apiTools(bindings)...)
 	if a.Kind == store.KindWorkspace {
 		// A workspace has no chats: there is nowhere to send a message.
 		tools = slices.DeleteFunc(tools, func(t protocol.ToolSpec) bool { return t.Name == "send_message" })
 	}
-	return tools, connected(bindings), nil
+	conn := connected(bindings)
+	for _, q := range squads {
+		name := q.Name
+		if q.LeadID != nil && *q.LeadID == a.ID {
+			name += ", which you lead"
+		}
+		conn = append(conn, protocol.Connected{ID: q.ID, What: protocol.ConnectedSquad, Service: "board", Name: name})
+	}
+	return tools, conn, nil
 }
 
 // connected lists the chats, folders, repositories and services an agent
@@ -191,6 +173,66 @@ func bindingList(bindings []store.Binding, header string, keep func(store.Bindin
 	return " " + header + ":\n" + strings.Join(lines, "\n")
 }
 
+// squadTools are the tools of the squads' boards. Only a member of a squad
+// has a board to work on.
+func squadTools(squads []store.Squad) []protocol.ToolSpec {
+	if len(squads) == 0 {
+		return nil
+	}
+	mine := " Your squads: " + squadNames(squads) + "."
+	squad := `"squad":{"type":"string","description":"A squad's name. Leave it empty for the squad of the card you work on, or your only squad."}`
+	enum, _ := json.Marshal(store.CardStatuses)
+	statuses := `{"type":"string","enum":` + string(enum) + `}`
+	return []protocol.ToolSpec{
+		{
+			Name: "squad_list",
+			Description: "List your squads: what each is for, its lead, and the members you may hand work to, " +
+				"with what each does. Hand one work with board_create_card.",
+			Parameters: schema(`{"type":"object","properties":{}}`),
+		},
+		{
+			Name:        "board_list_cards",
+			Description: "List cards on your squads' boards, newest change first." + mine,
+			Parameters: schema(`{"type":"object","properties":{` + squad + `,
+				"status":` + statuses + `,
+				"mine":{"type":"boolean","description":"Only cards assigned to you."}}}`),
+		},
+		{
+			Name:        "board_read_card",
+			Description: "Read a card: its whole description and every comment, such as the results of cards you handed out.",
+			Parameters:  schema(`{"type":"object","properties":{"card_id":{"type":"string"}},"required":["card_id"]}`),
+		},
+		{
+			Name: "board_create_card",
+			Description: "Create a card on a squad's board. Assign it to a member by name to have them work on it " +
+				"once it is in todo; in todo without an agent, it goes to the squad's lead. A card you create " +
+				"while working on a card is handed out from it: when you finish, your card waits until the cards " +
+				"you handed out are done, then comes back to you with their results." + mine,
+			Parameters: schema(`{"type":"object","properties":{` + squad + `,
+				"title":{"type":"string"},"body":{"type":"string"},
+				"status":` + statuses + `,
+				"agent":{"type":"string","description":"A member's name, or empty."},
+				"labels":{"type":"array","items":{"type":"string"}}},
+				"required":["title"]}`),
+		},
+		{
+			Name:        "board_update_card",
+			Description: "Change a card's title, description, status or agent.",
+			Parameters: schema(`{"type":"object","properties":{
+				"card_id":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},
+				"status":` + statuses + `,
+				"agent":{"type":"string","description":"A member's name; \"none\" unassigns."}},
+				"required":["card_id"]}`),
+		},
+		{
+			Name:        "board_comment",
+			Description: "Add a comment to a card.",
+			Parameters: schema(`{"type":"object","properties":{
+				"card_id":{"type":"string"},"body":{"type":"string"}},"required":["card_id","body"]}`),
+		},
+	}
+}
+
 func isChannel(b store.Binding) bool {
 	return b.Mode == store.ModeChat && b.Target != store.AnyConversation
 }
@@ -204,6 +246,7 @@ type toolArgs struct {
 	Status  string `json:"status"`
 	Mine    bool   `json:"mine"`
 	CardID  string `json:"card_id"`
+	Squad   string `json:"squad"`
 	// Title, Body and Agent are nil when not given: board_update_card
 	// changes only what is.
 	Title     *string  `json:"title"`
@@ -223,6 +266,8 @@ type toolArgs struct {
 	Branch    string   `json:"branch"`
 	Base      string   `json:"base"`
 	Draft     bool     `json:"draft"`
+	Model     string   `json:"model"`
+	Prompt    string   `json:"prompt"`
 }
 
 // decodeArgs reads a tool's arguments and trims every string but a file's
@@ -236,14 +281,22 @@ func decodeArgs(raw json.RawMessage) (toolArgs, error) {
 		return in, err
 	}
 	for _, s := range []*string{
-		&in.Channel, &in.Text, &in.Status, &in.CardID, in.Title, in.Body, in.Agent, &in.Folder,
-		&in.Subfolder, &in.FileID, &in.Name, &in.MimeType, &in.Repo, &in.Kind, &in.State, &in.Branch, &in.Base,
+		&in.Channel, &in.Text, &in.Status, &in.CardID, &in.Squad, in.Title, in.Body, in.Agent, &in.Folder,
+		&in.Subfolder, &in.FileID, &in.Name, &in.MimeType, &in.Repo, &in.Kind, &in.State, &in.Branch, &in.Base, &in.Model,
 	} {
 		if s != nil {
 			*s = strings.TrimSpace(*s)
 		}
 	}
 	return in, nil
+}
+
+// cut shortens s to n bytes, on a character boundary, and ends it with more.
+func cut(s string, n int, more string) string {
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[:n], "") + more
 }
 
 // value is s, or "" when it was not given.
@@ -278,7 +331,7 @@ func toolKind(name string) string {
 		return "chat"
 	}
 	group, _, _ := strings.Cut(name, "_")
-	if slices.Contains([]string{"board", "files", "repo"}, group) {
+	if slices.Contains([]string{"board", "squad", "files", "repo", "model"}, group) {
 		return group
 	}
 	return "unknown"
@@ -305,18 +358,26 @@ func (d *Dispatcher) callTool(ctx context.Context, a store.Agent, t store.Task, 
 		out = "sent"
 	case "board_list_cards":
 		out, err = d.toolListCards(ctx, a, in)
+	case "board_read_card":
+		out, err = d.toolReadCard(ctx, a, in)
 	case "board_create_card":
 		out, err = d.toolCreateCard(ctx, a, t, in)
 	case "board_update_card":
 		out, err = d.toolUpdateCard(ctx, a, t, in)
 	case "board_comment":
 		out, err = d.toolComment(ctx, a, t, in)
+	case "squad_list":
+		out, err = d.toolListSquads(ctx, a, t)
 	case "files_list":
 		out, err = d.toolFilesList(ctx, a, t, in)
 	case "files_read":
 		out, err = d.toolFilesRead(ctx, a, t, in)
 	case "files_write":
 		out, err = d.toolFilesWrite(ctx, a, t, in)
+	case "model_transcribe":
+		out, err = d.toolTranscribe(ctx, a, t, in)
+	case "model_ask":
+		out, err = d.toolAsk(ctx, a, t, in)
 	case "repo_list_issues":
 		out, err = d.toolRepoList(ctx, a, t, in)
 	case "repo_read_issue":
@@ -371,55 +432,204 @@ func (d *Dispatcher) toolSend(ctx context.Context, a store.Agent, t store.Task, 
 
 type cardView struct {
 	ID     string   `json:"id"`
-	Board  string   `json:"board_id"`
+	Squad  string   `json:"squad"`
 	Title  string   `json:"title"`
 	Body   string   `json:"body,omitempty"`
 	Status string   `json:"status"`
 	Agent  string   `json:"agent,omitempty"`
 	Labels []string `json:"labels,omitempty"`
+	Parent string   `json:"handed_out_from,omitempty"`
 }
 
-func viewCard(c store.Card) cardView {
+// viewCard shows a card to an agent, its description cut unless whole.
+func viewCard(c store.Card, whole bool) cardView {
 	body := c.Body
-	if len(body) > 500 {
-		body = strings.ToValidUTF8(body[:500], "") + "…"
+	if !whole {
+		body = cut(body, 500, "…")
 	}
 	return cardView{
-		ID: c.ID, Board: c.BoardID, Title: c.Title, Body: body, Status: c.Status,
-		Agent: c.AgentName, Labels: c.Labels,
+		ID: c.ID, Squad: c.SquadName, Title: c.Title, Body: body, Status: c.Status,
+		Agent: c.AgentName, Labels: c.Labels, Parent: value(c.ParentID),
 	}
+}
+
+// squadNames lists the squads' names, for the agent to choose from.
+func squadNames(squads []store.Squad) string {
+	names := make([]string, len(squads))
+	for i, q := range squads {
+		names[i] = q.Name
+	}
+	return strings.Join(names, ", ")
 }
 
 func (d *Dispatcher) toolListCards(ctx context.Context, a store.Agent, in toolArgs) (any, error) {
 	if in.Status != "" && !slices.Contains(store.CardStatuses, in.Status) {
 		return nil, fmt.Errorf("unknown status %q", in.Status)
 	}
-	agentID := ""
-	if in.Mine {
-		agentID = a.ID
+	squads, err := d.st.AgentSquads(ctx, a.ID)
+	if err != nil {
+		return nil, err
 	}
-	cards, err := d.st.OrgCards(ctx, a.OrgID, in.Status, agentID, 50)
+	f := store.CardFilter{Status: in.Status, Limit: 50}
+	// Without a name, every squad's cards: listing is how an agent finds
+	// work in any of them.
+	if in.Squad != "" {
+		q, err := squadOf(squads, nil, in.Squad)
+		if err != nil {
+			return nil, err
+		}
+		f.Squad = q.ID
+	}
+	if in.Mine {
+		f.Agent = a.ID
+	}
+	cards, err := d.st.MemberCards(ctx, a.ID, f)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]cardView, 0, len(cards))
 	for _, c := range cards {
-		out = append(out, viewCard(c))
+		out = append(out, viewCard(c, false))
 	}
 	return out, nil
 }
 
-// agentRef resolves an agent's name in the organisation; "" and "none" are
-// nobody.
-func (d *Dispatcher) agentRef(ctx context.Context, orgID, name string) (*string, error) {
+type commentView struct {
+	Author string `json:"author"`
+	Body   string `json:"body"`
+}
+
+func (d *Dispatcher) toolReadCard(ctx context.Context, a store.Agent, in toolArgs) (any, error) {
+	c, _, err := d.memberCard(ctx, a, in.CardID)
+	if err != nil {
+		return nil, err
+	}
+	comments, err := d.st.Comments(ctx, c.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := struct {
+		cardView
+		Comments []commentView `json:"comments"`
+	}{viewCard(c, true), []commentView{}}
+	for _, cm := range comments {
+		out.Comments = append(out.Comments, commentView{Author: cm.Author, Body: cm.Body})
+	}
+	return out, nil
+}
+
+type agentView struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type squadView struct {
+	Name    string      `json:"name"`
+	Goal    string      `json:"goal,omitempty"`
+	Lead    string      `json:"lead,omitempty"`
+	Members []agentView `json:"members"`
+}
+
+// toolListSquads lists only the members a card from this task could go
+// to: those the person it is for may give work, and that are on, since a
+// card for one that is off would not be picked up.
+func (d *Dispatcher) toolListSquads(ctx context.Context, a store.Agent, t store.Task) (any, error) {
+	squads, err := d.st.AgentSquads(ctx, a.ID)
+	if err != nil {
+		return nil, err
+	}
+	agents, err := d.st.Agents(ctx, a.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]store.Agent{}
+	for _, x := range agents {
+		byID[x.ID] = x
+	}
+	u, gone, err := d.requester(ctx, t.OrgID, t.RequestedByID)
+	if err != nil {
+		return nil, fmt.Errorf("could not check who this task is for: %w", err)
+	}
+	out := []squadView{}
+	for _, q := range squads {
+		v := squadView{Name: q.Name, Goal: q.Goal, Members: []agentView{}}
+		for _, m := range q.Members {
+			if q.LeadID != nil && *q.LeadID == m.ID {
+				v.Lead = m.Name
+			}
+			other, ok := byID[m.ID]
+			if gone || !ok || other.ID == a.ID || !other.Enabled {
+				continue
+			}
+			if may, _ := May(other, u); may {
+				v.Members = append(v.Members, agentView{Name: other.Name, Description: other.Description})
+			}
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// squadOf picks the squad, of the agent's squads, that a tool acts in: the
+// one named, else the squad of origin, the card the task came from, else
+// the agent's only squad.
+func squadOf(squads []store.Squad, origin *store.Card, name string) (store.Squad, error) {
+	for _, q := range squads {
+		if name != "" && (q.ID == name || strings.EqualFold(q.Name, name)) {
+			return q, nil
+		}
+	}
+	switch {
+	case len(squads) == 0:
+		return store.Squad{}, errors.New("you are in no squad")
+	case name != "":
+		return store.Squad{}, fmt.Errorf("you are not in a squad called %q; yours: %s", name, squadNames(squads))
+	}
+	if origin != nil {
+		for _, q := range squads {
+			if q.ID == origin.SquadID {
+				return q, nil
+			}
+		}
+	}
+	if len(squads) == 1 {
+		return squads[0], nil
+	}
+	return store.Squad{}, fmt.Errorf("you are in several squads; name one: %s", squadNames(squads))
+}
+
+// memberCard reads a card on the board of one of the agent's squads.
+func (d *Dispatcher) memberCard(ctx context.Context, a store.Agent, cardID string) (store.Card, store.Squad, error) {
+	c, err := d.st.Card(ctx, cardID)
+	if err == nil && c.OrgID == a.OrgID {
+		if q, err := d.st.Squad(ctx, c.SquadID); err == nil && q.Has(a.ID) {
+			return c, q, nil
+		}
+	}
+	return store.Card{}, store.Squad{}, fmt.Errorf("there is no card %s in your squads", cardID)
+}
+
+// memberRef resolves a member's name in a squad; "" and "none" are nobody.
+func memberRef(q store.Squad, name string) (*string, error) {
 	if name == "" || strings.EqualFold(name, "none") {
 		return nil, nil
 	}
-	other, err := d.st.AgentByName(ctx, orgID, name)
-	if err != nil {
-		return nil, fmt.Errorf("there is no agent called %q", name)
+	names := make([]string, len(q.Members))
+	for i, m := range q.Members {
+		if strings.EqualFold(m.Name, name) {
+			return &m.ID, nil
+		}
+		names[i] = m.Name
 	}
-	return &other.ID, nil
+	return nil, fmt.Errorf("%s is not in the squad %s; its members: %s", name, q.Name, strings.Join(names, ", "))
+}
+
+// ToLead gives a card put in To do without an agent to its squad's lead.
+func ToLead(q store.Squad, c *store.Card) {
+	if c.Status == store.CardTodo && c.AgentID == nil && q.LeadID != nil {
+		lead := *q.LeadID
+		c.AgentID = &lead
+	}
 }
 
 // mayGiveFor applies the access rule of the agent a card gives work to, for
@@ -443,32 +653,66 @@ func (d *Dispatcher) mayGiveFor(ctx context.Context, t store.Task, agentID strin
 // mayGive applies a's access rule to the person with userID, or to nobody
 // when it is empty.
 func (d *Dispatcher) mayGive(ctx context.Context, a store.Agent, orgID, userID string) (bool, string, error) {
-	var u gateway.User
-	if userID != "" {
-		var err error
-		u, err = d.gw.UserByID(ctx, orgID, userID)
-		if gateway.IsNotFound(err) {
-			// They left the organisation, so they give no work any more.
-			return false, "they are no longer in the organisation", nil
-		}
-		if err != nil {
-			return false, "", err
-		}
+	u, gone, err := d.requester(ctx, orgID, userID)
+	if err != nil {
+		return false, "", err
+	}
+	if gone {
+		return false, "they are no longer in the organisation", nil
 	}
 	ok, why := May(a, u)
 	return ok, why, nil
 }
 
-// EnsureBoard returns the organisation's first board, creating it.
-func (d *Dispatcher) EnsureBoard(ctx context.Context, orgID, by string) (store.Board, error) {
-	boards, err := d.st.Boards(ctx, orgID)
+// requester looks up the person with userID, or nobody when it is empty.
+// gone means they left the organisation, so they give no work any more.
+func (d *Dispatcher) requester(ctx context.Context, orgID, userID string) (u gateway.User, gone bool, err error) {
+	if userID == "" {
+		return gateway.User{}, false, nil
+	}
+	u, err = d.gw.UserByID(ctx, orgID, userID)
+	if gateway.IsNotFound(err) {
+		return gateway.User{}, true, nil
+	}
+	return u, false, err
+}
+
+// originCard is the card task t came from, or nil.
+func (d *Dispatcher) originCard(ctx context.Context, t store.Task) (*store.Card, error) {
+	if t.Source != protocol.SourceBoard || t.Origin.CardID == "" {
+		return nil, nil
+	}
+	c, err := d.st.Card(ctx, t.Origin.CardID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
 	if err != nil {
-		return store.Board{}, err
+		return nil, err
 	}
-	if len(boards) > 0 {
-		return boards[0], nil
+	return &c, nil
+}
+
+// handOut places a card an agent creates while working on parent under
+// it, and holds it to the limits on handing out work.
+func (d *Dispatcher) handOut(ctx context.Context, q store.Squad, parent *store.Card, c *store.Card) error {
+	if q.Open >= store.MaxOpenCards {
+		return fmt.Errorf("the squad %s has %d cards in todo and in progress already; wait for some to finish", q.Name, q.Open)
 	}
-	return d.st.CreateBoard(ctx, store.Board{ID: id.New("brd"), OrgID: orgID, Name: "Tasks", CreatedBy: by})
+	if parent == nil {
+		return nil
+	}
+	if parent.Depth >= store.MaxCardDepth {
+		return fmt.Errorf("this card was handed on %d times already; do the work yourself", parent.Depth)
+	}
+	n, err := d.st.CountChildCards(ctx, parent.ID, time.Time{})
+	if err != nil {
+		return err
+	}
+	if n >= store.MaxChildCards {
+		return fmt.Errorf("you handed out %d cards from this card already", n)
+	}
+	c.ParentID, c.Depth = &parent.ID, parent.Depth+1
+	return nil
 }
 
 func (d *Dispatcher) toolCreateCard(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
@@ -483,28 +727,41 @@ func (d *Dispatcher) toolCreateCard(ctx context.Context, a store.Agent, t store.
 	if !slices.Contains(store.CardStatuses, status) {
 		return nil, fmt.Errorf("unknown status %q", status)
 	}
-	assignee, err := d.agentRef(ctx, a.OrgID, value(in.Agent))
+	squads, err := d.st.AgentSquads(ctx, a.ID)
 	if err != nil {
 		return nil, err
 	}
-	if assignee != nil {
-		if err := d.mayGiveFor(ctx, t, *assignee); err != nil {
+	parent, err := d.originCard(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	q, err := squadOf(squads, parent, in.Squad)
+	if err != nil {
+		return nil, err
+	}
+	assignee, err := memberRef(q, value(in.Agent))
+	if err != nil {
+		return nil, err
+	}
+	c := store.Card{
+		ID: id.New("card"), SquadID: q.ID, Title: title, Body: value(in.Body), Status: status,
+		AgentID: assignee, Labels: in.Labels, CreatedBy: a.Name,
+		RequestedBy: cmp.Or(t.RequestedBy, a.Name), RequestedByID: t.RequestedByID,
+	}
+	ToLead(q, &c)
+	if c.AgentID != nil {
+		if err := d.mayGiveFor(ctx, t, *c.AgentID); err != nil {
 			return nil, err
 		}
 	}
-	board, err := d.EnsureBoard(ctx, a.OrgID, a.Name)
+	if err := d.handOut(ctx, q, parent, &c); err != nil {
+		return nil, err
+	}
+	out, err := d.st.CreateCard(ctx, c)
 	if err != nil {
 		return nil, err
 	}
-	c, err := d.st.CreateCard(ctx, store.Card{
-		ID: id.New("card"), BoardID: board.ID, Title: title, Body: value(in.Body), Status: status,
-		AgentID: assignee, Labels: in.Labels, CreatedBy: a.Name,
-		RequestedBy: cmp.Or(t.RequestedBy, a.Name), RequestedByID: t.RequestedByID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return viewCard(c), nil
+	return viewCard(out, false), nil
 }
 
 // checkCard holds a card to the limits the panel has.
@@ -518,16 +775,8 @@ func checkCard(title, body string) error {
 	return nil
 }
 
-func (d *Dispatcher) orgCard(ctx context.Context, a store.Agent, cardID string) (store.Card, error) {
-	c, err := d.st.Card(ctx, cardID)
-	if err != nil || c.OrgID != a.OrgID {
-		return store.Card{}, fmt.Errorf("there is no card %s", cardID)
-	}
-	return c, nil
-}
-
 func (d *Dispatcher) toolUpdateCard(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
-	c, err := d.orgCard(ctx, a, in.CardID)
+	c, q, err := d.memberCard(ctx, a, in.CardID)
 	if err != nil {
 		return nil, err
 	}
@@ -546,13 +795,15 @@ func (d *Dispatcher) toolUpdateCard(ctx context.Context, a store.Agent, t store.
 		return nil, fmt.Errorf("unknown status %q", s)
 	}
 	if in.Agent != nil {
-		if c.AgentID, err = d.agentRef(ctx, a.OrgID, *in.Agent); err != nil {
+		if c.AgentID, err = memberRef(q, *in.Agent); err != nil {
 			return nil, err
 		}
 	}
 	// Checked before anything is written, as the status moves first.
 	after := c
 	after.Status = cmp.Or(in.Status, c.Status)
+	ToLead(q, &after)
+	c.AgentID = after.AgentID
 	if GivesWork(before, after) {
 		if err := d.mayGiveFor(ctx, t, *after.AgentID); err != nil {
 			return nil, err
@@ -561,20 +812,18 @@ func (d *Dispatcher) toolUpdateCard(ctx context.Context, a store.Agent, t store.
 		// creator.
 		c.RequestedBy, c.RequestedByID = cmp.Or(t.RequestedBy, a.Name), t.RequestedByID
 	}
+	// The move goes first; c keeps the status it had, so the update below
+	// leaves status and position be.
 	if after.Status != c.Status {
 		if err := d.st.MoveCard(ctx, c.ID, after.Status, nil); err != nil {
 			return nil, err
 		}
-		// Moved already, so the update below leaves status and position be.
-		moved, _ := d.st.Card(ctx, c.ID)
-		c.Status, c.Position = moved.Status, moved.Position
-		before.Status, before.Position = c.Status, c.Position
 	}
 	out, err := d.st.UpdateCard(ctx, before, c)
 	if err != nil {
 		return nil, err
 	}
-	return viewCard(out), nil
+	return viewCard(out, false), nil
 }
 
 func (d *Dispatcher) toolComment(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
@@ -585,7 +834,7 @@ func (d *Dispatcher) toolComment(ctx context.Context, a store.Agent, t store.Tas
 	if len(body) > store.MaxComment {
 		return nil, fmt.Errorf("the comment is longer than %d KiB", store.MaxComment>>10)
 	}
-	c, err := d.orgCard(ctx, a, in.CardID)
+	c, _, err := d.memberCard(ctx, a, in.CardID)
 	if err != nil {
 		return nil, err
 	}
@@ -698,20 +947,34 @@ func (d *Dispatcher) toolFilesList(ctx context.Context, a store.Agent, t store.T
 }
 
 func (d *Dispatcher) toolFilesRead(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {
-	b, adapter, conn, err := d.folder(ctx, a, t, in.Folder)
-	if err != nil {
-		return nil, err
+	f, content, err := d.readFile(ctx, a, t, in, connectors.MaxFileBytes)
+	// Checked before the error: most recordings are too large to read, and
+	// their bytes would only fill the model's context anyway.
+	if isAudio(f) {
+		how := "you cannot read it as text"
+		if a.TranscriptionModel != "" {
+			how = "read it with model_transcribe"
+		}
+		return fmt.Sprintf("%s (%s) is audio; %s.", f.Name, f.MimeType, how), nil
 	}
-	// A watch task may read the file it is about.
-	watched := t.Origin.BindingID == b.ID && t.Origin.FileID == in.FileID
-	if !watched && !d.files.has(t.ID, b.ID, in.FileID) {
-		return nil, fmt.Errorf("list the folder first; %s is not a file you have seen in it", in.FileID)
-	}
-	f, content, err := adapter.Read(ctx, conn, in.FileID)
 	if err != nil {
 		return nil, err
 	}
 	return fmt.Sprintf("%s (%s, %d bytes)\n\n%s", f.Name, f.MimeType, len(content), content), nil
+}
+
+// readFile reads up to limit bytes of a file of a connected folder that the
+// task has listed, or that its watch is about.
+func (d *Dispatcher) readFile(ctx context.Context, a store.Agent, t store.Task, in toolArgs, limit int64) (connectors.File, []byte, error) {
+	b, adapter, conn, err := d.folder(ctx, a, t, in.Folder)
+	if err != nil {
+		return connectors.File{}, nil, err
+	}
+	watched := t.Origin.BindingID == b.ID && t.Origin.FileID == in.FileID
+	if !watched && !d.files.has(t.ID, b.ID, in.FileID) {
+		return connectors.File{}, nil, fmt.Errorf("list the folder first; %s is not a file you have seen in it", in.FileID)
+	}
+	return adapter.Read(ctx, conn, in.FileID, limit)
 }
 
 func (d *Dispatcher) toolFilesWrite(ctx context.Context, a store.Agent, t store.Task, in toolArgs) (any, error) {

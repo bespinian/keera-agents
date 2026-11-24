@@ -12,14 +12,12 @@ import {
   dash,
   fact,
   banner,
-  busyButton,
   detailHead,
   gone,
   empty,
   icon,
   icons,
   replace,
-  toast,
   clock,
   loadMore,
   link,
@@ -28,6 +26,7 @@ import {
   avatarOf,
   plural,
   formModal,
+  confirm,
   fail,
   field,
   listHead,
@@ -56,14 +55,14 @@ export async function tasksView(ctx) {
 /** taskList is the filtered, paged list. With agentID it shows one agent's
  *  tasks and no agent filter. It offers only the options some task has, and
  *  a filter only when it has more than one. With agents, those that take
- *  work from the reader, it has a New task button. */
+ *  work from the reader, it has a Give a task button. */
 export function taskList(ctx, { agentID = "", agents = [] }) {
   const filter = { agent_id: agentID, state: "", source: "" };
   const host = h("div");
   const toolbar = h("div", { class: "toolbar", hidden: true });
   // The same place as the other screens' New buttons.
   const head = agents.length
-    ? listHead(null, [], { label: "New task", onClick: () => giveTask(ctx, { agents, pick: filter.agent_id }) })
+    ? listHead(null, [], { label: "Give a task", onClick: () => giveTask(ctx, { agents, pick: filter.agent_id }) })
     : null;
   // Stops the poll that follows running tasks; null while none is.
   let stopPoll = null;
@@ -125,8 +124,8 @@ export function taskList(ctx, { agentID = "", agents = [] }) {
       showAgent: !agentID,
       emptyTitle: filter.state || filter.source || filter.agent_id ? "No tasks match" : "No tasks yet",
       emptyBody: agentID
-        ? "Give it a task, add a connector, or put a card in To do with this agent."
-        : "Tasks come from chats, schedules, the board and folders, or from New task.",
+        ? "Give it a task, add a connector, or put a card for it in To do on a squad's board."
+        : "Tasks come from chats, schedules, squads and folders, or from Give a task, above.",
     });
     replace(
       host,
@@ -187,7 +186,7 @@ export function giveTask(ctx, { agent, agents = [], pick = "" }) {
     showHint();
   }
   formModal({
-    title: agent ? `Give ${agent.name} a task` : "New task",
+    title: agent ? `Give ${agent.name} a task` : "Give a task",
     subtitle: agent && !isUp(agent.state) ? starts : null,
     wide: true,
     body: h(
@@ -304,11 +303,25 @@ export async function taskView(ctx) {
           "div",
           { class: "row-tight" },
           isLive(task.state)
-            ? busyButton({ class: "btn btn-danger", title: "Stop this task" }, "Cancel task", async () => {
-                task = { ...task, ...(await api.cancelTask(task.id)) };
-                toast("Task cancelled", "good");
-                paint();
-              })
+            ? h(
+                "button",
+                {
+                  class: "btn btn-danger",
+                  onClick: () =>
+                    confirm({
+                      title: "Cancel this task?",
+                      body: "The agent stops working on it. This cannot be undone.",
+                      confirmLabel: "Cancel task",
+                      danger: true,
+                      onConfirm: async () => {
+                        task = { ...task, ...(await api.cancelTask(task.id)) };
+                        paint();
+                      },
+                      done: "Task cancelled",
+                    }),
+                },
+                "Cancel task",
+              )
             : null,
         ),
       ),
@@ -385,7 +398,7 @@ function factsCard(ctx, task) {
     "Details",
     [
       fact("Agent", task.agent_id ? agentLink(ctx, task) : null),
-      fact("From", sourceCell(task)),
+      fact("Source", sourceCell(task)),
       fact("Requested by", task.requested_by),
       fact("Created", dateTime(task.created_at)),
       fact("Started", task.started_at ? dateTime(task.started_at) : null),

@@ -3,12 +3,13 @@
 Keera Agents runs AI agents for a business. Each agent is a persistent
 assistant with its own machine, workspace and memory. People give it work in
 **Microsoft Teams**, **Google Chat**, **Slack** and **Keera Chat**, on a
-**kanban board**, or on a **schedule**. It reads and writes files in **Google Drive** and
-**OneDrive and SharePoint**, and can start work when a file lands in a folder.
+**squad's board**, or on a **schedule**. It reads and writes files in
+**Google Drive** and **OneDrive and SharePoint**, and can start work when a
+file lands in a folder.
 It codes in **GitHub** and **GitLab** repositories: it clones, pushes a branch
 and opens a pull or merge request for a person to review. And it works in the
 business's other services through typed tools: **Jira**, **Confluence**,
-**Trello**, **Google Docs, Sheets, Slides and Calendar**, **Gmail**,
+**Trello**, **Google Docs, Sheets, Slides, Calendar and Meet**, **Gmail**,
 **Outlook Mail and Calendar**, **HubSpot**, **Salesforce**, **Freshdesk**,
 **PostgreSQL**, **Kubernetes**, **AWS**, **Azure** and **Google Cloud**. It
 searches the web with **Brave Search**.
@@ -19,9 +20,9 @@ agent's own. So the gateway's models, guardrails, budgets, filters, MCP
 servers and audit log apply to agents as they do to people.
 
 ```
- Teams · Google Chat · Slack ──webhooks──▶ ┌──────────── keera-agents ─────────────┐
- Google Drive · OneDrive ◀──── API ─────── │ panel · agents · tasks · board · cron │
-                                           │ dispatcher ─▶ podman | Kubernetes     │
+ Teams · Google Chat · Slack ──webhooks──▶ ┌──────────── keera-agents ──────────────┐
+ Google Drive · OneDrive ◀──── API ─────── │ panel · agents · tasks · squads · cron │
+                                           │ dispatcher ─▶ podman | Kubernetes      │
  browser ── sign-in through the gateway ─▶ │ runtime API ◀─────────────┐            │
                                            └───────┬───────────────────┼────────────┘
                   service key: agent keys, people  │                   │ runtime token
@@ -53,9 +54,10 @@ StatefulSet each.
   People can also chat with their agents in Keera Chat, when the gateway has
   it connected.
 - **Schedules** in cron syntax, in a time zone, post their result to a chat.
-- **The board** has five columns. A card in To do assigned to an agent is
-  picked up, worked on, commented on and moved to Review, or back to Backlog
-  if it failed.
+- **Squads** are agents with a shared board of five columns. A card in To do
+  assigned to a member is picked up, worked on, commented on and moved to
+  Review, or back to Backlog if it failed. Members hand each other parts of
+  the work as cards, and get the results back.
 - **Folders.** A new or changed file in a watched Drive or OneDrive folder
   becomes a task.
   Agents read and write files only in the folders they are connected to.
@@ -81,8 +83,8 @@ You need Go, podman and a Keera Gateway. Set the gateway up once as
 open <http://localhost:8070>. [docs/install.md](docs/install.md) has every
 setting.
 
-A new organisation sees **Getting started** in place of the dashboard: connect
-your services, create an agent and give it a first task
+A new organisation sees **Getting started** in place of the dashboard: create
+an agent, connect your services and give it a first task
 ([docs/api.md](docs/api.md#overview)).
 
 ## Docs

@@ -56,6 +56,9 @@ round, into one row per machine and hour. A round that runs late loses
 nothing. While no replica runs, at most 15 minutes are counted, since nobody
 saw what ran.
 
+A round sees only the machines running at that moment, so a run that starts
+and stops between two rounds is billed as one minute of CPU and memory.
+
 ## What the gateway gets
 
 Once an hour is over, keera-agents sends it to the gateway: one line per

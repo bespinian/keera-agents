@@ -14,96 +14,163 @@ import (
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
-// Boards belong to the organisation: everyone in it may read and change
-// them, as on a shared wall.
+// Squads belong to the organisation: everyone in it may read and change
+// them, as on a shared wall. Each agent's access rule still decides who may
+// give it work.
 
-func (s *Server) listBoards(w http.ResponseWriter, r *http.Request, p Principal) {
-	if _, err := s.disp.EnsureBoard(r.Context(), p.OrgID, p.Email); err != nil {
-		s.fail(w, err)
-		return
-	}
-	boards, err := s.st.Boards(r.Context(), p.OrgID)
+func (s *Server) listSquads(w http.ResponseWriter, r *http.Request, p Principal) {
+	squads, err := s.st.Squads(r.Context(), p.OrgID)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": boards})
+	writeJSON(w, http.StatusOK, map[string]any{"data": squads})
 }
 
-// readBoardName reads the name a board is created or renamed with.
-func readBoardName(w http.ResponseWriter, r *http.Request) (string, bool) {
-	var in struct {
-		Name string `json:"name"`
+// squadInput is what a squad is created or changed with. A PATCH changes
+// only what it gives.
+type squadInput struct {
+	Name    *string         `json:"name"`
+	Goal    *string         `json:"goal"`
+	Members *[]string       `json:"members"`
+	LeadID  json.RawMessage `json:"lead_id"`
+}
+
+// maxSquadGoal bounds a goal: it goes into every card's task.
+const maxSquadGoal = 4 << 10
+
+// applySquad checks in and writes it to q.
+func (s *Server) applySquad(ctx context.Context, p Principal, q *store.Squad, in squadInput) error {
+	if in.Name != nil {
+		q.Name = trim(*in.Name, 100)
 	}
+	if q.Name == "" {
+		return errors.New("give the squad a name")
+	}
+	if in.Goal != nil {
+		if len(*in.Goal) > maxSquadGoal {
+			return errors.New("the goal is longer than 4 KiB")
+		}
+		q.Goal = strings.TrimSpace(*in.Goal)
+	}
+	if in.Members != nil {
+		members := []store.Member{}
+		for _, agentID := range *in.Members {
+			if slices.ContainsFunc(members, func(m store.Member) bool { return m.ID == agentID }) {
+				continue
+			}
+			a, err := s.st.Agent(ctx, agentID)
+			if err != nil || a.OrgID != p.OrgID || a.Kind != store.KindAgent {
+				return errors.New("there is no such agent")
+			}
+			members = append(members, store.Member{ID: a.ID})
+		}
+		q.Members = members
+	}
+	// A lead left out of the members stops being the lead; see setMembers.
+	if len(in.LeadID) > 0 {
+		lead, err := optionalID(in.LeadID, "lead_id")
+		if err != nil {
+			return err
+		}
+		if lead != nil && !q.Has(*lead) {
+			return errors.New("the lead must be a member")
+		}
+		q.LeadID = lead
+	}
+	return nil
+}
+
+// optionalID reads an id, or null; "" is null too.
+func optionalID(raw json.RawMessage, field string) (*string, error) {
+	var v *string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, errors.New(field + " must be an id or null")
+	}
+	if v != nil && *v == "" {
+		return nil, nil
+	}
+	return v, nil
+}
+
+func (s *Server) createSquad(w http.ResponseWriter, r *http.Request, p Principal) {
+	var in squadInput
 	if !readJSON(w, r, &in) {
-		return "", false
-	}
-	if in.Name = trim(in.Name, 100); in.Name == "" {
-		badRequest(w, "give the board a name")
-		return "", false
-	}
-	return in.Name, true
-}
-
-func (s *Server) createBoard(w http.ResponseWriter, r *http.Request, p Principal) {
-	name, ok := readBoardName(w, r)
-	if !ok {
 		return
 	}
-	b, err := s.st.CreateBoard(r.Context(), store.Board{ID: id.New("brd"), OrgID: p.OrgID, Name: name, CreatedBy: p.Email})
+	q := store.Squad{ID: id.New("sqd"), OrgID: p.OrgID, CreatedBy: p.Email}
+	if err := s.applySquad(r.Context(), p, &q, in); err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	q, err := s.st.CreateSquad(r.Context(), q, q.MemberIDs())
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.record(r.Context(), p, "board.create", b.ID, map[string]string{"name": b.Name})
-	writeJSON(w, http.StatusCreated, b)
+	s.record(r.Context(), p, "squad.create", q.ID, map[string]string{"name": q.Name})
+	writeJSON(w, http.StatusCreated, q)
 }
 
-func (s *Server) loadBoard(w http.ResponseWriter, r *http.Request, p Principal, boardID string) (store.Board, bool) {
-	b, err := s.st.Board(r.Context(), boardID)
-	return b, s.found(w, err, b.OrgID == p.OrgID, "board")
+func (s *Server) loadSquad(w http.ResponseWriter, r *http.Request, p Principal, squadID string) (store.Squad, bool) {
+	q, err := s.st.Squad(r.Context(), squadID)
+	return q, s.found(w, err, q.OrgID == p.OrgID, "squad")
 }
 
-func (s *Server) getBoard(w http.ResponseWriter, r *http.Request, p Principal) {
-	b, ok := s.loadBoard(w, r, p, r.PathValue("id"))
+func (s *Server) getSquad(w http.ResponseWriter, r *http.Request, p Principal) {
+	q, ok := s.loadSquad(w, r, p, r.PathValue("id"))
 	if !ok {
 		return
 	}
-	cards, err := s.st.BoardCards(r.Context(), b.ID)
+	cards, err := s.st.SquadCards(r.Context(), q.ID)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": b.ID, "name": b.Name, "cards": cards})
+	writeJSON(w, http.StatusOK, struct {
+		store.Squad
+		CardsList []store.Card `json:"cards_list"`
+	}{q, cards})
 }
 
-func (s *Server) renameBoard(w http.ResponseWriter, r *http.Request, p Principal) {
-	b, ok := s.loadBoard(w, r, p, r.PathValue("id"))
+func (s *Server) updateSquad(w http.ResponseWriter, r *http.Request, p Principal) {
+	q, ok := s.loadSquad(w, r, p, r.PathValue("id"))
 	if !ok {
 		return
 	}
-	name, ok := readBoardName(w, r)
-	if !ok {
+	var in squadInput
+	if !readJSON(w, r, &in) {
 		return
 	}
-	if err := s.st.RenameBoard(r.Context(), b.ID, name); err != nil {
+	before := q
+	if err := s.applySquad(r.Context(), p, &q, in); err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	out, err := s.st.UpdateSquad(r.Context(), q, q.MemberIDs())
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	b.Name = name
-	writeJSON(w, http.StatusOK, b)
+	// Who joins a squad decides who agents may hand work to, so a change is
+	// recorded; a save that changes nothing is not.
+	if before.Name != out.Name || before.Goal != out.Goal || !sameID(before.LeadID, out.LeadID) ||
+		!slices.Equal(before.MemberIDs(), out.MemberIDs()) {
+		s.record(r.Context(), p, "squad.update", q.ID, map[string]string{"name": out.Name})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) deleteBoard(w http.ResponseWriter, r *http.Request, p Principal) {
-	b, ok := s.loadBoard(w, r, p, r.PathValue("id"))
+func (s *Server) deleteSquad(w http.ResponseWriter, r *http.Request, p Principal) {
+	q, ok := s.loadSquad(w, r, p, r.PathValue("id"))
 	if !ok {
 		return
 	}
-	if err := s.st.DeleteBoard(r.Context(), b.ID); err != nil {
+	if err := s.st.DeleteSquad(r.Context(), q.ID); err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.record(r.Context(), p, "board.delete", b.ID, map[string]string{"name": b.Name})
+	s.record(r.Context(), p, "squad.delete", q.ID, map[string]string{"name": q.Name})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -119,7 +186,7 @@ type cardInput struct {
 	DueAt    json.RawMessage `json:"due_at"`
 }
 
-func (s *Server) applyCard(ctx context.Context, p Principal, c *store.Card, in cardInput) error {
+func (s *Server) applyCard(ctx context.Context, p Principal, q store.Squad, c *store.Card, in cardInput) error {
 	before := *c
 	if in.Title != nil {
 		c.Title = trim(*in.Title, store.MaxCardTitle)
@@ -143,19 +210,14 @@ func (s *Server) applyCard(ctx context.Context, p Principal, c *store.Card, in c
 		c.Position = *in.Position
 	}
 	if len(in.AgentID) > 0 {
-		var agentID *string
-		if err := json.Unmarshal(in.AgentID, &agentID); err != nil {
-			return errors.New("agent_id must be an id or null")
+		agentID, err := optionalID(in.AgentID, "agent_id")
+		if err != nil {
+			return err
 		}
-		if agentID != nil && *agentID != "" {
-			a, err := s.st.Agent(ctx, *agentID)
-			if err != nil || a.OrgID != p.OrgID || a.Kind != store.KindAgent {
-				return errors.New("there is no such agent")
-			}
-			c.AgentID = &a.ID
-		} else {
-			c.AgentID = nil
+		if agentID != nil && !q.Has(*agentID) {
+			return errors.New("the agent is not in the squad " + q.Name)
 		}
+		c.AgentID = agentID
 	}
 	if in.Labels != nil {
 		var labels []string
@@ -177,6 +239,7 @@ func (s *Server) applyCard(ctx context.Context, p Principal, c *store.Card, in c
 		}
 		c.DueAt = due
 	}
+	dispatch.ToLead(q, c)
 	if dispatch.GivesWork(before, *c) {
 		a, err := s.st.Agent(ctx, *c.AgentID)
 		if err != nil {
@@ -193,7 +256,7 @@ func (s *Server) applyCard(ctx context.Context, p Principal, c *store.Card, in c
 }
 
 func (s *Server) createCard(w http.ResponseWriter, r *http.Request, p Principal) {
-	b, ok := s.loadBoard(w, r, p, r.PathValue("id"))
+	q, ok := s.loadSquad(w, r, p, r.PathValue("id"))
 	if !ok {
 		return
 	}
@@ -202,10 +265,10 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request, p Principal)
 		return
 	}
 	c := store.Card{
-		ID: id.New("card"), BoardID: b.ID, Status: store.CardBacklog, CreatedBy: p.Email,
+		ID: id.New("card"), SquadID: q.ID, Status: store.CardBacklog, CreatedBy: p.Email,
 		RequestedBy: p.Email, RequestedByID: p.UserID,
 	}
-	if err := s.applyCard(r.Context(), p, &c, in); err != nil {
+	if err := s.applyCard(r.Context(), p, q, &c, in); err != nil {
 		badRequest(w, err.Error())
 		return
 	}
@@ -255,8 +318,13 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request, p Principal)
 	if !readJSON(w, r, &in) {
 		return
 	}
+	q, err := s.st.Squad(r.Context(), c.SquadID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	before := c
-	if err := s.applyCard(r.Context(), p, &c, in); err != nil {
+	if err := s.applyCard(r.Context(), p, q, &c, in); err != nil {
 		badRequest(w, err.Error())
 		return
 	}
@@ -320,4 +388,9 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal)
 		return
 	}
 	writeJSON(w, http.StatusCreated, out)
+}
+
+// sameID reports whether two optional ids are the same.
+func sameID(a, b *string) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
 }

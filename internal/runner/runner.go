@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -137,12 +138,17 @@ func (rn *Runner) build(ctx context.Context, a store.Agent) (protocol.Bootstrap,
 			Builtins: a.Builtins, MaxSteps: a.MaxSteps,
 			Owner: protocol.Person{Email: a.OwnerEmail},
 		},
-		Gateway:   protocol.GatewayInfo{BaseURL: rn.opts.GatewayURL + "/api/v1"},
+		Gateway:   protocol.GatewayInfo{BaseURL: rn.opts.GatewayURL + gateway.ModelPrefix},
 		Tools:     tools,
 		Connected: conn,
 	}
 	if cat, err := rn.gw.Catalog(ctx, a.OrgID, a.ProjectID); err == nil {
 		for _, m := range cat.MCPServers {
+			// The key refuses the others; leaving them out saves the
+			// runtime connecting to each to be told so.
+			if a.MCPServers != nil && !slices.Contains(a.MCPServers, m.Alias) {
+				continue
+			}
 			b.Gateway.MCP = append(b.Gateway.MCP, protocol.MCPServer{
 				Alias: m.Alias, URL: rn.opts.GatewayURL + "/api/mcp/" + m.Alias,
 			})

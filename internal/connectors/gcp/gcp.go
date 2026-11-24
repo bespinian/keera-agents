@@ -86,7 +86,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 				Help: "The JSON key file of a service account with access to the projects agents work in.",
 			},
 		},
-		Setup: "1. In the project agents work in, enable the Cloud Resource Manager, Cloud Asset, Compute Engine, " +
+		Setup: "1. In the project agents work in, under **APIs & Services**, enable the Cloud Resource Manager, Cloud Asset, Compute Engine, " +
 			"Cloud Logging and Cloud Monitoring APIs.\n" +
 			"2. Create a service account there, such as keera-agents.\n" +
 			"3. Grant it the roles **Viewer**, **Logs Viewer**, **Monitoring Viewer** and **Cloud Asset Viewer** on the project. " +

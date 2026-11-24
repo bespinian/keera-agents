@@ -212,7 +212,7 @@ func (d *Dispatcher) ackLater(adapter connectors.Chat, conn connectors.Connectio
 func route(bindings []store.Binding, msg connectors.Inbound) (store.Binding, bool) {
 	var here []store.Binding
 	for _, b := range bindings {
-		if b.Target == msg.Target.Conversation || b.Target == store.AnyConversation {
+		if bindsTo(b, msg) || b.Target == store.AnyConversation {
 			here = append(here, b)
 		}
 	}
@@ -233,11 +233,19 @@ func route(bindings []store.Binding, msg connectors.Inbound) (store.Binding, boo
 	}
 	// An exact conversation beats the catch-all.
 	for _, b := range here {
-		if b.Target == msg.Target.Conversation {
+		if bindsTo(b, msg) {
 			return b, true
 		}
 	}
 	return here[0], true
+}
+
+// bindsTo reports whether a binding names the conversation a message is in.
+// A binding may name a person instead, for their direct messages with the
+// bot.
+func bindsTo(b store.Binding, msg connectors.Inbound) bool {
+	return b.Target == msg.Target.Conversation ||
+		msg.Direct && msg.Sender.ID != "" && b.Target == msg.Sender.ID
 }
 
 // namePrefix matches "Name:", "Name," or "@Name" at the start of a message,

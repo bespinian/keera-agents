@@ -20,7 +20,7 @@ func TestAgentUsage(t *testing.T) {
 	ten := time.Date(2026, 11, 17, 10, 30, 0, 0, time.UTC)
 	rounds := []time.Time{ten, ten.Add(10 * time.Minute), ten.Add(110 * time.Minute), ten.Add(2 * time.Hour)}
 	for _, at := range rounds {
-		if _, err := st.Meter(ctx, at, 15*time.Minute, perSecond); err != nil {
+		if _, err := st.Meter(ctx, at, 15*time.Minute, time.Minute, perSecond); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -45,7 +45,7 @@ func TestMeterKeepsPartsOfASecond(t *testing.T) {
 	ten := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
 	var total int64
 	for i, at := range []time.Duration{0, 59600 * time.Millisecond, 119200 * time.Millisecond, 180 * time.Second} {
-		got, err := st.Meter(ctx, ten.Add(at), 15*time.Minute, perSecond)
+		got, err := st.Meter(ctx, ten.Add(at), 15*time.Minute, time.Minute, perSecond)
 		if err != nil {
 			t.Fatalf("round %d: %v", i, err)
 		}
@@ -69,7 +69,7 @@ func TestMeterCountsEachSecondOnceIntoItsHour(t *testing.T) {
 	ten := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
 	meter := func(at time.Time, want int64) {
 		t.Helper()
-		if got, err := st.Meter(ctx, at, 15*time.Minute, perSecond); err != nil || got != want {
+		if got, err := st.Meter(ctx, at, 15*time.Minute, time.Minute, perSecond); err != nil || got != want {
 			t.Fatalf("Meter at %s = %d, %v; want %d", at.Format(time.TimeOnly), got, err, want)
 		}
 	}
@@ -137,5 +137,69 @@ func TestMeterCountsEachSecondOnceIntoItsHour(t *testing.T) {
 	if month, _ = st.MachineUsage(ctx, "org_a", ten.Add(-time.Hour), ten.Add(3*time.Hour)); len(month) != 2 ||
 		month[0].CPUMilliSeconds != 15*60 {
 		t.Errorf("after pruning 10:00: %+v", month)
+	}
+}
+
+// whileRunning meters a millicore a second while the machine runs, so CPU
+// is the seconds billed for running.
+func whileRunning(a Agent, seconds int64) MachineUse {
+	if a.State != AgentRunning {
+		return MachineUse{}
+	}
+	return MachineUse{CPUMilliSeconds: seconds}
+}
+
+func TestMeterBillsEachRunAtLeastAMinute(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	set := func(a Agent, states ...string) {
+		t.Helper()
+		for _, s := range states {
+			if err := st.SetAgentState(ctx, a.ID, s, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	meter := func(at time.Time) {
+		t.Helper()
+		if _, err := st.Meter(ctx, at, 15*time.Minute, time.Minute, whileRunning); err != nil {
+			t.Fatal(err)
+		}
+	}
+	early := newAgent(t, st, "org_a", "Early")
+	short := newAgent(t, st, "org_a", "Short")
+	twice := newAgent(t, st, "org_a", "Twice")
+	seen := newAgent(t, st, "org_a", "Seen")
+	back := newAgent(t, st, "org_a", "Back")
+	idle := newAgent(t, st, "org_a", "Idle")
+	ten := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
+
+	// Runs before metering started are not billed.
+	set(early, AgentRunning, AgentStopped)
+	meter(ten)
+	set(short, AgentStarting, AgentRunning, AgentStopped)
+	set(twice, AgentRunning, AgentStopped, AgentRunning, AgentSuspended)
+	// Running again while running is the same run.
+	set(seen, AgentRunning, AgentRunning)
+	set(back, AgentRunning, AgentStopped, AgentRunning)
+	meter(ten.Add(time.Minute))
+	// The runs are billed once: only what still runs counts now.
+	meter(ten.Add(2 * time.Minute))
+
+	for _, c := range []struct {
+		a    Agent
+		want int64
+	}{
+		{early, 0},
+		{short, 60},       // a run no round saw
+		{twice, 2 * 60},   // two of them
+		{seen, 2 * 60},    // two rounds of running, no more
+		{back, 60 + 2*60}, // a run no round saw, then two rounds of running
+		{idle, 0},
+	} {
+		u, err := st.AgentUsage(ctx, c.a.ID, ten)
+		if err != nil || u.CPUMilliSeconds != c.want {
+			t.Errorf("%s: %+v, %v; want %d seconds", c.a.Name, u, err, c.want)
+		}
 	}
 }

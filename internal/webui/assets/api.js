@@ -118,12 +118,12 @@ export const api = {
   previewSchedule: (cron, timezone, signal) =>
     request("POST", V1 + "/schedules/preview", { cron, timezone }, { signal }),
 
-  boards: () => get(V1 + "/boards"),
-  board: (id) => get(V1 + path`/boards/${id}`),
-  createBoard: (name) => post(V1 + "/boards", { name }),
-  renameBoard: (id, name) => patch(V1 + path`/boards/${id}`, { name }),
-  deleteBoard: (id) => del(V1 + path`/boards/${id}`),
-  createCard: (boardID, body) => post(V1 + path`/boards/${boardID}/cards`, body),
+  squads: () => get(V1 + "/squads"),
+  squad: (id) => get(V1 + path`/squads/${id}`),
+  createSquad: (body) => post(V1 + "/squads", body),
+  updateSquad: (id, body) => patch(V1 + path`/squads/${id}`, body),
+  deleteSquad: (id) => del(V1 + path`/squads/${id}`),
+  createCard: (squadID, body) => post(V1 + path`/squads/${squadID}/cards`, body),
   card: (id) => get(V1 + path`/cards/${id}`),
   updateCard: (id, body) => patch(V1 + path`/cards/${id}`, body),
   deleteCard: (id) => del(V1 + path`/cards/${id}`),
@@ -144,6 +144,7 @@ export const api = {
   deleteConnection: (id) => del(V1 + path`/connections/${id}`),
   checkConnection: (id) => post(V1 + path`/connections/${id}/check`),
   folders: (id, parent) => get(V1 + path`/connections/${id}/folders` + query({ parent })),
+  channels: (id) => get(V1 + path`/connections/${id}/channels`),
   // Answers { url }, where the browser goes to sign in to the service.
   connectAccount: (id) => post(V1 + path`/connections/${id}/account`),
   disconnectAccount: (id) => del(V1 + path`/connections/${id}/account`),

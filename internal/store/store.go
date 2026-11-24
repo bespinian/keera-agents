@@ -1,5 +1,5 @@
 // Package store keeps keera-agents' state in Postgres: agents and
-// workspaces, connections, bindings, schedules, boards, tasks, SSH keys and
+// workspaces, connections, bindings, schedules, squads, tasks, SSH keys and
 // the audit log, people's sign-ins to connectors, the files agents wrote
 // and the machine time to bill. People, organisations, projects, models and
 // keys live in Keera Gateway; rows here name them by the gateway's ids.
@@ -20,6 +20,11 @@ import (
 
 //go:embed migrations/*.sql
 var migrations embed.FS
+
+// renamedMigrations maps a migration's shipped name to its current one.
+var renamedMigrations = map[string]string{
+	"0002_retries.sql": "0002_v0.2.0.sql",
+}
 
 var (
 	ErrNotFound = errors.New("store: not found")
@@ -83,6 +88,16 @@ func (s *Store) Migrate(ctx context.Context) (applied []string, err error) {
 		applied_at timestamptz NOT NULL DEFAULT now()
 	)`); err != nil {
 		return nil, fmt.Errorf("create schema_migrations: %w", err)
+	}
+
+	// Migration files are named after their release. Some shipped under
+	// another name, so a database that ran them records the old one.
+	for old, name := range renamedMigrations {
+		if _, err := conn.Exec(ctx,
+			"UPDATE schema_migrations SET version = $2 WHERE version = $1", old, name,
+		); err != nil {
+			return nil, fmt.Errorf("rename migration %s: %w", old, err)
+		}
 	}
 
 	entries, err := migrations.ReadDir("migrations")

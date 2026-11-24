@@ -43,3 +43,22 @@ func TestPick(t *testing.T) {
 		t.Errorf("AnyTarget = %q, %v", id, err)
 	}
 }
+
+func TestPerson(t *testing.T) {
+	shared := connectors.Connection{Secrets: map[string]string{"service_account_json": "{}"}}
+	if s, err := Person(shared, " Ada@Acme.com ", "mailbox"); err != nil || s.Subject != "ada@acme.com" {
+		t.Errorf("Person = %q, %v", s.Subject, err)
+	}
+	for _, bad := range []string{"*", "me", "Ada <ada@acme.com>", "not an email"} {
+		if _, err := Person(shared, bad, "mailbox"); err == nil {
+			t.Errorf("Person(%q) passed", bad)
+		}
+	}
+	user := connectors.Connection{PerUser: true, Token: "token"}
+	if s, err := Person(user, "me", "mailbox"); err != nil || s.Token != "token" {
+		t.Errorf("Person(me) = %+v, %v", s, err)
+	}
+	if _, err := Person(user, "boss@acme.com", "mailbox"); err == nil {
+		t.Error("a person's sign-in reached someone else")
+	}
+}

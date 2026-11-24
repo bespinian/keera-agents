@@ -126,10 +126,11 @@ const (
 	ConnectedFolder     = "folder"
 	ConnectedRepository = "repository"
 	ConnectedService    = "service"
+	ConnectedSquad      = "squad"
 )
 
-// Connected is one channel, folder, repository or service an agent is
-// connected to.
+// Connected is one channel, folder, repository, service or squad an agent
+// is connected to.
 type Connected struct {
 	// ID is what the tools take to name it.
 	ID   string `json:"id"`
@@ -182,6 +183,10 @@ const (
 
 // Builtins lists every builtin, in the order the panel shows them.
 var Builtins = []string{BuiltinMemory, BuiltinFiles, BuiltinShell, BuiltinWeb}
+
+// SessionHeader carries a task's id on gateway requests, so the gateway
+// shows each task as one session.
+const SessionHeader = "X-Keera-Session"
 
 type GatewayInfo struct {
 	// BaseURL is the inference API, such as http://gateway:8080/api/v1.

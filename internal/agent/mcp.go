@@ -241,7 +241,7 @@ func (c *mcpClient) post(ctx context.Context, msg rpcMessage, taskID string, wan
 		}
 	}
 	if taskID != "" {
-		req.Header.Set(sessionHeader, taskID)
+		req.Header.Set(protocol.SessionHeader, taskID)
 	}
 	c.mu.Lock()
 	if c.session != "" {

@@ -15,6 +15,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/connectors/github"
 	"github.com/bespinian/keera-agents/internal/connectors/gitlab"
 	"github.com/bespinian/keera-agents/internal/connectors/gmail"
+	"github.com/bespinian/keera-agents/internal/connectors/gmeet"
 	"github.com/bespinian/keera-agents/internal/connectors/googlechat"
 	"github.com/bespinian/keera-agents/internal/connectors/gsheets"
 	"github.com/bespinian/keera-agents/internal/connectors/gslides"
@@ -48,7 +49,7 @@ func adapters(opts connectors.Options) []connectors.Adapter {
 		gdrive.New(opts), onedrive.New(opts),
 		github.New(opts), gitlab.New(opts),
 		jira.New(opts), confluence.New(opts), trello.New(opts),
-		gdocs.New(opts), gsheets.New(opts), gslides.New(opts), gcalendar.New(opts), gmail.New(opts),
+		gdocs.New(opts), gsheets.New(opts), gslides.New(opts), gcalendar.New(opts), gmeet.New(opts), gmail.New(opts),
 		outlook.New(opts), outlookcalendar.New(opts),
 		hubspot.New(opts), salesforce.New(opts), freshdesk.New(opts), postgres.New(opts),
 		kubernetes.New(opts), aws.New(opts), azure.New(opts), gcp.New(opts),

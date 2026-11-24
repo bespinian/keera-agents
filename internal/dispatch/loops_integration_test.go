@@ -112,14 +112,39 @@ func TestADisabledAgentsScheduleWaits(t *testing.T) {
 	}
 }
 
-func (e *testEnv) card(t *testing.T, org, status string, agentID *string) store.Card {
+// squad returns the organisation's first squad, creating it, with the
+// agents given added as members.
+func (e *testEnv) squad(t *testing.T, org string, members ...string) store.Squad {
 	t.Helper()
-	board, err := e.d.EnsureBoard(e.ctx, org, "ada@example.ch")
+	squads, err := e.st.Squads(e.ctx, org)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var q store.Squad
+	if len(squads) > 0 {
+		q = squads[0]
+	} else if q, err = e.st.CreateSquad(e.ctx, store.Squad{
+		ID: id.New("sqd"), OrgID: org, Name: "Tasks", CreatedBy: "ada@example.ch",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if q, err = e.st.UpdateSquad(e.ctx, q, append(members, q.MemberIDs()...)); err != nil {
+		t.Fatal(err)
+	}
+	return q
+}
+
+// card puts a card on the organisation's squad's board; its agent joins
+// the squad.
+func (e *testEnv) card(t *testing.T, org, status string, agentID *string) store.Card {
+	t.Helper()
+	var members []string
+	if agentID != nil {
+		members = append(members, *agentID)
+	}
+	squad := e.squad(t, org, members...)
 	c, err := e.st.CreateCard(e.ctx, store.Card{
-		ID: id.New("card"), BoardID: board.ID, Title: "Write the report", Body: "For March.", Status: status,
+		ID: id.New("card"), SquadID: squad.ID, Title: "Write the report", Body: "For March.", Status: status,
 		AgentID: agentID, RequestedBy: "bob@example.ch", RequestedByID: "usr_bob",
 	})
 	if err != nil {
@@ -245,12 +270,9 @@ func TestPickUpChecksWhoGaveTheWork(t *testing.T) {
 func TestACardFromSomeoneWhoLeftGoesToBacklog(t *testing.T) {
 	e := setup(t)
 	a := e.agent(t, "org_a", "Scout", store.AccessOrg)
-	board, err := e.d.EnsureBoard(e.ctx, "org_a", "ada@example.ch")
-	if err != nil {
-		t.Fatal(err)
-	}
+	squad := e.squad(t, "org_a", a.ID)
 	c, err := e.st.CreateCard(e.ctx, store.Card{
-		ID: id.New("card"), BoardID: board.ID, Title: "Write the report", Status: store.CardTodo,
+		ID: id.New("card"), SquadID: squad.ID, Title: "Write the report", Status: store.CardTodo,
 		AgentID: &a.ID, RequestedBy: "gone@example.ch", RequestedByID: "usr_gone",
 	})
 	if err != nil {
@@ -672,4 +694,71 @@ func TestCheckAccountsForgetsWhoLeft(t *testing.T) {
 	if !has("usr_bob") || has("usr_gone") || has("usr_dis") {
 		t.Fatalf("bob %v, gone %v, disabled %v", has("usr_bob"), has("usr_gone"), has("usr_dis"))
 	}
+}
+
+func TestACardThatHandsOutWorkWaitsAndComesBack(t *testing.T) {
+	e := setup(t)
+	lead := e.agent(t, "org_a", "Lead", store.AccessOrg)
+	writer := e.agent(t, "org_a", "Writer", store.AccessOrg)
+	e.squad(t, "org_a", writer.ID)
+	parent := e.card(t, "org_a", store.CardTodo, &lead.ID)
+	task := e.pickUp(t, lead, parent)
+
+	e.call(t, lead, task, "board_create_card", `{"title":"Draft the post","status":"todo","agent":"Writer"}`, "ok")
+	children, _ := e.st.ChildCards(e.ctx, parent.ID)
+	if len(children) != 1 || children[0].Depth != 1 || children[0].RequestedByID != "usr_bob" {
+		t.Fatalf("handed out %+v", children)
+	}
+	child := children[0]
+	e.finish(t, task.ID, store.TaskSucceeded, "Handed the draft to Writer.", "")
+	e.d.Deliver(e.ctx)
+	if got, _ := e.st.Card(e.ctx, parent.ID); got.Status != store.CardInProgress || !got.Waiting {
+		t.Fatalf("parent after its task: %s, waiting %v", got.Status, got.Waiting)
+	}
+
+	// Writer takes its card. The parent waits while it runs.
+	childTask := e.pickUp(t, writer, child)
+	if got, _ := e.st.Card(e.ctx, parent.ID); got.Status != store.CardInProgress {
+		t.Fatalf("parent woke early: %s", got.Status)
+	}
+	e.finish(t, childTask.ID, store.TaskSucceeded, "The post: hello world.", "")
+	e.d.Deliver(e.ctx)
+
+	// The parent comes back to Lead, with the result.
+	e.d.PickUpCards(e.ctx)
+	var again *store.Task
+	for _, x := range e.tasks(t, lead) {
+		if x.Origin.CardID == parent.ID && x.ID != task.ID {
+			again = &x
+		}
+	}
+	if again == nil || !strings.Contains(again.Prompt, "The post: hello world.") || again.RequestedByID != "usr_bob" {
+		t.Fatalf("the parent's second task: %+v", again)
+	}
+	// Finished without handing out more, it moves on to Review.
+	e.finish(t, again.ID, store.TaskSucceeded, "Published.", "")
+	e.d.Deliver(e.ctx)
+	if got, _ := e.st.Card(e.ctx, parent.ID); got.Status != store.CardReview || got.Waiting {
+		t.Fatalf("parent at the end: %s, waiting %v", got.Status, got.Waiting)
+	}
+}
+
+func TestHandingOutWorkHasLimits(t *testing.T) {
+	e := setup(t)
+	lead := e.agent(t, "org_a", "Lead", store.AccessOrg)
+	parent := e.card(t, "org_a", store.CardTodo, &lead.ID)
+	task := e.pickUp(t, lead, parent)
+	e.exec(t, fmt.Sprintf(`UPDATE cards SET depth = %d WHERE id = '%s'`, store.MaxCardDepth, parent.ID))
+	e.call(t, lead, task, "board_create_card", `{"title":"Deeper"}`, fmt.Sprintf("handed on %d times", store.MaxCardDepth))
+
+	e.exec(t, fmt.Sprintf(`UPDATE cards SET depth = 0 WHERE id = '%s'`, parent.ID))
+	for range store.MaxChildCards {
+		e.call(t, lead, task, "board_create_card", `{"title":"Part"}`, "ok")
+	}
+	e.call(t, lead, task, "board_create_card", `{"title":"One more"}`, fmt.Sprintf("handed out %d cards", store.MaxChildCards))
+
+	q := e.squad(t, "org_a")
+	e.exec(t, fmt.Sprintf(`INSERT INTO cards (id, squad_id, title, status, created_by)
+		SELECT 'card_bulk_' || n, '%s', 'Bulk', 'todo', 'ada' FROM generate_series(1, %d) n`, q.ID, store.MaxOpenCards))
+	e.call(t, lead, taskFor(lead, "usr_ada", "ada@example.ch"), "board_create_card", `{"title":"Too many"}`, "cards in todo and in progress already")
 }

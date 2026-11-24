@@ -52,7 +52,7 @@ func (a *Auth) Accounts(scope, apis string) oauth.Accounts {
 				},
 				{Name: "client_secret", Label: "OAuth client secret", Secret: true, Required: true},
 			},
-			Setup: "1. In a Google Cloud project, enable the " + apis + ".\n" +
+			Setup: "1. In a Google Cloud project, under **APIs & Services**, enable the " + apis + ".\n" +
 				"2. Under Google Auth Platform, set the audience to **Internal**, so only people in your Workspace can sign in.\n" +
 				"3. Create an OAuth client of type **Web application**, with the authorized redirect URI {callback}.\n" +
 				"4. Enter its client ID and secret here. Then each person connects their own Google account under Connectors.",

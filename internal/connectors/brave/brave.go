@@ -74,7 +74,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 				Help: "A Brave Search API key.",
 			},
 		},
-		Setup: "1. Sign up at api-dashboard.search.brave.com and choose a **Search** plan.\n" +
+		Setup: "1. Sign up at [api-dashboard.search.brave.com](https://api-dashboard.search.brave.com) and choose a **Search** plan.\n" +
 			"2. Under **API keys**, add a key and copy it here.\n" +
 			"3. Agents read the pages they find with their **Web** tool, so give them that too.",
 	}

@@ -190,20 +190,20 @@ func TestRead(t *testing.T) {
 	f := newFake(t)
 	a := f.adapter()
 	c := conn("pw", drive)
-	file, b, err := a.Read(context.Background(), c, "TXT")
+	file, b, err := a.Read(context.Background(), c, "TXT", connectors.MaxReadBytes)
 	if err != nil || string(b) != "hello" || file.Name != "notes.txt" {
 		t.Errorf("TXT = %+v %q %v", file, b, err)
 	}
-	file, b, err = a.Read(context.Background(), c, "DOCX")
+	file, b, err = a.Read(context.Background(), c, "DOCX", connectors.MaxReadBytes)
 	if err != nil || string(b) != "Hello\t world\nSecond & last" || file.MimeType != "text/plain" {
 		t.Errorf("DOCX = %+v %q %v", file, b, err)
 	}
 	// Other Office files come back as stored.
-	if _, b, err = a.Read(context.Background(), c, "XLSX"); err != nil || string(b) != "PK\x03\x04" {
+	if _, b, err = a.Read(context.Background(), c, "XLSX", connectors.MaxReadBytes); err != nil || string(b) != "PK\x03\x04" {
 		t.Errorf("XLSX = %q %v", b, err)
 	}
-	for id, want := range map[string]string{"SUB": "is a folder", "BIG": "larger than 4 MiB", "NOPE": "itemNotFound"} {
-		if _, _, err := a.Read(context.Background(), c, id); err == nil || !strings.Contains(err.Error(), want) {
+	for id, want := range map[string]string{"SUB": "is a folder", "BIG": "larger than 25 MiB", "NOPE": "itemNotFound"} {
+		if _, _, err := a.Read(context.Background(), c, id, connectors.MaxReadBytes); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: err = %v", id, err)
 		}
 	}

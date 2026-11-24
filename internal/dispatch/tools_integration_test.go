@@ -54,11 +54,14 @@ func (f *fakeFiles) List(_ context.Context, _ connectors.Connection, folder stri
 	return slices.Clone(f.folders[folder]), nil
 }
 
-func (f *fakeFiles) Read(_ context.Context, _ connectors.Connection, fileID string) (connectors.File, []byte, error) {
+func (f *fakeFiles) Read(_ context.Context, _ connectors.Connection, fileID string, limit int64) (connectors.File, []byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, files := range f.folders {
 		for _, file := range files {
+			if file.ID == fileID && file.Size > limit {
+				return file, nil, fmt.Errorf("%s is too large", file.Name)
+			}
 			if file.ID == fileID {
 				return file, []byte(f.content[fileID]), nil
 			}
@@ -233,27 +236,33 @@ func TestSendMessageGoesOnlyToTheAgentsChannels(t *testing.T) {
 	}
 }
 
-func TestBoardToolsStayInTheOrganisation(t *testing.T) {
+func TestBoardToolsStayInTheAgentsSquads(t *testing.T) {
 	e := setup(t)
 	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
-	e.agent(t, "org_b", "Spy", store.AccessOrg)
-	theirs, err := e.d.EnsureBoard(e.ctx, "org_b", "eve")
+	outsider := e.agent(t, "org_a", "Outsider", store.AccessOrg)
+	spy := e.agent(t, "org_b", "Spy", store.AccessOrg)
+	e.squad(t, "org_a", scout.ID)
+	theirs := e.squad(t, "org_b", spy.ID)
+	// A squad of Scout's organisation that Scout is not in.
+	other, err := e.st.CreateSquad(e.ctx, store.Squad{ID: id.New("sqd"), OrgID: "org_a", Name: "Other", CreatedBy: "ada"},
+		[]string{outsider.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := e.d.EnsureBoard(e.ctx, "org_b", "eve"); again.ID != theirs.ID {
-		t.Fatal("EnsureBoard made a second board")
-	}
-	theirCard, err := e.st.CreateCard(e.ctx, store.Card{
-		ID: id.New("card"), BoardID: theirs.ID, Title: "Secret", Status: store.CardBacklog,
-	})
-	if err != nil {
-		t.Fatal(err)
+	var hidden []store.Card
+	for _, q := range []store.Squad{theirs, other} {
+		c, err := e.st.CreateCard(e.ctx, store.Card{ID: id.New("card"), SquadID: q.ID, Title: "Secret", Status: store.CardBacklog})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hidden = append(hidden, c)
 	}
 	task := taskFor(scout, "usr_ada", "ada@example.ch")
 
 	e.call(t, scout, task, "board_create_card", `{"title":"Ours","agent":"Scout"}`, "ok")
-	e.call(t, scout, task, "board_create_card", `{"title":"Theirs","agent":"Spy"}`, `no agent called "Spy"`)
+	e.call(t, scout, task, "board_create_card", `{"title":"Theirs","agent":"Spy"}`, "Spy is not in the squad Tasks")
+	e.call(t, scout, task, "board_create_card", `{"title":"Theirs","agent":"Outsider"}`, "Outsider is not in the squad Tasks")
+	e.call(t, scout, task, "board_create_card", `{"title":"x","squad":"Other"}`, `not in a squad called "Other"`)
 	e.call(t, scout, task, "board_create_card", `{"title":"  "}`, "needs a title")
 	e.call(t, scout, task, "board_create_card", `{"title":"x","status":"later"}`, "unknown status")
 	long := func(field string, n int) string {
@@ -267,14 +276,16 @@ func TestBoardToolsStayInTheOrganisation(t *testing.T) {
 	if err := json.Unmarshal([]byte(e.call(t, scout, task, "board_list_cards", `{}`, "ok")), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed) != 1 || listed[0].Title != "Ours" || listed[0].Agent != "Scout" {
+	if len(listed) != 1 || listed[0].Title != "Ours" || listed[0].Agent != "Scout" || listed[0].Squad != "Tasks" {
 		t.Fatalf("listed %+v", listed)
 	}
-	args := fmt.Sprintf(`{"card_id":%q,"title":"Mine now"}`, theirCard.ID)
-	e.call(t, scout, task, "board_update_card", args, "there is no card")
-	e.call(t, scout, task, "board_comment", fmt.Sprintf(`{"card_id":%q,"body":"hi"}`, theirCard.ID), "there is no card")
-	if got, _ := e.st.Card(e.ctx, theirCard.ID); got.Title != "Secret" || got.Comments != 0 {
-		t.Fatalf("another organisation's card changed: %+v", got)
+	for _, c := range hidden {
+		e.call(t, scout, task, "board_update_card", fmt.Sprintf(`{"card_id":%q,"title":"Mine now"}`, c.ID), "there is no card")
+		e.call(t, scout, task, "board_comment", fmt.Sprintf(`{"card_id":%q,"body":"hi"}`, c.ID), "there is no card")
+		e.call(t, scout, task, "board_read_card", fmt.Sprintf(`{"card_id":%q}`, c.ID), "there is no card")
+		if got, _ := e.st.Card(e.ctx, c.ID); got.Title != "Secret" || got.Comments != 0 {
+			t.Fatalf("a card of another squad changed: %+v", got)
+		}
 	}
 	e.call(t, scout, task, "board_comment", fmt.Sprintf(`{"card_id":%q,"body":" "}`, listed[0].ID), "empty")
 	e.call(t, scout, task, "board_comment", fmt.Sprintf(`{"card_id":%q,"body":"noted"}`, listed[0].ID), "ok")
@@ -282,12 +293,51 @@ func TestBoardToolsStayInTheOrganisation(t *testing.T) {
 		strings.Repeat("a", store.MaxComment+1)), "longer than")
 	e.call(t, scout, task, "board_update_card", fmt.Sprintf(`{"card_id":%q,"body":%q}`, listed[0].ID,
 		strings.Repeat("a", store.MaxCardBody+1)), "description is longer")
+	if got := e.call(t, scout, task, "board_read_card", fmt.Sprintf(`{"card_id":%q}`, listed[0].ID), "ok"); !strings.Contains(got, `"body":"noted"`) {
+		t.Fatalf("read %s", got)
+	}
+
+	loner := e.agent(t, "org_a", "Loner", store.AccessOrg)
+	e.call(t, loner, taskFor(loner, "usr_ada", "ada@example.ch"), "board_create_card", `{"title":"x"}`, "you are in no squad")
+}
+
+func TestBoardToolsInSeveralSquads(t *testing.T) {
+	e := setup(t)
+	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	writer := e.agent(t, "org_a", "Writer", store.AccessOrg)
+	sales := e.squad(t, "org_a", scout.ID)
+	if _, err := e.st.CreateSquad(e.ctx, store.Squad{ID: id.New("sqd"), OrgID: "org_a", Name: "Support", CreatedBy: "ada"},
+		[]string{scout.ID, writer.ID}); err != nil {
+		t.Fatal(err)
+	}
+	task := taskFor(scout, "usr_ada", "ada@example.ch")
+	e.call(t, scout, task, "board_create_card", `{"title":"x"}`, "in several squads; name one: Tasks, Support")
+	e.call(t, scout, task, "board_create_card", `{"title":"Reply","squad":"support","agent":"Writer"}`, "ok")
+	e.call(t, scout, task, "board_create_card", `{"title":"Call","squad":"Tasks"}`, "ok")
+	var listed []cardView
+	if err := json.Unmarshal([]byte(e.call(t, scout, task, "board_list_cards", `{"squad":"Support"}`, "ok")), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Title != "Reply" || listed[0].Squad != "Support" {
+		t.Fatalf("listed %+v", listed)
+	}
+	// Working on a card, the card's squad is the one meant.
+	c, err := e.st.CreateCard(e.ctx, store.Card{ID: id.New("card"), SquadID: sales.ID, Title: "Lead", Status: store.CardTodo, AgentID: &scout.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromCard := task
+	fromCard.Source, fromCard.Origin = protocol.SourceBoard, store.Origin{CardID: c.ID}
+	if got := e.call(t, scout, fromCard, "board_create_card", `{"title":"Follow up"}`, "ok"); !strings.Contains(got, `"squad":"Tasks"`) {
+		t.Fatalf("created %s", got)
+	}
 }
 
 func TestBoardToolsApplyTheOtherAgentsAccess(t *testing.T) {
 	e := setup(t)
 	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
 	private := e.agent(t, "org_a", "Private", store.AccessOwner)
+	e.squad(t, "org_a", scout.ID, private.ID)
 	forBob := taskFor(scout, "usr_bob", "bob@example.ch")
 	forAda := taskFor(scout, "usr_ada", "ada@example.ch")
 	nobody := taskFor(scout, "", "")
@@ -295,11 +345,11 @@ func TestBoardToolsApplyTheOtherAgentsAccess(t *testing.T) {
 	// Bob may not give Private work, so Scout may not on his behalf.
 	e.call(t, scout, forBob, "board_create_card", `{"title":"For Private","agent":"Private"}`, "only takes work from")
 	e.call(t, scout, nobody, "board_create_card", `{"title":"For Private","agent":"Private"}`, "only takes work from")
-	if cards, _ := e.st.OrgCards(e.ctx, "org_a", "", "", 50); len(cards) != 0 {
+	if cards, _ := e.st.MemberCards(e.ctx, scout.ID, store.CardFilter{Limit: 50}); len(cards) != 0 {
 		t.Fatalf("a refused card was made: %+v", cards)
 	}
 	e.call(t, scout, forAda, "board_create_card", `{"title":"For Private","agent":"Private"}`, "ok")
-	cards, _ := e.st.OrgCards(e.ctx, "org_a", "", private.ID, 50)
+	cards, _ := e.st.MemberCards(e.ctx, scout.ID, store.CardFilter{Agent: private.ID, Limit: 50})
 	if len(cards) != 1 {
 		t.Fatalf("%d cards for Private", len(cards))
 	}
@@ -533,5 +583,102 @@ func TestToolsListWhatTheAgentIsBoundTo(t *testing.T) {
 	ws.Kind = store.KindWorkspace
 	if got := names(ws); slices.Contains(got, "send_message") {
 		t.Fatalf("a workspace may send messages: %v", got)
+	}
+}
+
+func TestSquadListShowsWhoTheTaskMayGiveWork(t *testing.T) {
+	e := setup(t)
+	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	writer := e.agent(t, "org_a", "Writer", store.AccessOrg)
+	writer.Description = "Drafts posts."
+	if _, err := e.st.UpdateAgent(e.ctx, writer); err != nil {
+		t.Fatal(err)
+	}
+	private := e.agent(t, "org_a", "Private", store.AccessOwner)
+	off := e.agent(t, "org_a", "Off", store.AccessOrg)
+	if _, err := e.st.SetEnabled(e.ctx, off.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	e.agent(t, "org_a", "Outsider", store.AccessOrg)
+	q := e.squad(t, "org_a", scout.ID, writer.ID, private.ID, off.ID)
+	q.Goal, q.LeadID = "Grow sales.", &writer.ID
+	if _, err := e.st.UpdateSquad(e.ctx, q, []string{scout.ID, writer.ID, private.ID, off.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	list := func(task store.Task) []agentView {
+		t.Helper()
+		var out []squadView
+		if err := json.Unmarshal([]byte(e.call(t, scout, task, "squad_list", `{}`, "ok")), &out); err != nil {
+			t.Fatal(err)
+		}
+		if len(out) != 1 || out[0].Name != "Tasks" || out[0].Goal != "Grow sales." || out[0].Lead != "Writer" {
+			t.Fatalf("squads %+v", out)
+		}
+		return out[0].Members
+	}
+	// Not itself, not one that is off, not one outside the squad.
+	want := []agentView{{Name: "Private"}, {Name: "Writer", Description: "Drafts posts."}}
+	if got := list(taskFor(scout, "usr_ada", "ada@example.ch")); !slices.Equal(got, want) {
+		t.Fatalf("for Ada: %+v, want %+v", got, want)
+	}
+	// Bob may not give Private work, so Scout may not hand it any for him.
+	want = []agentView{{Name: "Writer", Description: "Drafts posts."}}
+	if got := list(taskFor(scout, "usr_bob", "bob@example.ch")); !slices.Equal(got, want) {
+		t.Fatalf("for Bob: %+v, want %+v", got, want)
+	}
+	if got := list(taskFor(scout, "usr_gone", "gone@example.ch")); len(got) != 0 {
+		t.Fatalf("for someone who left: %+v", got)
+	}
+}
+
+func TestACardInToDoWithoutAnAgentGoesToTheLead(t *testing.T) {
+	e := setup(t)
+	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	lead := e.agent(t, "org_a", "Lead", store.AccessOrg)
+	q := e.squad(t, "org_a", scout.ID, lead.ID)
+	q.LeadID = &lead.ID
+	if _, err := e.st.UpdateSquad(e.ctx, q, []string{scout.ID, lead.ID}); err != nil {
+		t.Fatal(err)
+	}
+	task := taskFor(scout, "usr_ada", "ada@example.ch")
+	if got := e.call(t, scout, task, "board_create_card", `{"title":"Plan","status":"todo"}`, "ok"); !strings.Contains(got, `"agent":"Lead"`) {
+		t.Fatalf("created %s", got)
+	}
+	if got := e.call(t, scout, task, "board_create_card", `{"title":"Later"}`, "ok"); strings.Contains(got, `"agent"`) {
+		t.Fatalf("a card in Backlog went to the lead: %s", got)
+	}
+}
+
+func TestToolsOfSquadsOnlyForMembers(t *testing.T) {
+	e := setup(t)
+	scout := e.agent(t, "org_a", "Scout", store.AccessOrg)
+	has := func(name string) bool {
+		t.Helper()
+		specs, _, err := e.d.Tools(e.ctx, scout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(specs, func(s protocol.ToolSpec) bool {
+			return s.Name == name && (name != "board_create_card" || strings.Contains(s.Description, "Your squads: Tasks."))
+		})
+	}
+	if has("board_list_cards") || has("squad_list") {
+		t.Fatal("an agent in no squad has board tools")
+	}
+	q := e.squad(t, "org_a", scout.ID)
+	q.LeadID = &scout.ID
+	if _, err := e.st.UpdateSquad(e.ctx, q, []string{scout.ID}); err != nil {
+		t.Fatal(err)
+	}
+	// The prompt lists the squad, as it lists channels and folders.
+	_, conn, _ := e.d.Tools(e.ctx, scout)
+	if !slices.Contains(conn, protocol.Connected{ID: q.ID, What: protocol.ConnectedSquad, Service: "board", Name: "Tasks, which you lead"}) {
+		t.Fatalf("connected %+v", conn)
+	}
+	for _, name := range []string{"squad_list", "board_list_cards", "board_read_card", "board_create_card", "board_update_card", "board_comment"} {
+		if !has(name) {
+			t.Errorf("a member lacks %s", name)
+		}
 	}
 }

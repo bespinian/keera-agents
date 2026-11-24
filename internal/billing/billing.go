@@ -36,6 +36,9 @@ const (
 	// maxGap is the most time one round meters. Longer, nobody saw what
 	// ran: the control plane was down.
 	maxGap = 15 * time.Minute
+	// minRun is what a run costs at least, for CPU and memory. A run no
+	// round saw is billed this much.
+	minRun = time.Minute
 	// maxAge is how old an hour may be and still be sent. The gateway takes
 	// lines up to 40 days old.
 	maxAge = 39 * 24 * time.Hour
@@ -198,7 +201,7 @@ func (b *Biller) Meter(ctx context.Context, now time.Time) {
 	if !b.On() {
 		return
 	}
-	if _, err := b.st.Meter(ctx, now, maxGap, measure); err != nil {
+	if _, err := b.st.Meter(ctx, now, maxGap, minRun, measure); err != nil {
 		b.log.Warn("could not meter the machines", "error", err)
 	}
 }

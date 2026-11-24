@@ -81,11 +81,12 @@ starts no machine, and its waiting tasks fail with the reason
 ([billing.md](billing.md#when-an-organisation-may-not-run-machines)).
 
 **Changing settings.** Instructions, model and tools reach the runtime at its
-next task, through the bootstrap's version. A changed project or budget gets a
-new key at once; the runtime's next gateway call fails with 401 and it fetches
-the new key. If the gateway cannot be reached, the old key is kept and
-replaced in the background once it can, every 15 seconds. A changed image or machine size replaces the container and keeps
-the workspace.
+next task, through the bootstrap's version. A changed project, budget or set
+of [MCP servers](#mcp-servers) gets a new key at once; the runtime's next
+gateway call fails with 401 and it fetches the new key. If the gateway cannot
+be reached, the old key is kept and replaced in the background once it can,
+every 15 seconds. A changed image or machine size replaces the container and
+keeps the workspace.
 
 **The runtime token** is new at each start, and stored once the container has
 it, so a start that fails leaves the old container working. A container whose
@@ -116,20 +117,26 @@ writes a tool call as text instead of making one, it is told once; if it does it
 again, the task fails rather than deliver the text. A model that keeps doing this
 lacks tool calling, or its backend does not parse tool calls.
 
+So the panel greys out models whose capabilities in the gateway leave out
+`tools`, for agents and for workspaces. With an older Keera Gateway, which does
+not list capabilities, it offers every model.
+
 | Tool group | Tools                                                                                   |
 | ---------- | --------------------------------------------------------------------------------------- |
 | `memory`   | `memory_read`, `memory_write`, `memory_append` on `MEMORY.md`, which is in every prompt |
 | `files`    | `file_list`, `file_read`, `file_write`, `file_search`, inside the workspace             |
 | `shell`    | `shell`, a command in the workspace with a timeout                                      |
 | `web`      | `web_fetch`, if egress allows it                                                        |
-| MCP        | every MCP server the agent's key may call, as `<server>__<tool>`                        |
-| Platform   | `send_message`, `board_*`, `files_*` for connected folders, `repo_*` for repositories   |
+| MCP        | the gateway's [MCP servers](#mcp-servers) it may call, as `<server>__<tool>`            |
+| Platform   | `send_message`, `files_*` for connected folders, `repo_*` for repositories              |
+| Squads     | `squad_list` and `board_*`, in [squads](tasks.md#squads) it is a member of              |
+| Models     | `model_transcribe` and `model_ask`, for its [other models](#other-models)               |
 | Services   | `<kind>_<tool>` for each API connector, such as `jira_search_issues` or `aws_costs`     |
 
 The prompt lists what the agent is connected to: each channel, folder,
-repository and service, with the id its tools take and, for a repository, the
-command that clones it. The same lists are in the tools' descriptions, but
-models tend to miss them there.
+repository, service and squad, with the id its tools take and, for a
+repository, the command that clones it. The same lists are in the tools'
+descriptions, but models tend to miss them there.
 
 A chat thread keeps its history in the workspace, so a follow-up in the same
 thread has the context of the earlier messages.
@@ -137,6 +144,48 @@ thread has the context of the earlier messages.
 The machine is the boundary: the agent may do anything inside it. Pick the
 isolation tier with that in mind. A new agent or workspace gets the strongest
 tier the deployment has, unless someone chooses another.
+
+### MCP servers
+
+An agent calls the MCP servers of Keera Gateway through the gateway's MCP
+proxy, with its own key. The gateway holds the servers' credentials and logs
+each call.
+
+By default it may call every server its project allows, including ones added
+later. Under **MCP servers** in its settings, choose only some, or none. A
+support agent that reads customer email then has no tool that writes code.
+Fewer tools also mean shorter prompts, and models pick the right tool more
+often.
+
+The choice sits on the agent's key, as a tool allow-list in the key's own
+guardrail, so the gateway enforces it, not the agent's machine. It can only
+narrow what the project allows, and a changed choice gets a new key
+([lifecycle](#lifecycle)). With a Keera Gateway too old to
+take the list, minting the key fails for an agent that has a choice; agents
+without one are not affected.
+
+### Other models
+
+Besides the model it thinks with, an agent may use other models of the
+gateway as tools. Choose them under **Other models** in its settings, from
+what its project allows:
+
+- A **transcription model** gives it `model_transcribe`, which turns a
+  recording in a connected folder into text: audio or video up to 25 MiB.
+  So a recording that lands in a watched folder can become meeting minutes.
+  `files_read` on a recording points to this tool instead of returning its
+  bytes.
+- **Models it may ask** give it `model_ask`: one question, one answer. The
+  other model sees only the prompt, not the task or the tools.
+
+These tools run in the control plane, not in the machine, since only the
+control plane reads connected folders. Each call goes to the gateway with the
+agent's own key, in its task's session. So its budget, the gateway's rules
+and its audit apply as to the agent's own model calls. They are not
+connectors: there is no other credential to set up.
+
+With an older Keera Gateway, which does not list transcription models, the
+panel offers none.
 
 ## Where agents run
 

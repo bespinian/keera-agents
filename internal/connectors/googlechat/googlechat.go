@@ -86,7 +86,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 					"(recommended), or the HTTP endpoint URL.",
 			},
 		},
-		Setup: "1. In a Google Cloud project, enable the Google Chat API.\n" +
+		Setup: "1. In a Google Cloud project, under **APIs & Services**, enable the Google Chat API.\n" +
 			"2. Create a service account with a JSON key.\n" +
 			"3. In the Chat API's Configuration, give the app a name and turn on 1:1 messages and joining spaces.\n" +
 			"4. Choose HTTP endpoint URL, enter {webhook}, and set the authentication audience to the project number " +

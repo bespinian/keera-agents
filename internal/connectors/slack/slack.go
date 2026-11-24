@@ -106,7 +106,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		},
 		Setup:       setup,
 		TargetLabel: "Channel ID",
-		TargetHelp:  "C0123…, or * for every channel the bot is in and its direct messages.",
+		TargetHelp:  "C0123… for a channel, a person's U0123… for their direct messages with the bot, or * for every channel the bot is in and its direct messages.",
 	}
 }
 
@@ -260,6 +260,7 @@ func (a *Adapter) Receive(ctx context.Context, conn connectors.Connection, r *ht
 		return connectors.Receipt{}, nil
 	}
 	a.lookup(ctx, conn, &in, env.Event.User, workspaceOf(env))
+	in.Sender.ID = env.Event.User
 	return connectors.Receipt{Messages: []connectors.Inbound{in}}, nil
 }
 
@@ -413,10 +414,87 @@ func (a *Adapter) channelName(ctx context.Context, connID, token, channel string
 	return l
 }
 
-func (a *Adapter) Send(ctx context.Context, conn connectors.Connection, to connectors.Target, text string) (string, error) {
+// maxChannels bounds the picker's list. Paging stops there, so a huge
+// workspace still answers quickly.
+const maxChannels = 2000
+
+func (a *Adapter) Channels(ctx context.Context, conn connectors.Connection) ([]connectors.Channel, error) {
+	token, err := botToken(conn)
+	if err != nil {
+		return nil, err
+	}
+	var out []connectors.Channel
+	cursor := ""
+	for len(out) < maxChannels {
+		q := url.Values{
+			"types":            {"public_channel,private_channel"},
+			"exclude_archived": {"true"},
+			"limit":            {"200"},
+		}
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		var r struct {
+			Channels []struct {
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				IsPrivate bool   `json:"is_private"`
+			} `json:"channels"`
+			Meta struct {
+				NextCursor string `json:"next_cursor"`
+			} `json:"response_metadata"`
+		}
+		// users.conversations, unlike conversations.list, lists only the
+		// channels the bot is in: the only ones it can post in.
+		if err := a.call(ctx, token, "users.conversations", q, nil, &r); err != nil {
+			return nil, err
+		}
+		for _, c := range r.Channels {
+			out = append(out, connectors.Channel{ID: c.ID, Name: "#" + c.Name, Private: c.IsPrivate})
+		}
+		if cursor = r.Meta.NextCursor; cursor == "" {
+			break
+		}
+	}
+	return out, nil
+}
+
+// Direct returns the person's user id. chat.postMessage takes it as a
+// channel and posts in their direct messages with the bot, so no scope to
+// open that conversation is needed.
+func (a *Adapter) Direct(ctx context.Context, conn connectors.Connection, email string) (connectors.Channel, error) {
+	token, err := botToken(conn)
+	if err != nil {
+		return connectors.Channel{}, err
+	}
+	var r struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	err = a.call(ctx, token, "users.lookupByEmail", url.Values{"email": {email}}, nil, &r)
+	if ae, ok := errors.AsType[*apiError](err); ok && ae.Code == "users_not_found" {
+		return connectors.Channel{}, fmt.Errorf("Slack has nobody with the email %s", email) //nolint:staticcheck
+	}
+	if err != nil {
+		return connectors.Channel{}, err
+	}
+	return connectors.Channel{ID: r.User.ID, Name: "Direct messages", Direct: true}, nil
+}
+
+// botToken is the connection's bot token, which every call to Slack needs.
+func botToken(conn connectors.Connection) (string, error) {
 	token := web.Value(conn, "bot_token")
 	if token == "" {
 		return "", errors.New("slack: the bot token is missing")
+	}
+	return token, nil
+}
+
+func (a *Adapter) Send(ctx context.Context, conn connectors.Connection, to connectors.Target, text string) (string, error) {
+	token, err := botToken(conn)
+	if err != nil {
+		return "", err
 	}
 	if to.Conversation == "" || to.Conversation == connectors.AnyTarget {
 		return "", errors.New("slack: no channel to post to")

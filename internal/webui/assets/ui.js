@@ -187,6 +187,12 @@ export const icons = {
     "M4 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" +
     "M11 3h4a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" +
     "M18 3h2a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z",
+  // Two robot heads, one behind the other: agents that work together.
+  squads:
+    "M4.5 11h7a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 18.5v-5A2.5 2.5 0 0 1 4.5 11z" +
+    "M8 11V8.5M6 15h.01M10 15h.01M6.5 18h3" +
+    "M11 8.5V7.5A2.5 2.5 0 0 1 13.5 5h6A2.5 2.5 0 0 1 22 7.5v5a2.5 2.5 0 0 1-2.5 2.5H16.5" +
+    "M16.5 5V2.5M15 9.5h.01M19 9.5h.01",
   tasks: "M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9",
   schedules: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 7v5l3 2",
   // A power plug: a connector plugs a service in.
@@ -519,6 +525,7 @@ const serviceMarks = {
   gsheets: googleMark,
   gslides: googleMark,
   gcalendar: googleMark,
+  gmeet: googleMark,
   gmail: googleMark,
   gcp: googleMark,
   outlook: idpMarks.microsoft,

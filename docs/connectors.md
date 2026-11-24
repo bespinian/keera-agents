@@ -26,6 +26,7 @@ panel shows the same setup steps next to the form.
 | Google Sheets           | `gsheets`         | read and write spreadsheets            | a service account                     |
 | Google Slides           | `gslides`         | read and change presentations          | a service account                     |
 | Google Calendar         | `gcalendar`       | events and free time                   | a service account                     |
+| Google Meet             | `gmeet`           | meetings, transcripts, recordings      | a service account with delegation     |
 | Gmail                   | `gmail`           | mail tools                             | a service account with delegation     |
 | Outlook Mail            | `outlook`         | mail tools                             | an Entra app (Microsoft Graph)        |
 | Outlook Calendar        | `outlookcalendar` | events and free time                   | an Entra app (Microsoft Graph)        |
@@ -97,8 +98,8 @@ team. In a channel, the bot must be mentioned.
 
 Settings: `service_account_json`, `audience`.
 
-1. In a Google Cloud project, enable the Google Chat API and create a service
-   account with a JSON key.
+1. In a Google Cloud project, under **APIs & Services**, enable the Google
+   Chat API and create a service account with a JSON key.
 2. In the Chat API's Configuration: name the app, allow 1:1 messages and
    joining spaces, choose **HTTP endpoint URL**, enter the webhook address,
    and set the **authentication audience to the project number**.
@@ -132,18 +133,27 @@ People from other workspaces, such as guests in a Slack Connect channel, are
 refused too: their own workspace sets their email, so it proves nothing here.
 Workspaces of the same Enterprise Grid count as one.
 
+**Where an agent posts on its own.** Bound to `*`, an agent answers wherever
+it is asked, but names no one place to post, so it cannot send a schedule's
+result or a message of its own. Bind it to a channel, or to your direct
+messages with the bot: **Browse** next to the channel lists both. Direct
+messages are bound by your Slack user id (`U0123…`), found by your email.
+Slack posts to a user id in their direct messages with the bot, and those
+messages reach the agent too.
+
 ## Google Drive
 
 Settings: `service_account_json`, `subject` (optional), `shared_drive_id`
 (optional).
 
-Enable the Google Drive API and create a service account with a JSON key.
-Then either **share the folders, or a shared drive, with the service
-account**, which is the narrowest, or, as a Workspace administrator, grant it
-domain-wide delegation for `https://www.googleapis.com/auth/drive` and name
-the user to act as. A service account has no storage of its own, so in a
-folder shared from someone's My Drive agents can read and change files but
-not add new ones. To add files, use a shared drive or delegation.
+In a Google Cloud project, under **APIs & Services**, enable the Google Drive
+API and create a service account with a JSON key. Then either **share the
+folders, or a shared drive, with the service account**, which is the
+narrowest, or, as a Workspace administrator, grant it domain-wide delegation
+for `https://www.googleapis.com/auth/drive` and name the user to act as. A
+service account has no storage of its own, so in a folder shared from
+someone's My Drive agents can read and change files but not add new ones. To
+add files, use a shared drive or delegation.
 
 Google Docs are read as text, Sheets as CSV of their first tab, and Slides as
 text. Watched folders
@@ -162,7 +172,8 @@ the role `write` and the app's client ID. For more than one site, use
 someone's OneDrive, `GET /sites/{host}:/sites/{site}:/drives` for a SharePoint
 library.
 
-Word documents are read as text. Files up to 4 MiB can be written. Watched
+Word documents are read as text. Files up to 25 MiB can be read, and up to
+4 MiB written. Watched
 folders use the drive's delta feed, filtered to the folder.
 
 ## GitHub
@@ -258,7 +269,7 @@ client instead of a shared account. Its redirect URI, or callback URL, is
 `<KEERA_AGENTS_PUBLIC_URL>/auth/connector/callback`. The panel shows the full
 steps; in short:
 
-- **Google** (Drive, Docs, Sheets, Slides, Calendar, Gmail, Google Cloud): enable the
+- **Google** (Drive, Docs, Sheets, Slides, Calendar, Meet, Gmail, Google Cloud): enable the
   APIs the kind needs, set the Google Auth Platform's audience to **Internal**,
   and create an OAuth client of type **Web application**.
 - **Microsoft** (OneDrive and SharePoint, Outlook, Azure): register an app for
@@ -297,8 +308,8 @@ who you are connected as.
 
 An Outlook binding on such a connector may name the mailbox `me`: the mailbox
 of whoever the task is for. A named mailbox must be shared with that person.
-A Gmail binding on such a connector always names `me`: Gmail lets a person's
-token reach only their own mailbox.
+A Gmail or Google Meet binding on such a connector always names `me`: a
+person's token reaches only their own mailbox and meetings.
 A OneDrive connector still names one drive, since a folder's ID belongs to it,
 so use one people share, such as a SharePoint library. On Google Drive, the
 folder `root` is the My Drive of whoever the task is for.
@@ -444,8 +455,9 @@ own board.
 
 Settings: `service_account_json`, `subject` (optional).
 
-1. In a Google Cloud project, enable the Google Docs API and the Google Drive
-   API, and create a service account with a JSON key.
+1. In a Google Cloud project, under **APIs & Services**, enable the Google
+   Docs API and the Google Drive API, and create a service account with a JSON
+   key.
 2. Give it access in one of two ways:
    - **Share the documents**, or a folder holding them, with the service
      account's email, as Editor for agents that write. A service account has
@@ -474,8 +486,9 @@ reaches only files the connector created or was shared.
 
 Settings: `service_account_json`, `subject` (optional).
 
-1. In a Google Cloud project, enable the Google Sheets API and the Google Drive
-   API, and create a service account with a JSON key.
+1. In a Google Cloud project, under **APIs & Services**, enable the Google
+   Sheets API and the Google Drive API, and create a service account with a
+   JSON key.
 2. Give it access in one of two ways:
    - **Share the spreadsheets**, or a folder holding them, with the service
      account's email, as Editor for agents that write. A service account has
@@ -503,8 +516,9 @@ a user creates spreadsheets, as with [Google Docs](#google-docs).
 
 Settings: `service_account_json`, `subject` (optional).
 
-1. In a Google Cloud project, enable the Google Slides API and the Google
-   Drive API, and create a service account with a JSON key.
+1. In a Google Cloud project, under **APIs & Services**, enable the Google
+   Slides API and the Google Drive API, and create a service account with a
+   JSON key.
 2. Give it access in one of two ways:
    - **Share the presentations**, or a folder holding them, with the service
      account's email, as Editor for agents that write.
@@ -528,12 +542,12 @@ that one only.
 
 Settings: `service_account_json`, `subject` (optional).
 
-1. In a Google Cloud project, enable the Google Calendar API and create a
-   service account with a JSON key.
+1. In a Google Cloud project, under **APIs & Services**, enable the Google
+   Calendar API and create a service account with a JSON key.
 2. Give it access in one of two ways:
    - **Share each calendar** with the service account's email, with
      **Make changes to events** for agents that write. Agents can then invite
-     no guests.
+     no guests and add no Meet links.
    - Or, as a Workspace administrator, under **Security → Access and data
      control → API controls → Domain-wide delegation**, add the service
      account's client ID with the scope
@@ -545,13 +559,51 @@ default, optionally searched; recurring events one occurrence at a time),
 To write, they get `gcalendar_create_event`, `gcalendar_update_event` (only
 the fields given) and `gcalendar_delete_event`. An event takes RFC 3339 times,
 or dates for an all-day event. Guests are emailed only when the agent sets
-`notify`. Google lets a service account invite guests only through
-domain-wide delegation.
+`notify`. With `meet`, an event gets a Google Meet link, which every event's
+`meet` field shows; on an update, `false` removes it. For the meetings'
+transcripts and recordings, see [Google Meet](#google-meet).
 
 A binding names one calendar by its ID, from the calendar's settings: a
 person's email, or a shared calendar's `…@group.calendar.google.com`. With
 domain-wide delegation, `primary` is the user's own calendar, and is stored as
 its ID. Every tool works on that calendar only; there is no `*`.
+
+## Google Meet
+
+Settings: `service_account_json`.
+
+1. In a Google Cloud project, under **APIs & Services**, enable the Google
+   Meet REST API, and create a service account with a JSON key.
+2. As a Workspace administrator, under **Security → Access and data control →
+   API controls → Domain-wide delegation**, add the service account's client ID
+   with the scope
+   `https://www.googleapis.com/auth/meetings.space.readonly`.
+3. Bind each agent to the person whose meetings it reads.
+
+A service account takes part in no meetings, so **a binding names one
+person** by their email, and the connector acts as them through domain-wide
+delegation, with the same limits as [Gmail](#gmail). The scope only reads:
+agents change nothing in Meet.
+
+Agents get these tools:
+
+- `gmeet_list_meetings`: the person's meetings, newest first, by time or by
+  Meet link. A meeting has no title, so the agent matches it to a calendar
+  event by its link, which [Google Calendar](#google-calendar) shows, or its
+  start time.
+- `gmeet_get_meeting`: who came and when, and the meeting's recordings and
+  transcripts.
+- `gmeet_read_transcript`: the transcript as text, each line with its time
+  and who spoke. A long one comes in parts.
+
+Meet makes a transcript or recording only when someone turns it on in the
+meeting. Google keeps meetings and transcript lines in the API for 30 days.
+The files stay in the organiser's Drive: a transcript as a Google Doc, which
+[Google Docs](#google-docs) can still read, and a recording as a video. The
+agent gets the video's Drive file ID and link, not its content. To turn a
+recording into text, connect the agent to the organiser's **Meet Recordings**
+folder and give it a transcription model ([Other models](agents.md#other-models)),
+which takes recordings up to 25 MiB.
 
 ## Outlook Mail and Outlook Calendar
 
@@ -613,8 +665,8 @@ Times are local times in a time zone the agent names, such as
 
 Settings: `service_account_json`.
 
-1. In a Google Cloud project, enable the Gmail API, and create a service
-   account with a JSON key.
+1. In a Google Cloud project, under **APIs & Services**, enable the Gmail API,
+   and create a service account with a JSON key.
 2. As a Workspace administrator, under **Security → Access and data control →
    API controls → Domain-wide delegation**, add the service account's client ID
    with the scope
@@ -920,8 +972,9 @@ only where agents may.
 
 Settings: `service_account_json`.
 
-1. In the project agents work in, enable the Cloud Resource Manager, Cloud
-   Asset, Compute Engine, Cloud Logging and Cloud Monitoring APIs.
+1. In the project agents work in, under **APIs & Services**, enable the Cloud
+   Resource Manager, Cloud Asset, Compute Engine, Cloud Logging and Cloud
+   Monitoring APIs.
 2. Create a **service account** there, such as `keera-agents`.
 3. Grant it the roles **Viewer**, **Logs Viewer**, **Monitoring Viewer** and
    **Cloud Asset Viewer** on the project. Add **Compute Instance Admin (v1)**
@@ -992,7 +1045,8 @@ each person can.
 ## Not built yet
 
 - Tasks from GitHub or GitLab, such as an issue assigned to an agent. For now,
-  give the task in a chat, on the board or on a schedule, and name the issue.
+  give the task in a chat, on a squad's board or on a schedule, and name the
+  issue.
 - A GitHub App as the shared account instead of a token, and Git LFS.
 - OneDrive uploads over 4 MiB, and Teams' government clouds.
 - Atlassian's scoped API tokens, and AWS outside its standard partition, such

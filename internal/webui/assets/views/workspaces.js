@@ -17,15 +17,13 @@ import {
   icons,
   plural,
   toast,
-  replace,
   isAdmin,
   sectionHead,
   iconButton,
   confirm,
   modeTiles,
-  pill,
 } from "../ui.js";
-import { agentStatePill, workspacePath, machineFold, EXPERIENCES, shellArg } from "../common.js";
+import { agentStatePill, workspacePath, machineFold, fillModels, EXPERIENCES, shellArg } from "../common.js";
 import { noRuntime } from "./agents.js";
 import { codeBlock } from "../markdown.js";
 
@@ -37,7 +35,7 @@ export async function workspacesView(ctx) {
 
   return h(
     "div",
-    { class: "stack", style: { gap: "16px" } },
+    { class: "grid" },
     listHead(null, null, { label: "New workspace", onClick: () => openNewWorkspace(ctx) }),
     noRuntime(ctx.state.me),
     workspaceTable(ctx, workspaces, all),
@@ -66,27 +64,27 @@ function workspaceTable(ctx, workspaces, all) {
         sortKey: (w) => w.name,
       },
       {
-        label: "State",
-        shrink: true,
-        cell: (w) => h("div", { class: "row-tight" }, w.enabled === false ? pill("Stopped") : agentStatePill(w.state)),
-        sortKey: (w) => w.state,
-      },
-      {
         label: "Experience",
         shrink: true,
         cell: (w) => h("span", { class: "muted" }, EXPERIENCES[w.experience]?.name || w.experience),
         sortKey: (w) => w.experience,
       },
+      {
+        label: "State",
+        shrink: true,
+        cell: (w) => h("div", { class: "row-tight" }, agentStatePill(w.enabled === false ? "stopped" : w.state)),
+        sortKey: (w) => w.state,
+      },
       all
         ? {
             label: "Owner",
             shrink: true,
-            cell: (w) => h("span", { class: "muted" }, w.owner_email),
-            sortKey: (w) => w.owner_email,
+            cell: (w) => h("span", { class: "muted", title: w.owner_email }, w.owner_name || w.owner_email),
+            sortKey: (w) => w.owner_name || w.owner_email,
           }
         : null,
       {
-        label: "Last used",
+        label: "Last active",
         shrink: true,
         num: true,
         cell: (w) => (w.last_active_at ? stamp(w.last_active_at) : dash()),
@@ -186,16 +184,8 @@ export async function workspaceForm(ctx, workspace) {
   if (experience) tiles.choose(experience);
 
   const model = h("select", { class: "select" });
-  function fillModels() {
-    const keep = model.value || w.model;
-    const models = catalog.models || [];
-    replace(
-      model,
-      models.length ? null : h("option", { value: "" }, "No model is allowed in this project"),
-      models.map((m) => h("option", { value: m.alias, selected: m.alias === keep }, m.alias)),
-    );
-  }
-  fillModels();
+  const listModels = () => fillModels(model, catalog.models || [], workspace && workspace.model);
+  listModels();
 
   // Only administrators get the projects, as only they choose one.
   const projects = catalog.projects || [];
@@ -209,7 +199,7 @@ export async function workspaceForm(ctx, workspace) {
             select.disabled = true;
             try {
               catalog = await api.catalog(select.value);
-              fillModels();
+              listModels();
             } catch (err) {
               toast(err.message, "bad");
             } finally {
@@ -304,52 +294,49 @@ export async function workspaceForm(ctx, workspace) {
 // ------------------------------------------------------------ SSH keys
 
 function sshKeysCard(ctx, keys) {
-  const add = h("button", { class: "btn", onClick: () => addSSHKey(ctx) }, icon(icons.plus), "Add key");
+  const add = h("button", { class: "btn btn-primary", onClick: () => addSSHKey(ctx) }, icon(icons.plus), "Add key");
   return h(
     "div",
     { class: "stack", style: { gap: "12px" } },
     sectionHead("Your SSH keys", add, { margin: "0" }),
-    keys.length
-      ? table(
-          [
-            { label: "Name", cell: (k) => h("strong", {}, k.name || "Key") },
-            { label: "Fingerprint", cell: (k) => h("span", { class: "mono muted small" }, k.fingerprint) },
-            { label: "Added", shrink: true, num: true, cell: (k) => stamp(k.created_at) },
-            {
-              label: "",
-              shrink: true,
-              cell: (k) =>
-                iconButton(
-                  icons.trash,
-                  "Remove this key",
-                  () =>
-                    confirm({
-                      title: "Remove this key?",
-                      body: "It no longer lets you into your workspaces, from the next minutes on.",
-                      confirmLabel: "Remove",
-                      danger: true,
-                      onConfirm: () => api.deleteSSHKey(k.id),
-                      done: "Key removed",
-                      ctx,
-                    }),
-                  { danger: true, label: `Remove ${k.name || k.fingerprint}` },
-                ),
-            },
-          ],
-          keys,
+    table(
+      [
+        { label: "Name", cell: (k) => h("strong", {}, k.name || "Key") },
+        { label: "Fingerprint", cell: (k) => h("span", { class: "mono muted small" }, k.fingerprint) },
+        { label: "Added", shrink: true, num: true, cell: (k) => stamp(k.created_at) },
+        {
+          label: "",
+          shrink: true,
+          cell: (k) =>
+            iconButton(
+              icons.trash,
+              "Remove this key",
+              () =>
+                confirm({
+                  title: `Remove ${k.name || "this key"}?`,
+                  body: "It no longer lets you into your workspaces, from the next minutes on.",
+                  confirmLabel: "Remove",
+                  danger: true,
+                  onConfirm: () => api.deleteSSHKey(k.id),
+                  done: "Key removed",
+                  ctx,
+                }),
+              { danger: true, label: `Remove ${k.name || k.fingerprint}` },
+            ),
+        },
+      ],
+      keys,
+      {
+        emptyTitle: "No keys yet",
+        emptyBody: h(
+          "span",
           {},
-        )
-      : h(
-          "div",
-          { class: "card" },
-          h(
-            "div",
-            { class: "empty" },
-            "Your keys let you into your workspaces over SSH. ",
-            h("code", {}, "keera workspace configure-ssh"),
-            " adds this computer's key for you.",
-          ),
+          "Your keys let you into your workspaces over SSH. ",
+          h("code", {}, "keera workspace configure-ssh"),
+          " adds this computer's key for you.",
         ),
+      },
+    ),
   );
 }
 
@@ -400,7 +387,11 @@ export function connectSteps(w) {
       `keera workspace open ${name}`,
       `It serves ${EXPERIENCES[w.experience]?.name || "the workspace"} on this computer until you stop it.`,
     ),
-    step("Sign in over SSH", `keera workspace configure-ssh\nssh ${shellArg(w.name + ".keera")}`, "Once per computer, then any time."),
+    step(
+      "Sign in over SSH",
+      `keera workspace configure-ssh\nssh ${shellArg(w.name + ".keera")}`,
+      "Once per computer, then any time.",
+    ),
     step("Reach a port in it", `keera workspace forward ${name} 3000`, "Such as a dev server you started there."),
   );
 }

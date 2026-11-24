@@ -7,8 +7,10 @@ package workspace
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -59,6 +61,79 @@ type Settings struct {
 func SettingsOf(conn connectors.Connection) (Settings, error) {
 	c, err := google.CredsOf(conn)
 	return Settings{Creds: c, Account: conn.Account}, err
+}
+
+// Me is a binding to the person the task is for, on a connector people sign
+// in to.
+const Me = "me"
+
+// Person is how a call reaches the person a binding names: as them, through
+// domain-wide delegation, or with their own token for Me. what is theirs
+// that a sign-in reaches, such as "mailbox".
+func Person(conn connectors.Connection, target, what string) (Settings, error) {
+	who := strings.ToLower(strings.TrimSpace(target))
+	switch {
+	case who == Me && !conn.PerUser:
+		return Settings{}, errors.New("me is for a connector people sign in to; name the person's email")
+	case who == Me:
+		return SettingsOf(conn)
+	case conn.PerUser:
+		return Settings{}, fmt.Errorf("a person's sign-in reaches only their own %s; name me", what)
+	}
+	if addr, err := mail.ParseAddress(who); err != nil || addr.Address != who || addr.Name != "" {
+		return Settings{}, fmt.Errorf("%q is not an email", web.Short(target, 80))
+	}
+	s, err := SettingsOf(conn)
+	s.Subject = who
+	return s, err
+}
+
+// PersonTarget checks a binding to a person: probe makes one call as them.
+// It returns the target to keep: their email, or Me.
+func (c *Client) PersonTarget(ctx context.Context, conn connectors.Connection, target, what string,
+	probe func(context.Context, Settings) error,
+) (string, error) {
+	s, err := Person(conn, target, what)
+	if err != nil {
+		return "", err
+	}
+	err = probe(ctx, s)
+	// Google refuses to sign in as someone the service account may not act
+	// as.
+	if _, ok := errors.AsType[*oauth.Error](err); ok && s.Subject != "" {
+		return "", google.Delegation(err, c.scope)
+	}
+	if err != nil {
+		return "", err
+	}
+	if s.Subject == "" {
+		return Me, nil
+	}
+	return s.Subject, nil
+}
+
+// PersonRun opens the binding's person for a tool. what is theirs that the
+// tool reaches, such as "mailbox".
+func PersonRun[T any](what string, f func(ctx context.Context, s Settings, in T) (any, error)) apitool.Run {
+	return apitool.Typed(func(ctx context.Context, conn connectors.Connection, target string, in T) (any, error) {
+		s, err := Person(conn, target, what)
+		if err != nil {
+			return nil, err
+		}
+		return f(ctx, s, in)
+	})
+}
+
+// ParseTime reads a time the model gives: RFC 3339, or a date.
+func ParseTime(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse(time.DateOnly, s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("%q is not a time; write RFC 3339, such as 2026-11-04T09:00:00+01:00", web.Short(s, 60))
 }
 
 // Who says whose access a call has, for errors that ask to share something.
@@ -155,7 +230,7 @@ func (f driveFile) file() File {
 
 const fileFields = "id,name,mimeType,modifiedTime,webViewLink,trashed"
 
-// ValidID is Drive's alphabet. Ids go into URLs and Drive queries.
+// ValidID is Google's id alphabet. Ids go into URLs and Drive queries.
 var ValidID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,200}$`)
 
 // parseID reads a file's id, or a URL to it as people paste it, such as
@@ -389,14 +464,47 @@ func Quote(s string) string {
 
 // Setup is the steps on Google's side for a kind that calls apis with
 // scopes. share says what to share with the service account, and note what
-// agents then cannot do, if anything. The scopes are one comma-separated
-// line, as the Admin console takes them.
+// agents then cannot do, if anything.
 func Setup(apis, share, note string, scopes ...string) string {
-	return "1. In a Google Cloud project, enable the " + apis + ".\n" +
+	return "1. In a Google Cloud project, under **APIs & Services**, enable the " + apis + ".\n" +
 		"2. Create a service account with a JSON key.\n" +
 		"3. Give it access in one of two ways:\n" +
 		"   - Share " + share + " with the service account's email. " + note + "\n" +
-		"   - Or, as a Workspace administrator, in the Admin console under **Security → Access and data control → " +
-		"API controls → Domain-wide delegation**, add the service account's client ID with the scopes `" +
-		strings.Join(scopes, ",") + "`. Then enter the user to act as under Act as user."
+		"   - Or, as a Workspace administrator, " + delegation(scopes...) + " Then enter the user to act as under Act as user."
+}
+
+// DelegationFields are the settings of a kind that always acts as a person,
+// through domain-wide delegation. api names the API to enable.
+func DelegationFields(api string) []connectors.Field {
+	return []connectors.Field{{
+		Name: "service_account_json", Label: "Service account key", Secret: true, Required: true, Multiline: true,
+		Help: "The JSON key file of a service account with domain-wide delegation, in a project with the " + api + " enabled.",
+	}}
+}
+
+// DelegationSetup is the steps on Google's side for a kind that always acts
+// as a person. reach says what the service account may then do, and steps
+// follow as the kind's own.
+func DelegationSetup(api, scope, reach string, steps ...string) string {
+	lines := []string{
+		"In a Google Cloud project, under **APIs & Services**, enable the " + api + ", and create a service account with a JSON key.",
+		"As a Workspace administrator, " + delegation(scope) + " It may then " + reach + ", so keep its key here only.",
+	}
+	lines = append(lines, steps...)
+	for i, l := range lines {
+		lines[i] = strconv.Itoa(i+1) + ". " + l
+	}
+	return strings.Join(lines, "\n")
+}
+
+// delegation is how an administrator lets the service account act as
+// people. The scopes are one comma-separated line, as the Admin console
+// takes them.
+func delegation(scopes ...string) string {
+	word := "scope"
+	if len(scopes) > 1 {
+		word = "scopes"
+	}
+	return "in the Admin console under **Security → Access and data control → API controls → Domain-wide delegation**, " +
+		"add the service account's client ID with the " + word + " `" + strings.Join(scopes, ",") + "`."
 }

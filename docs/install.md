@@ -278,7 +278,7 @@ Three things hold state. Back up all three, on the same schedule.
 
 | What                      | Holds                                              | Without it                                                                                                  |
 | ------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| The database              | agents, connectors, tasks, schedules, the board    | everything is gone                                                                                          |
+| The database              | agents, connectors, tasks, schedules, squads       | everything is gone                                                                                          |
 | `KEERA_AGENTS_SECRET_KEY` | the key the database's credentials are sealed with | connectors must be entered again, and each person's own sign-ins; people sign in again; agents get new keys |
 | Agents' workspaces        | `MEMORY.md`, chat histories, files and clones      | agents forget, and unpushed work is lost                                                                    |
 

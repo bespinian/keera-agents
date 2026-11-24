@@ -1,6 +1,6 @@
 // Agents: the organisation's assistants. Each runs in its own machine, calls
 // models through Keera Gateway, and takes work from its connectors, schedules,
-// the board and this panel.
+// squads' boards and this panel.
 
 import { api } from "../api.js";
 import {
@@ -28,7 +28,7 @@ import {
   agentIconPath,
   icon,
 } from "../ui.js";
-import { agentStatePill, agentPath, machineFold, AGENT_STATES, BUILTINS, ACCESS } from "../common.js";
+import { agentStatePill, agentPath, machineFold, fillModels, AGENT_STATES, BUILTINS, ACCESS } from "../common.js";
 
 export async function agentsView(ctx) {
   const agents = (await api.agents()).data || [];
@@ -44,7 +44,11 @@ export async function agentsView(ctx) {
   );
 }
 
+// The list shows the agents one may give work to. Everyone may see the rest,
+// so the toggle only filters; the URL keeps it for the way back.
 function agentTable(ctx, agents) {
+  const others = agents.some((a) => !a.can_give);
+  const all = others && new URLSearchParams(location.search).get("all") === "1";
   return table(
     [
       {
@@ -58,11 +62,24 @@ function agentTable(ctx, agents) {
               "div",
               { class: "stack" },
               rowLink(ctx, agentPath(a.id), a.name),
-              h("span", { class: "faint small" }, a.model),
               a.description ? h("div", { class: "faint small clamp-2" }, a.description) : null,
             ),
           ),
         sortKey: (a) => a.name,
+      },
+      {
+        label: "Model",
+        shrink: true,
+        cell: (a) => h("span", { class: "mono muted" }, a.model),
+        sortKey: (a) => a.model,
+      },
+      {
+        label: "Connectors",
+        shrink: true,
+        num: true,
+        cell: (a) => (a.binding_count ? num(a.binding_count) : dash()),
+        sortKey: (a) => a.binding_count || 0,
+        sortDir: "desc",
       },
       {
         label: "State",
@@ -79,16 +96,11 @@ function agentTable(ctx, agents) {
       {
         label: "Owner",
         shrink: true,
-        cell: (a) => h("span", { class: "muted" }, a.owner_email || "-"),
-        sortKey: (a) => a.owner_email,
-      },
-      {
-        label: "Connectors",
-        shrink: true,
-        num: true,
-        cell: (a) => (a.binding_count ? num(a.binding_count) : dash()),
-        sortKey: (a) => a.binding_count || 0,
-        sortDir: "desc",
+        cell: (a) =>
+          a.owner_name || a.owner_email
+            ? h("span", { class: "muted", title: a.owner_email }, a.owner_name || a.owner_email)
+            : dash(),
+        sortKey: (a) => a.owner_name || a.owner_email,
       },
       {
         label: "Last active",
@@ -103,7 +115,8 @@ function agentTable(ctx, agents) {
     {
       ctx,
       open: (a) => agentPath(a.id),
-      search: agents.length > 6 ? (a) => `${a.name} ${a.description} ${a.model} ${a.owner_email}` : null,
+      search:
+        agents.length > 6 ? (a) => `${a.name} ${a.description} ${a.model} ${a.owner_name} ${a.owner_email}` : null,
       searchLabel: "agents",
       choices:
         agents.length > 6
@@ -115,6 +128,16 @@ function agentTable(ctx, agents) {
               },
             ]
           : [],
+      toggles: others
+        ? [
+            {
+              label: "Show everyone's",
+              on: all,
+              hidden: (a) => !a.can_give,
+              onChange: (v) => history.replaceState({}, "", "/agents" + (v ? "?all=1" : "")),
+            },
+          ]
+        : [],
       sortBy: "Last active",
       sortDir: "desc",
       rowClass: (a) => (a.enabled === false ? "row-faint" : ""),
@@ -131,7 +154,7 @@ export function noAgents() {
     empty(
       "No agents yet",
       "An agent is an assistant for your organisation. It takes tasks from chats, folders, " +
-        "schedules and the board, and does them with the tools you allow.",
+        "schedules and squads, and does them with the tools you allow.",
     ),
   );
 }
@@ -207,32 +230,67 @@ export async function agentForm(ctx, agent) {
   );
 
   const model = h("select", { class: "select" });
-  function fillModels() {
-    const keep = model.value || a.model;
-    const models = catalog.models || [];
-    const group = (kind, label) => {
-      const items = models.filter((m) => m.kind === kind);
-      return items.length
-        ? h(
-            "optgroup",
-            { label },
-            items.map((m) => h("option", { value: m.alias, selected: m.alias === keep }, m.alias)),
-          )
-        : null;
-    };
+  const listModels = () => fillModels(model, catalog.models || [], agent && agent.model);
+  listModels();
+
+  // Other models it may use as tools.
+  const transcription = h("select", { class: "select" });
+  const transcriptionHint = h("div", { class: "hint" });
+  const askGrid = h("div", { class: "check-grid" });
+  let asks = [];
+  function fillToolModels(keepT, keepAsk) {
+    const speech = (catalog.transcription_models || []).map((m) => m.alias);
     replace(
-      model,
-      models.length ? null : h("option", { value: "" }, "No model is allowed in this project"),
-      // A model taken away since keeps showing, so saving does not change it
-      // unasked.
-      agent && keep === agent.model && !models.some((m) => m.alias === keep)
-        ? h("option", { value: keep, selected: true }, `${keep} (no longer allowed)`)
+      transcription,
+      h("option", { value: "" }, "None"),
+      speech.map((alias) => h("option", { value: alias, selected: alias === keepT }, alias)),
+      keepT && !speech.includes(keepT)
+        ? h("option", { value: keepT, selected: true }, `${keepT} (no longer allowed)`)
         : null,
-      group("model", "Models"),
-      group("router", "Routers"),
+    );
+    transcriptionHint.textContent = speech.length
+      ? "Turns recordings in its folders into text, such as for meeting minutes."
+      : "This project allows no transcription model.";
+    asks = aliasChecks(
+      askGrid,
+      (catalog.models || []).map((m) => m.alias),
+      keepAsk,
     );
   }
-  fillModels();
+  fillToolModels(a.transcription_model || "", a.ask_models || []);
+  const otherModels = fold(
+    "Other models",
+    field("Transcription", transcription, transcriptionHint),
+    field(
+      "Models it may ask",
+      askGrid,
+      "It sends them a question and reads the answer, such as for a second opinion or work another model does better.",
+    ),
+  );
+  otherModels.open = Boolean(a.transcription_model || (a.ask_models || []).length);
+
+  // The gateway's MCP servers it may call. null is all the project allows.
+  const mcpAll = checkRow("All the project allows", "Also servers added to it later.", a.mcp_servers == null);
+  const mcpGrid = h("div", { class: "check-grid" });
+  const mcpHint = h("div", { class: "hint" });
+  let servers = [];
+  function fillServers(keep) {
+    const allowed = (catalog.mcp_servers || []).map((m) => m.alias);
+    servers = aliasChecks(mcpGrid, allowed, keep);
+    mcpHint.textContent = allowed.length
+      ? "It calls their tools through Keera Gateway, which enforces this list."
+      : "This project allows no MCP server.";
+  }
+  fillServers(a.mcp_servers || []);
+  const syncServers = () => {
+    mcpGrid.hidden = mcpAll.input.checked;
+    // Choosing starts from what it had, so unticking one is enough.
+    if (!mcpAll.input.checked && !ticked(servers).length) servers.forEach((x) => (x.input.checked = true));
+  };
+  mcpAll.input.addEventListener("change", syncServers);
+  mcpGrid.hidden = mcpAll.input.checked;
+  const mcp = fold("MCP servers", field("MCP servers it may call", h("div", {}, mcpAll.el, mcpGrid), mcpHint));
+  mcp.open = a.mcp_servers != null;
 
   const projects = catalog.projects || [];
   const project = projects.length
@@ -245,7 +303,9 @@ export async function agentForm(ctx, agent) {
             select.disabled = true;
             try {
               catalog = await api.catalog(select.value);
-              fillModels();
+              listModels();
+              fillToolModels(transcription.value, ticked(asks));
+              fillServers(ticked(servers));
             } catch (err) {
               toast(err.message, "bad");
             } finally {
@@ -266,11 +326,7 @@ export async function agentForm(ctx, agent) {
           "select",
           { class: "select" },
           people.map((m) =>
-            h(
-              "option",
-              { value: m.id, selected: m.id === me.user_id },
-              m.name ? `${m.name} (${m.email})` : m.email,
-            ),
+            h("option", { value: m.id, selected: m.id === me.user_id }, m.name ? `${m.name} (${m.email})` : m.email),
           ),
         )
       : null;
@@ -307,8 +363,8 @@ export async function agentForm(ctx, agent) {
   const syncAccess = () => {
     emailsField.hidden = access.value !== "people";
     accessHint.textContent = {
-      owner: "Anyone else who asks it, in a chat or on the board, is told it only works for its owner.",
-      org: "Anyone signed in to this organisation, in a chat it is in or on the board.",
+      owner: "Anyone else who asks it, in a chat or on a squad's board, is told it only works for its owner.",
+      org: "Anyone signed in to this organisation, in a chat it is in or on a squad's board.",
       people: "Only the people listed, and its owner.",
     }[access.value];
   };
@@ -343,7 +399,7 @@ export async function agentForm(ctx, agent) {
     field(
       "Name",
       h("div", { class: "row-tight" }, iconPick.button, name),
-      "Shown in chats and on the board. Unique in the organisation. Choose an icon to tell it apart.",
+      "Shown in chats and on squads' boards. Unique in the organisation. Choose an icon to tell it apart.",
       iconPick.grid,
     ),
     field("Description", description, "Optional. One line on what it is for."),
@@ -363,6 +419,8 @@ export async function agentForm(ctx, agent) {
         tools.map((t) => t.el),
       ),
     ),
+    otherModels,
+    mcp,
     machine.el,
     fold(
       "Advanced",
@@ -389,7 +447,7 @@ export async function agentForm(ctx, agent) {
     const n = name.value.trim();
     if (!n) fail(name, "Give the agent a name.");
     if (n.length > 60) fail(name, "A name is at most 60 characters.");
-    if (!model.value) fail(model, "Choose a model. If there is none, the project allows none yet.");
+    if (!model.value) fail(model, "Choose a model. If there is none, the project allows none that calls tools yet.");
     const list = splitList(emails.value, { lower: true });
     if (access.value === "people") {
       if (!list.length) fail(emails, "List at least one person, or choose another option.");
@@ -407,6 +465,9 @@ export async function agentForm(ctx, agent) {
       instructions: instructions.value.trim(),
       model: model.value,
       builtins: tools.filter((t) => t.input.checked).map((t) => t.name),
+      transcription_model: transcription.value,
+      ask_models: ticked(asks),
+      mcp_servers: mcpAll.input.checked ? null : ticked(servers),
       max_steps: steps,
       access: access.value,
       allowed_emails: access.value === "people" ? list : [],
@@ -420,3 +481,21 @@ export async function agentForm(ctx, agent) {
 
   return { el, values };
 }
+
+/** aliasChecks fills grid with a checkbox for each allowed alias, ticked if
+ *  in keep. One in keep taken away since stays, marked, so saving does not
+ *  drop it unasked. */
+function aliasChecks(grid, allowed, keep) {
+  const gone = keep.filter((alias) => !allowed.includes(alias));
+  const rows = [...allowed, ...gone].map((alias) => ({
+    name: alias,
+    ...checkRow(gone.includes(alias) ? `${alias} (no longer allowed)` : alias, "", keep.includes(alias)),
+  }));
+  replace(
+    grid,
+    rows.map((x) => x.el),
+  );
+  return rows;
+}
+
+const ticked = (rows) => rows.filter((x) => x.input.checked).map((x) => x.name);

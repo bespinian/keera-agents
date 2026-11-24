@@ -371,7 +371,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("me = %v", me)
 	}
 	// Without the CSRF token, nothing changes.
-	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/boards", strings.NewReader(`{"name":"x"}`))
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/squads", strings.NewReader(`{"name":"x"}`))
 	req.AddCookie(cookie)
 	if res, _ := http.DefaultClient.Do(req); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("no CSRF token: %d", res.StatusCode)
@@ -390,6 +390,15 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if code := call("POST", "/api/v1/agents", map[string]any{"name": "Other", "model": "gpt-9"}, nil); code != http.StatusBadRequest {
 		t.Fatalf("a model the project does not allow: %d", code)
+	}
+	// In a squad, the agent has a board to put cards on.
+	var squad struct {
+		ID string `json:"id"`
+	}
+	if code := call("POST", "/api/v1/squads", map[string]any{
+		"name": "Sales", "goal": "Win customers.", "members": []string{a.ID}, "lead_id": a.ID,
+	}, &squad); code != http.StatusCreated {
+		t.Fatalf("create squad: %d", code)
 	}
 	waitFor("the agent to start", func() bool {
 		ag, err := st.Agent(ctx, a.ID)
@@ -494,14 +503,10 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("no tool call among the events: %+v", detail.Events)
 	}
 
-	var boards struct {
-		Data []store.Board `json:"data"`
-	}
-	call("GET", "/api/v1/boards", nil, &boards)
 	var board struct {
-		Cards []store.Card `json:"cards"`
+		Cards []store.Card `json:"cards_list"`
 	}
-	call("GET", "/api/v1/boards/"+boards.Data[0].ID, nil, &board)
+	call("GET", "/api/v1/squads/"+squad.ID, nil, &board)
 	if len(board.Cards) != 1 || board.Cards[0].Title != "Follow up with Globex" || board.Cards[0].CreatedBy != "Scout" {
 		t.Fatalf("cards = %+v", board.Cards)
 	}

@@ -15,14 +15,14 @@ since a browser never adds the header on its own.
 
 ## Who may do what
 
-Every member sees the organisation's agents, schedules, boards and connector
+Every member sees the organisation's agents, schedules, squads and connector
 names, and handlers check the rest themselves. Another organisation's things
 answer 404.
 
 - An agent's owner and administrators change, delete, start, stop or restart
   it, read its logs, and add or remove its connectors and schedules.
 - Whoever the agent's `access` lets gives it work: a task, a chat message, or
-  a card assigned to it (see [tasks.md](tasks.md#the-board)).
+  a card assigned to it (see [tasks.md](tasks.md#squads)).
 - A task is seen by whoever asked, the agent's owner and administrators.
 - Only administrators manage connectors, read the audit log and what
   machines cost, take an agent over, and choose an agent's project or image.
@@ -45,7 +45,7 @@ orgs:[{id,name}] (only when >1), runtime:{driver:"podman"|"kubernetes"|"", tiers
 builtins:["memory","files","shell","web"], timezone_default:"Europe/Zurich",
 billing:true (only when machines are billed), credit_refusal:{code,message} (only when no machine may start)}`
 - `POST /api/v1/me/org {org_id}` → switches organisation; reload after.
-- `GET /api/v1/catalog?project_id=` → `{project_id, projects:[{id,name}], models:[{alias,kind:"model"|"router"}], mcp_servers:[{alias}]}`
+- `GET /api/v1/catalog?project_id=` → `{project_id, projects:[{id,name}], models:[{alias,kind:"model"|"router",capabilities}], transcription_models:[{alias,kind}], mcp_servers:[{alias}]}`
   What an agent in that project may use. `projects` is only filled for admins (members get the default project).
 - `GET /api/v1/members` → `{data:[{id,email,name}]}` (administrators: the organisation's active members, whom they may create an agent or a workspace for)
 
@@ -56,7 +56,7 @@ What the panel's dashboard shows.
 - `GET /api/v1/overview?since=168h` →
   `{agents:{total,running,suspended,stopped,failed}, tasks:{queued,running,succeeded,failed},
 series:[{at,tasks,failed}], bucket:"hour"|"day",
-recent_tasks:[Task] (10), upcoming:[{schedule_id,schedule_name,agent_id,agent_name,next_run_at}] (5)}`
+recent_tasks:[Task] (7), upcoming:[{schedule_id,schedule_name,agent_id,agent_name,next_run_at}] (7)}`
 
 `since` is from `1h` to `2160h`, `168h` by default. `tasks` counts the tasks
 that came in since then, and any still queued or running. `series` counts
@@ -75,10 +75,11 @@ back when old tasks are deleted.
 Agent:
 
 ```
-{id,name,icon,description,instructions,model,builtins:[...],max_steps,access:"owner"|"org"|"people",
+{id,name,icon,description,instructions,model,transcription_model,ask_models:[...],mcp_servers:[...]|null,builtins:[...],
+ max_steps,access:"owner"|"org"|"people",
  allowed_emails:[...],budget_micros,class:{isolation,cpu,memory,disk},image,
  state:"stopped"|"starting"|"running"|"suspended"|"failed",state_detail,enabled,
- owner_id,owner_email,project_id,last_active_at,created_at,updated_at,
+ owner_id,owner_email,owner_name,project_id,last_active_at,created_at,updated_at,
  queued:int,running_task_id:string, can_edit:bool, can_give:bool, binding_count:int}
 ```
 
@@ -86,8 +87,10 @@ Agent:
 default robot. A name the panel does not know shows the default.
 
 - `GET /api/v1/agents` → `{data:[Agent]}`
-- `POST /api/v1/agents` body: `{name,icon,description,instructions,model,builtins,max_steps,access,allowed_emails,budget_micros,class,image,project_id,owner_id}` → 201 Agent
+- `POST /api/v1/agents` body: `{name,icon,description,instructions,model,transcription_model,ask_models,mcp_servers,builtins,max_steps,access,allowed_emails,budget_micros,class,image,project_id,owner_id}` → 201 Agent
   (name: 1–60 chars; unique in the org, case-insensitive; max_steps: 0, for no limit, to 10000;
+  transcription_model: one of the catalogue's transcription_models, or empty; ask_models: from its models;
+  mcp_servers: aliases from its mcp_servers, or null, the default, for all it allows, also later ones;
   access: "owner" by default; owner_id: administrators only, an active member; the caller by default)
 - `GET /api/v1/agents/{id}` → Agent + `{bindings:[Binding], schedules:[Schedule], stats:{last_task_at}}`
 - `GET /api/v1/agents/{id}/activity?since=168h` → `{tasks:{queued,running,succeeded,failed}, series:[{at,tasks,failed}], bucket:"hour"|"day"}` (the overview's counts and chart, for one agent)
@@ -128,23 +131,37 @@ Schedule:
 - `POST /api/v1/schedules/{id}/run` → 201 Task (run now)
 - `POST /api/v1/schedules/preview {cron,timezone}` → `{description, next:[5 times]}` or 400 with the reason
 
-## Board (kanban)
+## Squads and their boards
 
+A squad is agents that share a board; see [tasks.md](tasks.md#squads).
 Statuses in order: `backlog`, `todo`, `in_progress`, `review`, `done`
-(labels: Backlog, To do, In progress, Review, Done). How an agent moves its cards is in
-[tasks.md](tasks.md#the-board).
+(labels: Backlog, To do, In progress, Review, Done).
+
+Squad:
+
+```
+{id,name,goal,lead_id,members:[{id,name,icon,description}],created_by,created_at,
+ cards:int,open:int}
+```
 
 Card:
 
 ```
-{id,board_id,title,body,status,position,agent_id,agent_name,labels:[...],due_at,task_id,task_state,
- created_by,requested_by,created_at,updated_at,comments:int}
+{id,squad_id,title,body,status,position,agent_id,agent_name,labels:[...],due_at,task_id,task_state,
+ created_by,parent_id,depth,waiting,requested_by,created_at,updated_at,comments:int}
 ```
 
-- `GET /api/v1/boards` → `{data:[{id,name,created_by,created_at,cards:int}]}` (an org always has at least one; the first is created on demand)
-- `POST /api/v1/boards {name}` → 201; `PATCH /api/v1/boards/{id} {name}`; `DELETE /api/v1/boards/{id}` → 204
-- `GET /api/v1/boards/{id}` → `{id,name,cards:[Card]}` (sorted by status order then position)
-- `POST /api/v1/boards/{id}/cards {title,body,status,agent_id,labels,due_at}` → 201 Card (appended to the column)
+`parent_id` is the card an agent handed this one out from; `waiting` is a card
+waiting for the cards its agent handed out.
+
+- `GET /api/v1/squads` → `{data:[Squad]}`
+- `POST /api/v1/squads {name,goal,members:[agent ids],lead_id}` → 201 Squad. Members are the
+  organisation's agents, not workspaces; the lead is a member or null.
+- `PATCH /api/v1/squads/{id} {name,goal,members,lead_id}` → Squad (only what is given changes).
+- `DELETE /api/v1/squads/{id}` → 204, with its cards
+- `GET /api/v1/squads/{id}` → Squad + `{cards_list:[Card]}` (sorted by status order then position)
+- `POST /api/v1/squads/{id}/cards {title,body,status,agent_id,labels,due_at}` → 201 Card (appended
+  to the column). `agent_id` must be a member.
 - `GET /api/v1/cards/{id}` → Card + `{comments_list:[{id,author,agent_id,body,created_at}], task: Task|null}`
 - `PATCH /api/v1/cards/{id} {title,body,status,position,agent_id,labels,due_at}` → Card
   (drag and drop: send `status` and `position`; position = midpoint between neighbours, or neighbour ± 1)
@@ -217,6 +234,7 @@ connector is created, from `sign_in.fields` instead of `fields`, and kept.
 - `DELETE /api/v1/connections/{id}` → 204
 - `POST /api/v1/connections/{id}/check` → `{ok:true}` or 400
 - `GET /api/v1/connections/{id}/folders?parent=<id>` → `{data:[{id,name,folder,web_url,modified}]}` (file kinds; for a folder picker)
+- `GET /api/v1/connections/{id}/channels` → `{data:[{id,name,private,direct}],notice}` (chat kinds that list channels, such as Slack; for a channel picker). The first entry is your direct messages with the bot; `notice` says why it is missing.
 - `POST /api/v1/connections/{id}/account` → `{url}`: where the browser goes to sign in. The service sends it back to
   `GET /auth/connector/callback`, which keeps the sign-in and redirects to `/connectors`.
 - `DELETE /api/v1/connections/{id}/account` → 204 (404 when the caller has not connected one)

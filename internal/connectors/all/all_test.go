@@ -30,6 +30,7 @@ func TestRegister(t *testing.T) {
 		{connectors.GoogleSheets, "api"},
 		{connectors.GoogleSlides, "api"},
 		{connectors.GoogleCalendar, "api"},
+		{connectors.GoogleMeet, "api"},
 		{connectors.Gmail, "api"},
 		{connectors.Outlook, "api"},
 		{connectors.OutlookCalendar, "api"},
@@ -91,7 +92,7 @@ func TestRegister(t *testing.T) {
 var signIns = []connectors.Kind{
 	connectors.GoogleDrive, connectors.OneDrive, connectors.GitHub, connectors.GitLab,
 	connectors.Jira, connectors.Confluence,
-	connectors.GoogleDocs, connectors.GoogleSheets, connectors.GoogleSlides, connectors.GoogleCalendar, connectors.Gmail,
+	connectors.GoogleDocs, connectors.GoogleSheets, connectors.GoogleSlides, connectors.GoogleCalendar, connectors.GoogleMeet, connectors.Gmail,
 	connectors.Outlook, connectors.OutlookCalendar,
 	connectors.Salesforce, connectors.Kubernetes, connectors.AWS, connectors.Azure, connectors.GCP,
 }

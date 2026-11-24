@@ -70,6 +70,7 @@ export async function bindingsTab(ctx, agent) {
       [
         {
           label: "Where",
+          sortKey: (b) => (b.label || targetText(b, kinds)).toLowerCase(),
           cell: (b) =>
             h(
               "div",
@@ -93,6 +94,7 @@ export async function bindingsTab(ctx, agent) {
         {
           label: "Mode",
           shrink: true,
+          sortKey: (b) => b.mode,
           cell: (b) =>
             pill((MODES[b.mode] || [b.mode])[0], b.mode === "chat" ? "accent" : b.mode === "write" ? "warn" : ""),
         },
@@ -101,12 +103,20 @@ export async function bindingsTab(ctx, agent) {
           cell: (b) =>
             b.mode === "watch" && b.prompt
               ? h("div", { class: "faint clamp-2" }, b.prompt)
-              : h("span", { class: "faint" }, (MODES[b.mode] || ["", ""])[1]),
+              : h(
+                  "span",
+                  { class: "faint" },
+                  b.mode === "chat" && b.target === "*"
+                    ? "Answers wherever it is asked, but cannot post on its own."
+                    : (MODES[b.mode] || ["", ""])[1],
+                ),
         },
         {
           label: "Added",
           shrink: true,
           num: true,
+          sortKey: (b) => b.created_at,
+          sortDir: "desc",
           cell: (b) => stamp(b.created_at),
         },
         {
@@ -119,7 +129,7 @@ export async function bindingsTab(ctx, agent) {
                   "Remove this connector",
                   () =>
                     confirm({
-                      title: "Remove this connector?",
+                      title: `Remove ${b.label || targetText(b, kinds)}?`,
                       body:
                         b.mode === "chat"
                           ? `${agent.name} stops answering there. Schedules that reply there keep their results in Tasks.`
@@ -141,6 +151,8 @@ export async function bindingsTab(ctx, agent) {
       ],
       bindings,
       {
+        sortBy: "Added",
+        sortDir: "desc",
         emptyTitle: "No connectors yet",
         emptyBody:
           "Connectors are where the agent works: a chat it answers in, a folder it watches, a repository it codes in, " +
@@ -197,12 +209,11 @@ function addBinding(ctx, agent, connections, kinds) {
   const targetHint = h("div", { class: "hint" });
   const actsAs = h("div", { class: "hint" });
   const targetLabel = h("label", {}, "Target");
-  const browse = h(
-    "button",
-    { type: "button", class: "btn", onClick: () => openFolders() },
-    icon(icons.folder),
-    "Browse",
-  );
+  const browse = h("button", {
+    type: "button",
+    class: "btn",
+    onClick: () => (kindOf(chosen()).channels ? openChannels() : openFolders()),
+  });
   const browser = h("div", { class: "field", hidden: true });
   const targetField = h(
     "div",
@@ -239,7 +250,8 @@ function addBinding(ctx, agent, connections, kinds) {
     targetLabel.textContent = kind.target_label || (kind.code ? "Repository" : kind.files ? "Folder" : "Conversation");
     // An API kind with nothing to narrow to reaches all it can.
     targetField.hidden = !!kind.api && !kind.target_label;
-    browse.hidden = !kind.files;
+    browse.hidden = !kind.files && !kind.channels;
+    replace(browse, icon(kind.channels ? icons.chat : icons.folder), "Browse");
     browser.hidden = true;
     syncMode();
   }
@@ -259,7 +271,9 @@ function addBinding(ctx, agent, connections, kinds) {
             kind.target_help ? " " : "",
             h("code", {}, "*"),
             chat
-              ? " is every conversation the bot is in, direct messages included."
+              ? " is every conversation the bot is in, direct messages included. It only answers there. " +
+                  "To have it post on its own, such as a schedule's results, name a channel" +
+                  (kind.channels ? " or your direct messages (Browse)." : ".")
               : " is everything the connector reaches.",
           ]
         : null,
@@ -274,6 +288,53 @@ function addBinding(ctx, agent, connections, kinds) {
   });
   mode.addEventListener("change", syncMode);
   syncConnection();
+
+  /** useTarget fills in what a picker chose. */
+  function useTarget(id, name) {
+    target.value = id;
+    if (!label.value) label.value = name;
+    browser.hidden = true;
+    target.focus();
+  }
+
+  /** openChannels lists where the bot can post: direct messages with you,
+   *  then its channels. */
+  async function openChannels() {
+    browser.hidden = false;
+    replace(browser, h("div", { class: "faint small" }, "Loading channels…"));
+    let res;
+    try {
+      res = await api.channels(connection.value);
+    } catch (err) {
+      replace(browser, banner("bad", err.message));
+      return;
+    }
+    const items = res.data || [];
+    replace(
+      browser,
+      res.notice ? banner("warn", res.notice) : null,
+      items.length
+        ? h(
+            "div",
+            { class: "folder-list" },
+            items.map((c) =>
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "folder-item",
+                  onClick: () => useTarget(c.id, c.name),
+                },
+                icon(c.direct ? icons.person : icons.chat),
+                h("span", {}, c.name),
+                h("span", { class: "spacer" }),
+                c.private ? h("span", { class: "faint small" }, "private") : null,
+              ),
+            ),
+          )
+        : h("div", { class: "faint small" }, "The bot is in no channels yet. Invite it to one first."),
+    );
+  }
 
   /** openFolders is a small file browser over the connector's folders. */
   async function openFolders() {
@@ -316,12 +377,7 @@ function addBinding(ctx, agent, connections, kinds) {
                 {
                   type: "button",
                   class: "btn btn-sm btn-primary",
-                  onClick: () => {
-                    target.value = here.id;
-                    if (!label.value) label.value = path;
-                    browser.hidden = true;
-                    target.focus();
-                  },
+                  onClick: () => useTarget(here.id, path),
                 },
                 "Use this folder",
               ),

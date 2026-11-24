@@ -22,6 +22,7 @@ import {
   agentPath,
   taskPath,
   shellArg,
+  callsTools,
 } from "../assets/common.js";
 import { modesFor } from "../assets/views/bindings.js";
 import { setupText } from "../assets/views/connectors.js";
@@ -207,4 +208,12 @@ test("shellArg keeps a name with spaces one argument", () => {
   assert.equal(shellArg("it's"), `'it'\\''s'`);
   assert.equal(shellArg(""), "''");
   assert.equal(shellArg("$(rm -rf)"), "'$(rm -rf)'");
+});
+
+test("callsTools trusts a gateway too old to list capabilities", () => {
+  assert.equal(callsTools({ alias: "a", capabilities: ["tools", "vision"] }), true);
+  assert.equal(callsTools({ alias: "a", capabilities: ["vision"] }), false);
+  assert.equal(callsTools({ alias: "a", capabilities: [] }), false);
+  assert.equal(callsTools({ alias: "a", capabilities: null }), true);
+  assert.equal(callsTools({ alias: "a" }), true);
 });

@@ -54,7 +54,7 @@ func (r *runner) modelProxy() http.Handler {
 			forward(pr, base, strings.TrimPrefix(pr.In.URL.Path, "/v1"), r.apiKey())
 			pr.Out.Header.Del("X-Api-Key")
 			// The gateway's Sessions screen shows the workspace as one session.
-			pr.Out.Header.Set("X-Keera-Session", r.cfg.AgentID)
+			pr.Out.Header.Set(protocol.SessionHeader, r.cfg.AgentID)
 		},
 		Transport:     r.gw.http.Transport,
 		FlushInterval: -1,

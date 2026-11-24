@@ -16,34 +16,33 @@ export function firstRun(ctx, setup, agents) {
   const admin = isAdmin(ctx);
   const steps = [
     {
+      title: "Create an agent",
+      icon: icons.agents,
+      done: setup.agents > 0,
+      body:
+        "An agent is an assistant with its own machine. Give it " +
+        "instructions, a model and the tools it may use.",
+      action: { label: "New agent", run: () => openNewAgent(ctx) },
+    },
+    {
       title: "Connect your services",
       icon: icons.connections,
       done: setup.connections > 0,
       body:
         "Connectors let agents take work from Teams, Google Chat or Slack, " +
         "work with files in Google Drive or OneDrive, and use GitHub, Jira " +
-        "and more.",
+        "and more. Then add them to your agent on its Connectors tab.",
       action: admin ? { label: "Open connector catalogue", run: () => ctx.navigate("/connectors/catalogue") } : null,
       skipped: !admin,
       by: "An administrator",
     },
     {
-      title: "Create an agent",
-      icon: icons.agents,
-      done: setup.agents > 0,
-      body:
-        "An agent is an assistant with its own machine. Give it " +
-        "instructions, a model and the tools it may use. Then connect it " +
-        "to chats and folders on its Connectors tab.",
-      action: { label: "New agent", run: () => openNewAgent(ctx) },
-    },
-    {
       title: "Give it a first task",
       icon: icons.send,
       done: setup.started,
-      body: "Give it a task here, mention it in a chat, or put a card for it in To do on the board.",
+      body: "Give it a task here, mention it in a chat, or put a card for it in To do on a squad's board.",
       action: agents.length ? { label: "Give a task", run: () => giveTask(ctx, { agents }) } : null,
-      also: setup.agents > 0 ? { label: "Open board", run: () => ctx.navigate("/board") } : null,
+      also: setup.agents > 0 ? { label: "Open squads", run: () => ctx.navigate("/squads") } : null,
     },
   ];
   return h("div", {}, overview(), stepList(steps));
@@ -94,7 +93,7 @@ const flowFrom = [
   ["Microsoft Teams", () => kindMark("teams")],
   ["Google Chat", () => kindMark("googlechat")],
   ["Slack", () => kindMark("slack")],
-  ["Board and schedules", () => icon(icons.board)],
+  ["Squads and schedules", () => icon(icons.squads)],
 ];
 
 // Where an agent works, and where its models come from.

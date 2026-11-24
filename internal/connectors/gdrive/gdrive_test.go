@@ -220,7 +220,7 @@ func TestRead(t *testing.T) {
 	a := f.adapter()
 	c := f.conn(nil)
 	for id, want := range map[string]string{"DOC": "plan text", "SHEET": "a,b\n1,2\n", "TXT": "hello"} {
-		file, b, err := a.Read(context.Background(), c, id)
+		file, b, err := a.Read(context.Background(), c, id, connectors.MaxReadBytes)
 		if err != nil || string(b) != want {
 			t.Errorf("%s: %q, %v", id, b, err)
 		}
@@ -228,8 +228,8 @@ func TestRead(t *testing.T) {
 			t.Errorf("sheet read as %q", file.MimeType)
 		}
 	}
-	for id, want := range map[string]string{"SUB": "is a folder", "BIG": "larger than 4 MiB", "FORM": "cannot be read", "NOPE": "404"} {
-		if _, _, err := a.Read(context.Background(), c, id); err == nil || !strings.Contains(err.Error(), want) {
+	for id, want := range map[string]string{"SUB": "is a folder", "BIG": "larger than 25 MiB", "FORM": "cannot be read", "NOPE": "404"} {
+		if _, _, err := a.Read(context.Background(), c, id, connectors.MaxReadBytes); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: err = %v", id, err)
 		}
 	}

@@ -141,7 +141,7 @@ func (f *Fake) Handle(pattern string, h http.HandlerFunc) {
 // Options point every Google endpoint at the fake.
 func (f *Fake) Options() connectors.Options {
 	e := map[string]string{}
-	for _, name := range []string{"token", "drive", "docs", "sheets", "slides", "calendar", "gmail"} {
+	for _, name := range []string{"token", "drive", "docs", "sheets", "slides", "calendar", "gmail", "meet"} {
 		e[name] = f.Srv.URL
 	}
 	e["token"] = f.Srv.URL + "/token"

@@ -231,7 +231,7 @@ func (a *Adapter) List(ctx context.Context, conn connectors.Connection, folder s
 	return out, nil
 }
 
-func (a *Adapter) Read(ctx context.Context, conn connectors.Connection, id string) (connectors.File, []byte, error) {
+func (a *Adapter) Read(ctx context.Context, conn connectors.Connection, id string, limit int64) (connectors.File, []byte, error) {
 	s, err := settingsOf(conn)
 	if err != nil {
 		return connectors.File{}, nil, err
@@ -247,14 +247,14 @@ func (a *Adapter) Read(ctx context.Context, conn connectors.Connection, id strin
 	switch {
 	case f.Folder:
 		return f, nil, fmt.Errorf("onedrive: %q is a folder", it.Name)
-	case f.Size > connectors.MaxFileBytes:
-		return f, nil, web.FileTooLarge("onedrive", it.Name)
+	case f.Size > limit:
+		return f, nil, web.FileTooLarge("onedrive", it.Name, limit)
 	}
 	// /content redirects to a pre-signed download URL; the client drops the
 	// Authorization header on the way, as it changes hosts.
-	b, err := a.call(ctx, s, http.MethodGet, a.driveURL(s, "/items/"+url.PathEscape(id)+"/content", nil), nil, "", connectors.MaxFileBytes)
+	b, err := a.call(ctx, s, http.MethodGet, a.driveURL(s, "/items/"+url.PathEscape(id)+"/content", nil), nil, "", limit)
 	if errors.Is(err, web.ErrTooLarge) {
-		return f, nil, web.FileTooLarge("onedrive", it.Name)
+		return f, nil, web.FileTooLarge("onedrive", it.Name, limit)
 	}
 	if err != nil {
 		return f, nil, fmt.Errorf("onedrive: downloading the file: %w", err)

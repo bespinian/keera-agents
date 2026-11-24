@@ -281,6 +281,20 @@ func TestBootstrapGivesTheAgentItsSettingsAndKey(t *testing.T) {
 	if code != http.StatusOK || pt.Version != b.Version {
 		t.Errorf("task version = %q (%d), bootstrap's %q", pt.Version, code, b.Version)
 	}
+
+	// An agent that may call no MCP server is not sent the one there is, and
+	// the new version tells the runtime to fetch it again.
+	got.MCPServers = []string{}
+	if _, err := tr.st.UpdateAgent(tr.ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	var none protocol.Bootstrap
+	if code := tr.do(t, "GET", protocol.BootstrapPath, token, nil, &none); code != http.StatusOK {
+		t.Fatalf("bootstrap = %d", code)
+	}
+	if len(none.Gateway.MCP) != 0 || none.Version == b.Version {
+		t.Errorf("MCP = %+v, version %q, was %q", none.Gateway.MCP, none.Version, b.Version)
+	}
 }
 
 // An agent whose key was revoked, as when its owner left and came back,
@@ -660,11 +674,13 @@ func TestToolsRunThroughDispatchForTheAgentsOrganisation(t *testing.T) {
 	tr := openTest(t)
 	a, token := tr.agent(t, "org_a", "scout", store.KindAgent, true)
 	for org, title := range map[string]string{"org_a": "Ours", "org_b": "Theirs"} {
-		board, err := tr.st.CreateBoard(tr.ctx, store.Board{ID: id.New("brd"), OrgID: org, Name: "Work", CreatedBy: "ada"})
+		// Even put in another organisation's squad, the agent sees only its own.
+		squad, err := tr.st.CreateSquad(tr.ctx, store.Squad{ID: id.New("sqd"), OrgID: org, Name: "Work", CreatedBy: "ada"},
+			[]string{a.ID})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tr.st.CreateCard(tr.ctx, store.Card{ID: id.New("crd"), BoardID: board.ID, Title: title, Status: store.CardTodo, CreatedBy: "ada"}); err != nil {
+		if _, err := tr.st.CreateCard(tr.ctx, store.Card{ID: id.New("crd"), SquadID: squad.ID, Title: title, Status: store.CardTodo, CreatedBy: "ada"}); err != nil {
 			t.Fatal(err)
 		}
 	}

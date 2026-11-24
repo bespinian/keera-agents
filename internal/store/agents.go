@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -51,12 +52,22 @@ type Agent struct {
 	ProjectID  string `json:"project_id"`
 	OwnerID    string `json:"owner_id"`
 	OwnerEmail string `json:"owner_email"`
-	Name       string `json:"name"`
+	// OwnerName is empty when the gateway has none; the panel shows the
+	// email then.
+	OwnerName string `json:"owner_name"`
+	Name      string `json:"name"`
 	// Icon names one of the panel's agent icons. Empty is the default.
-	Icon          string        `json:"icon"`
-	Description   string        `json:"description"`
-	Instructions  string        `json:"instructions"`
-	Model         string        `json:"model"`
+	Icon         string `json:"icon"`
+	Description  string `json:"description"`
+	Instructions string `json:"instructions"`
+	Model        string `json:"model"`
+	// TranscriptionModel and AskModels are other models of the gateway it
+	// may use as tools. Empty offers none.
+	TranscriptionModel string   `json:"transcription_model"`
+	AskModels          []string `json:"ask_models"`
+	// MCPServers are the gateway's MCP servers it may call, by alias. nil is
+	// every one its project allows; empty is none. Its key carries them.
+	MCPServers    []string      `json:"mcp_servers"`
 	Builtins      []string      `json:"builtins"`
 	MaxSteps      int           `json:"max_steps"`
 	Access        string        `json:"access"`
@@ -68,42 +79,52 @@ type Agent struct {
 	StateDetail   string        `json:"state_detail"`
 	Enabled       bool          `json:"enabled"`
 	GatewayKeyID  string        `json:"-"`
-	// GatewayKey is sealed; only the runtime API opens it.
+	// GatewayKey is sealed; only the runtime API and the model tools open it.
 	GatewayKey []byte `json:"-"`
 	// Key is what the gateway key carries, as it was minted.
 	Key KeyFor `json:"-"`
 	// HasDisk says whether its machine exists, as Reconcile last saw. Only
 	// then is its disk billed.
-	HasDisk          bool       `json:"-"`
+	HasDisk bool `json:"-"`
+	// UnmeteredRuns counts the runs started since the last metering round.
+	UnmeteredRuns    int64      `json:"-"`
 	RuntimeTokenHash []byte     `json:"-"`
 	LastActiveAt     *time.Time `json:"last_active_at"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
-// KeyFor is what a gateway key carries: whose it is, its project and its
-// budget.
+// KeyFor is what a gateway key carries: whose it is, its project, its
+// budget and its MCP servers.
 type KeyFor struct {
 	OwnerID      string
 	ProjectID    string
 	BudgetMicros int64
+	MCPServers   []string
 }
 
 // KeyFor is what a's key should carry now.
 func (a Agent) KeyFor() KeyFor {
-	return KeyFor{OwnerID: a.OwnerID, ProjectID: a.ProjectID, BudgetMicros: a.BudgetMicros}
+	return KeyFor{OwnerID: a.OwnerID, ProjectID: a.ProjectID, BudgetMicros: a.BudgetMicros, MCPServers: a.MCPServers}
+}
+
+// Equal tells nil MCP servers, which are all, from none.
+func (k KeyFor) Equal(o KeyFor) bool {
+	return k.OwnerID == o.OwnerID && k.ProjectID == o.ProjectID && k.BudgetMicros == o.BudgetMicros &&
+		(k.MCPServers == nil) == (o.MCPServers == nil) && slices.Equal(k.MCPServers, o.MCPServers)
 }
 
 // KeyStale reports whether a has a key minted for other settings, as when a
 // change could not reach the gateway.
 func (a Agent) KeyStale() bool {
-	return a.GatewayKeyID != "" && a.Key != a.KeyFor()
+	return a.GatewayKeyID != "" && !a.Key.Equal(a.KeyFor())
 }
 
 const agentColumns = `id, kind, experience, org_id, project_id, owner_id, owner_email, name, icon, description,
 	instructions, model, builtins, max_steps, access, allowed_emails, budget_micros, image,
 	class, state, state_detail, enabled, gateway_key_id, gateway_key, runtime_token_hash,
-	last_active_at, created_at, updated_at, key_owner_id, key_project_id, key_budget_micros, has_disk`
+	last_active_at, created_at, updated_at, key_owner_id, key_project_id, key_budget_micros, has_disk,
+	transcription_model, ask_models, owner_name, mcp_servers, key_mcp_servers, unmetered_runs`
 
 func scanAgent(row pgx.Row) (Agent, error) {
 	var a Agent
@@ -112,13 +133,16 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&a.Description, &a.Instructions, &a.Model, &a.Builtins, &a.MaxSteps, &a.Access,
 		&a.AllowedEmails, &a.BudgetMicros, &a.Image, &class, &a.State, &a.StateDetail,
 		&a.Enabled, &a.GatewayKeyID, &a.GatewayKey, &a.RuntimeTokenHash, &a.LastActiveAt,
-		&a.CreatedAt, &a.UpdatedAt, &a.Key.OwnerID, &a.Key.ProjectID, &a.Key.BudgetMicros, &a.HasDisk)
+		&a.CreatedAt, &a.UpdatedAt, &a.Key.OwnerID, &a.Key.ProjectID, &a.Key.BudgetMicros, &a.HasDisk,
+		&a.TranscriptionModel, &a.AskModels, &a.OwnerName, &a.MCPServers, &a.Key.MCPServers,
+		&a.UnmeteredRuns)
 	if err != nil {
 		return a, notFound(err)
 	}
 	_ = json.Unmarshal(class, &a.Class)
 	a.Builtins = emptyIfNil(a.Builtins)
 	a.AllowedEmails = emptyIfNil(a.AllowedEmails)
+	a.AskModels = emptyIfNil(a.AskModels)
 	return a, nil
 }
 
@@ -130,13 +154,14 @@ func (s *Store) CreateAgent(ctx context.Context, a Agent) (Agent, error) {
 	}
 	row := s.pool.QueryRow(ctx, `INSERT INTO agents (id, org_id, project_id, owner_id,
 		owner_email, name, description, instructions, model, builtins, max_steps, access,
-		allowed_emails, budget_micros, image, class, state, enabled, icon, kind, experience)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+		allowed_emails, budget_micros, image, class, state, enabled, icon, kind, experience,
+		transcription_model, ask_models, owner_name, mcp_servers)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
 		RETURNING `+agentColumns,
 		a.ID, a.OrgID, a.ProjectID, a.OwnerID, a.OwnerEmail, a.Name, a.Description,
 		a.Instructions, a.Model, emptyIfNil(a.Builtins), a.MaxSteps, a.Access,
 		emptyIfNil(a.AllowedEmails), a.BudgetMicros, a.Image, class, AgentStopped, a.Enabled, a.Icon,
-		a.Kind, a.Experience)
+		a.Kind, a.Experience, a.TranscriptionModel, emptyIfNil(a.AskModels), a.OwnerName, a.MCPServers)
 	out, err := scanAgent(row)
 	return out, conflict(err)
 }
@@ -148,11 +173,12 @@ func (s *Store) UpdateAgent(ctx context.Context, a Agent) (Agent, error) {
 	row := s.pool.QueryRow(ctx, `UPDATE agents SET name = $2, description = $3,
 		instructions = $4, model = $5, builtins = $6, max_steps = $7, access = $8,
 		allowed_emails = $9, budget_micros = $10, image = $11, class = $12,
-		project_id = $13, icon = $14, experience = $15, updated_at = now()
+		project_id = $13, icon = $14, experience = $15, transcription_model = $16,
+		ask_models = $17, mcp_servers = $18, updated_at = now()
 		WHERE id = $1 AND deleted_at IS NULL RETURNING `+agentColumns,
 		a.ID, a.Name, a.Description, a.Instructions, a.Model, emptyIfNil(a.Builtins),
 		a.MaxSteps, a.Access, emptyIfNil(a.AllowedEmails), a.BudgetMicros, a.Image, class,
-		a.ProjectID, a.Icon, a.Experience)
+		a.ProjectID, a.Icon, a.Experience, a.TranscriptionModel, emptyIfNil(a.AskModels), a.MCPServers)
 	out, err := scanAgent(row)
 	return out, conflict(err)
 }
@@ -177,14 +203,6 @@ func (s *Store) DisableIfOwner(ctx context.Context, id, ownerID string) (Agent, 
 func (s *Store) Agent(ctx context.Context, id string) (Agent, error) {
 	return scanAgent(s.pool.QueryRow(ctx,
 		`SELECT `+agentColumns+` FROM agents WHERE id = $1 AND deleted_at IS NULL`, id))
-}
-
-// AgentByName finds an agent in an organisation, ignoring case. Workspaces
-// are not agents to give work to, so it never finds one.
-func (s *Store) AgentByName(ctx context.Context, orgID, name string) (Agent, error) {
-	return scanAgent(s.pool.QueryRow(ctx, `SELECT `+agentColumns+` FROM agents
-		WHERE org_id = $1 AND lower(name) = lower($2) AND kind = 'agent' AND deleted_at IS NULL`,
-		orgID, name))
 }
 
 // WorkspaceByName finds one of a person's workspaces, ignoring case.
@@ -221,8 +239,12 @@ func (s *Store) Machines(ctx context.Context) ([]Agent, error) {
 		WHERE deleted_at IS NULL ORDER BY id`)
 }
 
+// SetAgentState records the machine's state. It counts each run that starts,
+// so Meter bills a run too short for any round to see.
 func (s *Store) SetAgentState(ctx context.Context, id, state, detail string) error {
-	return one(s.pool.Exec(ctx, `UPDATE agents SET state = $2, state_detail = $3
+	return one(s.pool.Exec(ctx, `UPDATE agents SET state = $2::text, state_detail = $3,
+		unmetered_runs = unmetered_runs +
+			CASE WHEN $2::text = 'running' AND state <> 'running' THEN 1 ELSE 0 END
 		WHERE id = $1 AND deleted_at IS NULL`, id, state, detail))
 }
 
@@ -238,9 +260,9 @@ func (s *Store) SetHasDisk(ctx context.Context, id string, has bool) error {
 // meanwhile, and that key stands. An empty keyID clears the key.
 func (s *Store) ReplaceAgentKey(ctx context.Context, id, old, keyID string, sealed []byte, carries KeyFor) error {
 	return one(s.pool.Exec(ctx, `UPDATE agents SET gateway_key_id = $3, gateway_key = $4,
-		key_owner_id = $5, key_project_id = $6, key_budget_micros = $7
+		key_owner_id = $5, key_project_id = $6, key_budget_micros = $7, key_mcp_servers = $8
 		WHERE id = $1 AND gateway_key_id = $2 AND deleted_at IS NULL`,
-		id, old, keyID, sealed, carries.OwnerID, carries.ProjectID, carries.BudgetMicros))
+		id, old, keyID, sealed, carries.OwnerID, carries.ProjectID, carries.BudgetMicros, carries.MCPServers))
 }
 
 // StaleKeys lists agents whose key was minted for other settings than
@@ -248,8 +270,8 @@ func (s *Store) ReplaceAgentKey(ctx context.Context, id, old, keyID string, seal
 func (s *Store) StaleKeys(ctx context.Context) ([]Agent, error) {
 	return queryAll(ctx, s, scanAgent, `SELECT `+agentColumns+` FROM agents
 		WHERE deleted_at IS NULL AND gateway_key_id <> ''
-		AND (key_owner_id, key_project_id, key_budget_micros) IS DISTINCT FROM
-			(owner_id, project_id, budget_micros)
+		AND (key_owner_id, key_project_id, key_budget_micros, key_mcp_servers) IS DISTINCT FROM
+			(owner_id, project_id, budget_micros, mcp_servers)
 		ORDER BY id LIMIT 100`)
 }
 
@@ -275,9 +297,17 @@ func (s *Store) SetRuntimeToken(ctx context.Context, id string, hash []byte) err
 }
 
 // SetOwner hands the agent to another person. Its key must be replaced too.
-func (s *Store) SetOwner(ctx context.Context, id, ownerID, ownerEmail string) error {
-	return one(s.pool.Exec(ctx, `UPDATE agents SET owner_id = $2, owner_email = $3, updated_at = now()
-		WHERE id = $1 AND deleted_at IS NULL`, id, ownerID, ownerEmail))
+func (s *Store) SetOwner(ctx context.Context, id, ownerID, ownerEmail, ownerName string) error {
+	return one(s.pool.Exec(ctx, `UPDATE agents SET owner_id = $2, owner_email = $3, owner_name = $4,
+		updated_at = now() WHERE id = $1 AND deleted_at IS NULL`, id, ownerID, ownerEmail, ownerName))
+}
+
+// SetOwnerName keeps the owner's name as the gateway has it. It changes
+// nothing if the agent was handed to someone else meanwhile.
+func (s *Store) SetOwnerName(ctx context.Context, id, ownerID, name string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE agents SET owner_name = $3 WHERE id = $1 AND owner_id = $2`,
+		id, ownerID, name)
+	return err
 }
 
 func (s *Store) TouchAgent(ctx context.Context, id string) error {

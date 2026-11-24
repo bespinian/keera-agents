@@ -26,7 +26,7 @@ import { signIn } from "./views/signin.js";
 import { dashboardView } from "./views/dashboard.js";
 import { agentsView } from "./views/agents.js";
 import { agentView } from "./views/agent.js";
-import { boardView } from "./views/board.js";
+import { squadsView, squadView } from "./views/squads.js";
 import { tasksView, taskView } from "./views/tasks.js";
 import { schedulesView } from "./views/schedules.js";
 import { workspacesView } from "./views/workspaces.js";
@@ -70,7 +70,14 @@ const routes = [
     view: workspacesView,
     detail: { label: "Workspace", view: workspaceView, sub: true },
   },
-  { path: "/board", group: "Work", label: "Board", icon: "board", view: boardView },
+  {
+    path: "/squads",
+    group: "Work",
+    label: "Squads",
+    icon: "squads",
+    view: squadsView,
+    detail: { label: "Squad", view: squadView },
+  },
   {
     path: "/tasks",
     group: "Work",
@@ -137,6 +144,8 @@ function visibleRoutes() {
  *  see. A detail path is the list path plus one segment, decoded here so it
  *  cannot be read as more of the path. */
 function matchRoute(available, pathname) {
+  // Squads were one board before v0.3.0. Old links go to them.
+  if (pathname === "/board") pathname = "/squads";
   const exact = available.find((r) => r.path === pathname);
   if (exact) return { route: exact, param: "", sub: "" };
 
@@ -289,6 +298,8 @@ function markHome() {
   home.label = due ? "Getting started" : "Dashboard";
   home.icon = due ? "start" : "dashboard";
   home.highlight = due;
+  const brand = document.querySelector(".brand");
+  if (brand) brand.title = home.label;
   const el = document.querySelector('.nav-item[data-path="/"]');
   if (!el) return;
   const next = navItem(home);
@@ -316,7 +327,7 @@ function renderShell() {
       {
         class: "brand",
         href: "/",
-        title: "Dashboard",
+        title: routes[0].label,
         onClick: go(shellCtx, "/"),
       },
       brandMark(22),
@@ -398,7 +409,7 @@ function setTitle(title, sub, mark) {
   const s = document.getElementById("page-sub");
   if (t) t.replaceChildren(...(mark ? [mark] : []), title || "");
   if (s) s.textContent = sub || "";
-  document.title = title && title !== "Dashboard" ? `${title} · Keera Agents` : "Keera Agents";
+  document.title = title && location.pathname !== "/" ? `${title} · Keera Agents` : "Keera Agents";
 }
 
 /** teardowns are what the current screen must undo before the next, such as

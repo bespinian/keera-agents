@@ -18,12 +18,21 @@ type MachineUse struct {
 
 func (u MachineUse) Zero() bool { return u == MachineUse{} }
 
+func (u MachineUse) Add(v MachineUse) MachineUse {
+	return MachineUse{
+		CPUMilliSeconds:  u.CPUMilliSeconds + v.CPUMilliSeconds,
+		MemoryMiBSeconds: u.MemoryMiBSeconds + v.MemoryMiBSeconds,
+		DiskMiBSeconds:   u.DiskMiBSeconds + v.DiskMiBSeconds,
+	}
+}
+
 // Meter adds the machine time since the last round to each machine's hour,
 // and moves the mark to now. measure says what one machine used in so many
 // seconds. The first round only sets the mark. A gap longer than maxGap,
 // such as while no replica ran, counts as maxGap: nobody saw what ran then.
-// It reports how many seconds it metered.
-func (s *Store) Meter(ctx context.Context, now time.Time, maxGap time.Duration,
+// A run no round saw, because it started and stopped between two, counts
+// as minRun of running. It reports how many seconds it metered.
+func (s *Store) Meter(ctx context.Context, now time.Time, maxGap, minRun time.Duration,
 	measure func(a Agent, seconds int64) MachineUse,
 ) (int64, error) {
 	var seconds int64
@@ -31,6 +40,11 @@ func (s *Store) Meter(ctx context.Context, now time.Time, maxGap time.Duration,
 		var from time.Time
 		err := tx.QueryRow(ctx, `SELECT metered_until FROM metering FOR UPDATE`).Scan(&from)
 		if errors.Is(err, pgx.ErrNoRows) {
+			// Runs counted while nothing metered are not billed.
+			if _, err := tx.Exec(ctx, `UPDATE agents SET unmetered_runs = 0
+				WHERE unmetered_runs > 0`); err != nil {
+				return err
+			}
 			_, err = tx.Exec(ctx, `INSERT INTO metering (metered_until) VALUES ($1)
 				ON CONFLICT (id) DO NOTHING`, now)
 			return err
@@ -45,6 +59,8 @@ func (s *Store) Meter(ctx context.Context, now time.Time, maxGap time.Duration,
 			// mark, so no time is lost or counted twice.
 			return nil
 		}
+		// One query reads each machine's state and runs together, so they
+		// agree.
 		rows, err := tx.Query(ctx, `SELECT `+agentColumns+` FROM agents WHERE deleted_at IS NULL`)
 		if err != nil {
 			return err
@@ -59,6 +75,21 @@ func (s *Store) Meter(ctx context.Context, now time.Time, maxGap time.Duration,
 		batch := &pgx.Batch{}
 		for _, a := range agents {
 			u := measure(a, seconds)
+			if n := a.UnmeteredRuns; n > 0 {
+				// The counted runs are done with, billed or not. Taking away
+				// what was read keeps a run that started since.
+				batch.Queue(`UPDATE agents SET unmetered_runs = unmetered_runs - $2
+					WHERE id = $1`, a.ID, n)
+				if a.State == AgentRunning {
+					n-- // the run going on now, which this round bills
+				}
+				// After a long gap, its runs are dropped with its time.
+				if n > 0 && gap <= maxGap {
+					run := a
+					run.State, run.HasDisk = AgentRunning, false
+					u = u.Add(measure(run, n*int64(minRun/time.Second)))
+				}
+			}
 			if u.Zero() {
 				continue
 			}

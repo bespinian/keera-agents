@@ -73,7 +73,10 @@ plain text.
   holds only its runtime token and its gateway key; platform tools run in
   `internal/dispatch` and check what the agent may do.
 - `internal/store/migrations` holds one file per release that changes the
-  schema. Once a release has shipped, its file is never edited.
+  schema, such as `0003_v0.3.0.sql`. A schema change goes in the file of the
+  next release, which is created with the first change. Once a release has
+  shipped, its file is never edited: the control plane runs each file once
+  and remembers it by name.
 - The panel has no build step: plain ES modules and one stylesheet. Its
   colours and components are shared with Keera Gateway and Keera Chat; change
   them in all three.

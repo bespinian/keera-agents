@@ -40,6 +40,7 @@ const (
 	GoogleSheets    Kind = "gsheets"
 	GoogleSlides    Kind = "gslides"
 	GoogleCalendar  Kind = "gcalendar"
+	GoogleMeet      Kind = "gmeet"
 	Gmail           Kind = "gmail"
 	Outlook         Kind = "outlook"
 	OutlookCalendar Kind = "outlookcalendar"
@@ -113,14 +114,16 @@ type Descriptor struct {
 	Summary  string `json:"summary"`
 	// Chat kinds take messages and send replies. Files kinds are watched
 	// folders and file tools. Code kinds hold repositories agents clone,
-	// push to and open changes in. API kinds give agents Tools. Register
-	// sets all four, and Tools, from the interfaces the adapter implements.
-	Chat   bool    `json:"chat"`
-	Files  bool    `json:"files"`
-	Code   bool    `json:"code"`
-	API    bool    `json:"api"`
-	Tools  []Tool  `json:"tools,omitempty"`
-	Fields []Field `json:"fields"`
+	// push to and open changes in. API kinds give agents Tools. Channels
+	// kinds are Chat kinds that list their channels for a picker. Register
+	// sets these, and Tools, from the interfaces the adapter implements.
+	Chat     bool    `json:"chat"`
+	Channels bool    `json:"channels,omitempty"`
+	Files    bool    `json:"files"`
+	Code     bool    `json:"code"`
+	API      bool    `json:"api"`
+	Tools    []Tool  `json:"tools,omitempty"`
+	Fields   []Field `json:"fields"`
 	// Setup lists, as numbered Markdown steps, what to create on the
 	// service's side. It may name {webhook}, which the panel replaces with
 	// the address to register.
@@ -133,9 +136,9 @@ type Descriptor struct {
 	// AnyTarget is an API kind whose binding may be AnyTarget: everything
 	// the connection reaches.
 	AnyTarget bool `json:"any_target,omitempty"`
-	// Mailbox is an API kind whose binding names a person's mailbox. On a
-	// shared connector it acts as that person, so only an administrator
-	// may name a mailbox other than their own.
+	// Mailbox is an API kind whose binding names a person, such as their
+	// mailbox. On a shared connector it acts as that person, so only an
+	// administrator may name someone other than themselves.
 	Mailbox bool `json:"mailbox,omitempty"`
 	// SignIn is set for a kind whose connectors may let each person sign
 	// in with their own account. Register sets it from the PerUser
@@ -157,6 +160,9 @@ type SignIn struct {
 // an adapter that cannot find it leaves it empty and the message is refused.
 type Person struct {
 	Email string
+	// ID is who they are at the service, such as a Slack user id. A binding
+	// that names it takes their direct messages with the bot.
+	ID string
 	// Outside is someone from another workspace or tenant, such as a guest
 	// in a shared channel. Their email is not trusted, so they are refused.
 	Outside bool
@@ -224,6 +230,27 @@ type Chat interface {
 	Send(ctx context.Context, conn Connection, to Target, text string) (string, error)
 }
 
+// Channel is a conversation a chat bot can post in, for the panel's picker.
+type Channel struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Private is a channel only its members see. Direct is the direct
+	// messages between the bot and one person.
+	Private bool `json:"private,omitempty"`
+	Direct  bool `json:"direct,omitempty"`
+}
+
+// Channels is a chat service that can say where its bot can post, so people
+// pick a channel instead of copying its id.
+type Channels interface {
+	Chat
+	// Channels lists the channels the bot is in.
+	Channels(ctx context.Context, conn Connection) ([]Channel, error)
+	// Direct finds the person with this email and returns their direct
+	// messages with the bot, which a binding can name.
+	Direct(ctx context.Context, conn Connection, email string) (Channel, error)
+}
+
 // File is one file or folder in a file store.
 type File struct {
 	ID       string    `json:"id"`
@@ -235,8 +262,13 @@ type File struct {
 	Folder   bool      `json:"folder,omitempty"`
 }
 
-// MaxFileBytes bounds what Read returns and Write accepts.
+// MaxFileBytes bounds what Write accepts: a simple upload, which every file
+// store takes.
 const MaxFileBytes = 4 << 20
+
+// MaxReadBytes is the most a caller may ask Read for: what transcription
+// models commonly take. Text reads ask for MaxFileBytes.
+const MaxReadBytes = 25 << 20
 
 // Files is a file store.
 type Files interface {
@@ -245,8 +277,8 @@ type Files interface {
 	// can see.
 	List(ctx context.Context, conn Connection, folder string) ([]File, error)
 	// Read returns a file's content as text where the service can convert
-	// it, such as a Google Doc, and as stored otherwise, up to MaxFileBytes.
-	Read(ctx context.Context, conn Connection, id string) (File, []byte, error)
+	// it, such as a Google Doc, and as stored otherwise, up to limit bytes.
+	Read(ctx context.Context, conn Connection, id string, limit int64) (File, []byte, error)
 	// Write creates or replaces the file called name in folder. The caller
 	// has checked that name is not empty and has no slashes, that content
 	// fits in MaxFileBytes, and has set mimeType.
@@ -410,6 +442,7 @@ var (
 func Register(a Adapter) {
 	d := a.Descriptor()
 	_, d.Chat = a.(Chat)
+	_, d.Channels = a.(Channels)
 	_, d.Files = a.(Files)
 	_, d.Code = a.(Code)
 	if x, ok := a.(API); ok {
@@ -440,6 +473,8 @@ func lookup[T any](k Kind) (T, bool) {
 func AdapterFor(k Kind) (Adapter, bool) { return lookup[Adapter](k) }
 
 func ChatFor(k Kind) (Chat, bool) { return lookup[Chat](k) }
+
+func ChannelsFor(k Kind) (Channels, bool) { return lookup[Channels](k) }
 
 func FilesFor(k Kind) (Files, bool) { return lookup[Files](k) }
 

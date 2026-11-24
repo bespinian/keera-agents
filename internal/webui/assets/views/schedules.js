@@ -152,7 +152,7 @@ export function scheduleTable(ctx, schedules, { agents = [], agent = null, showA
                     confirm({
                       title: `Delete ${s.name}?`,
                       body: "The agent no longer gets this task. Tasks it already ran stay in Tasks.",
-                      confirmLabel: "Delete",
+                      confirmLabel: "Delete schedule",
                       danger: true,
                       onConfirm: async () => {
                         await api.deleteSchedule(s.id);
@@ -646,7 +646,12 @@ export function openScheduleEditor(ctx, { schedule = null, agent = null, agents 
       field("Time zone", tz, "The times are read in this zone, summer time included."),
       h("div", { class: "field" }, preview),
       field("Task", prompt, "What the agent is asked each time."),
-      field("Send the result to", reply, "One of the agent's chats. Add one on the agent's Connectors tab."),
+      field(
+        "Send the result to",
+        reply,
+        "A channel of the agent's, or your direct messages. Add one on the agent's Connectors tab. " +
+          "A chat set to * is not listed: it names no one place to post.",
+      ),
       h("div", { class: "field" }, enabled.el),
     ),
     submitLabel: schedule ? "Save" : "Create schedule",

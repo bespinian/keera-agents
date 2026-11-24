@@ -39,6 +39,23 @@ func TestRoute(t *testing.T) {
 	if _, ok := route(bindings[1:], connectors.Inbound{Target: connectors.Target{Conversation: "C-other"}}); ok {
 		t.Error("routed a message nobody listens to")
 	}
+
+	// A binding that names a person takes their direct messages, and only
+	// those: not their posts in a channel, nor someone else's messages.
+	withAna := append(bindings, store.Binding{ID: "ana", AgentName: "Helper", Target: "U-ana"})
+	ana := connectors.Person{ID: "U-ana"}
+	for _, tc := range []struct {
+		msg  connectors.Inbound
+		want string
+	}{
+		{connectors.Inbound{Target: connectors.Target{Conversation: "D-1"}, Sender: ana, Direct: true}, "ana"},
+		{connectors.Inbound{Target: connectors.Target{Conversation: "C-other"}, Sender: ana}, "any"},
+		{connectors.Inbound{Target: connectors.Target{Conversation: "D-2"}, Sender: connectors.Person{ID: "U-bob"}, Direct: true}, "any"},
+	} {
+		if b, ok := route(withAna, tc.msg); !ok || b.ID != tc.want {
+			t.Errorf("%+v: got %q, want %q", tc.msg, b.ID, tc.want)
+		}
+	}
 }
 
 func TestMay(t *testing.T) {
@@ -145,18 +162,59 @@ func TestResultText(t *testing.T) {
 
 func TestCardPrompt(t *testing.T) {
 	c := store.Card{Title: "Write the report", Body: "For October."}
-	got := cardPrompt(c, []store.Comment{{Author: "ada", Body: "Keep it short."}})
+	q := store.Squad{Name: "Finance", Goal: "Close the books."}
+	long := strings.Repeat("x", maxHandedOutResult+10)
+	children := []handout{
+		{ID: "card_1", Title: "Get the numbers", Status: store.CardReview, AgentName: "Counter", Result: "Revenue: 10.\nCosts: 4."},
+		{ID: "card_2", Title: "Check", Status: store.CardReview, Result: long},
+	}
+	got := cardPrompt(c, q, []store.Comment{{Author: "ada", Body: "Keep it short."}}, children)
 	// The title comes first, since the task list shows a task by its first line.
 	if !strings.HasPrefix(got, "Write the report\n") {
 		t.Errorf("prompt does not start with the title: %q", got)
 	}
-	for _, want := range []string{"For October.", "Comments so far:\n- ada: Keep it short.", "Your final answer is the result"} {
+	for _, want := range []string{
+		"For October.", "squad Finance", "The squad's goal: Close the books.",
+		"Comments so far:\n- ada: Keep it short.", "Your final answer is the result",
+		`- card_1 "Get the numbers", review, Counter` + "\n  Revenue: 10.\n  Costs: 4.",
+		"board_read_card shows all of it",
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lacks %q: %q", want, got)
 		}
 	}
-	if got := cardPrompt(store.Card{Title: "T"}, nil); strings.Contains(got, "Comments") {
-		t.Errorf("no comments: %q", got)
+	if strings.Contains(got, long) {
+		t.Error("a long result is not cut")
+	}
+	got = cardPrompt(store.Card{Title: "T"}, store.Squad{Name: "Ops"}, nil, nil)
+	for _, unwanted := range []string{"Comments", "goal", "Cards handed out"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("prompt has %q: %q", unwanted, got)
+		}
+	}
+}
+
+func TestToLead(t *testing.T) {
+	lead, other := "agent_lead", "agent_other"
+	q := store.Squad{LeadID: &lead}
+	for _, tc := range []struct {
+		name string
+		card store.Card
+		want *string
+	}{
+		{"unassigned in To do", store.Card{Status: store.CardTodo}, &lead},
+		{"unassigned in Backlog", store.Card{Status: store.CardBacklog}, nil},
+		{"assigned in To do", store.Card{Status: store.CardTodo, AgentID: &other}, &other},
+	} {
+		c := tc.card
+		ToLead(q, &c)
+		if (c.AgentID == nil) != (tc.want == nil) || c.AgentID != nil && *c.AgentID != *tc.want {
+			t.Errorf("%s: agent = %v, want %v", tc.name, c.AgentID, tc.want)
+		}
+	}
+	c := store.Card{Status: store.CardTodo}
+	if ToLead(store.Squad{}, &c); c.AgentID != nil {
+		t.Errorf("a squad without a lead assigned %v", *c.AgentID)
 	}
 }
 

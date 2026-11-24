@@ -3,6 +3,7 @@ package api
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -195,19 +196,26 @@ func (s *Server) agentActivity(w http.ResponseWriter, r *http.Request, p Princip
 // agentInput is what people set. Pointers tell a PATCH which fields it
 // changes.
 type agentInput struct {
-	Name          *string        `json:"name"`
-	Icon          *string        `json:"icon"`
-	Description   *string        `json:"description"`
-	Instructions  *string        `json:"instructions"`
-	Model         *string        `json:"model"`
-	Builtins      *[]string      `json:"builtins"`
-	MaxSteps      *int           `json:"max_steps"`
-	Access        *string        `json:"access"`
-	AllowedEmails *[]string      `json:"allowed_emails"`
-	BudgetMicros  *int64         `json:"budget_micros"`
-	Class         *runtime.Class `json:"class"`
-	Image         *string        `json:"image"`
-	ProjectID     *string        `json:"project_id"`
+	Name         *string `json:"name"`
+	Icon         *string `json:"icon"`
+	Description  *string `json:"description"`
+	Instructions *string `json:"instructions"`
+	Model        *string `json:"model"`
+	// TranscriptionModel and AskModels are other models it may use as
+	// tools. Empty offers none.
+	TranscriptionModel *string   `json:"transcription_model"`
+	AskModels          *[]string `json:"ask_models"`
+	// MCPServers stays raw, so a PATCH tells null, every server the project
+	// allows, from leaving the field out.
+	MCPServers    json.RawMessage `json:"mcp_servers"`
+	Builtins      *[]string       `json:"builtins"`
+	MaxSteps      *int            `json:"max_steps"`
+	Access        *string         `json:"access"`
+	AllowedEmails *[]string       `json:"allowed_emails"`
+	BudgetMicros  *int64          `json:"budget_micros"`
+	Class         *runtime.Class  `json:"class"`
+	Image         *string         `json:"image"`
+	ProjectID     *string         `json:"project_id"`
 	// OwnerID is only read on create. Taking over is how an owner changes
 	// later, as it needs a new key.
 	OwnerID *string `json:"owner_id"`
@@ -218,6 +226,75 @@ var (
 	// The panel holds the icons; a name it does not know shows the default.
 	agentIcon = regexp.MustCompile(`^[a-z0-9-]{0,32}$`)
 )
+
+// checkCatalog asks the gateway whether the project allows the models and
+// MCP servers that in sets. A new project checks them all.
+func (s *Server) checkCatalog(ctx context.Context, a *store.Agent, in agentInput) error {
+	all := in.ProjectID != nil
+	if !all && in.Model == nil && in.TranscriptionModel == nil && in.AskModels == nil && in.MCPServers == nil {
+		return nil
+	}
+	cat, err := s.gw.Catalog(ctx, a.OrgID, a.ProjectID)
+	if err != nil {
+		return fmt.Errorf("could not check the models with Keera Gateway: %w", err)
+	}
+	a.ProjectID = cat.ProjectID
+	allowed := func(refs []gateway.CatalogRef, alias string) bool {
+		return slices.ContainsFunc(refs, func(m gateway.CatalogRef) bool { return m.Alias == alias })
+	}
+	mcpAllowed := func(alias string) bool {
+		return slices.ContainsFunc(cat.MCPServers, func(r gateway.MCPRef) bool { return r.Alias == alias })
+	}
+	if (all || in.Model != nil) && !allowed(cat.Models, a.Model) {
+		return fmt.Errorf("the project does not allow the model %q; choose one from the list", a.Model)
+	}
+	if (all || in.TranscriptionModel != nil) && a.TranscriptionModel != "" &&
+		!allowed(cat.TranscriptionModels, a.TranscriptionModel) {
+		return fmt.Errorf("the project does not allow the transcription model %q; choose one from the list",
+			a.TranscriptionModel)
+	}
+	if all || in.AskModels != nil {
+		for _, m := range a.AskModels {
+			if !allowed(cat.Models, m) {
+				return fmt.Errorf("the project does not allow the model %q to ask; choose one from the list", m)
+			}
+		}
+	}
+	if all || in.MCPServers != nil {
+		for _, m := range a.MCPServers {
+			if !mcpAllowed(m) {
+				return fmt.Errorf("the project does not allow the MCP server %q; choose one from the list", m)
+			}
+		}
+	}
+	return nil
+}
+
+// mcpServersOf reads mcp_servers: null is every server the project allows,
+// a list only those.
+func mcpServersOf(raw json.RawMessage) ([]string, error) {
+	var in []string
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, errors.New("mcp_servers is a list of MCP servers' aliases, or null for all")
+	}
+	if in == nil {
+		return nil, nil
+	}
+	return cleanList(in), nil
+}
+
+// cleanList trims, sorts and dedupes xs, dropping empty ones. It never
+// returns nil: for mcp_servers, nil means all.
+func cleanList(xs []string) []string {
+	out := []string{}
+	for _, x := range xs {
+		if x = strings.TrimSpace(x); x != "" {
+			out = append(out, x)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
 
 // maxSteps is the highest step limit one can set, so a typo cannot overflow
 // the column.
@@ -257,15 +334,21 @@ func (s *Server) apply(ctx context.Context, p Principal, a *store.Agent, in agen
 	if in.Model != nil {
 		a.Model = strings.TrimSpace(*in.Model)
 	}
-	if in.Model != nil || in.ProjectID != nil {
-		cat, err := s.gw.Catalog(ctx, a.OrgID, a.ProjectID)
+	if in.TranscriptionModel != nil {
+		a.TranscriptionModel = strings.TrimSpace(*in.TranscriptionModel)
+	}
+	if in.AskModels != nil {
+		a.AskModels = cleanList(*in.AskModels)
+	}
+	if in.MCPServers != nil {
+		servers, err := mcpServersOf(in.MCPServers)
 		if err != nil {
-			return fmt.Errorf("could not check the model with Keera Gateway: %w", err)
+			return err
 		}
-		a.ProjectID = cat.ProjectID
-		if !slices.ContainsFunc(cat.Models, func(m gateway.CatalogRef) bool { return m.Alias == a.Model }) {
-			return fmt.Errorf("the project does not allow the model %q; choose one from the list", a.Model)
-		}
+		a.MCPServers = servers
+	}
+	if err := s.checkCatalog(ctx, a, in); err != nil {
+		return err
 	}
 	if in.Builtins != nil {
 		for _, b := range *in.Builtins {
@@ -372,7 +455,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 		return
 	}
 	a := store.Agent{
-		ID: id.New("agt"), OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email,
+		ID: id.New("agt"), OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email, OwnerName: p.Name,
 		Access: store.AccessOwner, Enabled: true,
 		Builtins: []string{protocol.BuiltinMemory, protocol.BuiltinFiles},
 	}
@@ -381,7 +464,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 		if !ok {
 			return
 		}
-		a.OwnerID, a.OwnerEmail = u.ID, u.Email
+		a.OwnerID, a.OwnerEmail, a.OwnerName = u.ID, u.Email, u.Name
 	}
 	in.Class = s.newClass(in.Class)
 	if err := s.apply(r.Context(), p, &a, in); err != nil {
@@ -421,8 +504,8 @@ func (s *Server) newOwner(w http.ResponseWriter, r *http.Request, p Principal, u
 }
 
 // rekeyIfChanged gives a changed agent or workspace a new key when its
-// project or budget changed, as the key carries both. If that fails, the
-// background rounds try again.
+// project, budget or MCP servers changed, as the key carries them. If that
+// fails, the background rounds try again.
 func (s *Server) rekeyIfChanged(ctx context.Context, a store.Agent) {
 	if !a.KeyStale() {
 		return
@@ -556,7 +639,7 @@ func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Princip
 		forbid(w, "only an administrator can take over an agent")
 		return
 	}
-	if err := s.st.SetOwner(r.Context(), a.ID, p.UserID, p.Email); err != nil {
+	if err := s.st.SetOwner(r.Context(), a.ID, p.UserID, p.Email, p.Name); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -775,14 +858,14 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 	writeJSON(w, http.StatusCreated, b)
 }
 
-// mayNameMailbox stops a member from binding someone else's mailbox. A
-// shared mail connector acts as any mailbox in the domain, so without this
-// a member's agent could read and send the mail of anyone there.
+// mayNameMailbox stops a member from binding someone else's mailbox or
+// meetings. A shared connector acts as anyone in the domain, so without this
+// a member's agent could read the mail of anyone there.
 func mayNameMailbox(p Principal, desc connectors.Descriptor, c store.Connection, target string) error {
 	if !desc.Mailbox || c.PerUser || p.CanAdmin() || strings.EqualFold(target, p.Email) {
 		return nil
 	}
-	return errors.New("only an administrator can connect an agent to a mailbox other than your own")
+	return errors.New("only an administrator can connect an agent to someone other than yourself")
 }
 
 // heldByOther returns a chat binding of an agent someone other than a's

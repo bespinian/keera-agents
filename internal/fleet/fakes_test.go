@@ -152,6 +152,8 @@ type fakeGateway struct {
 	mu        sync.Mutex
 	mints     int
 	mintFails bool
+	// minted holds each mint's body, to tell a field left out from empty.
+	minted []string
 	// revokeFails makes revoking a key fail, as when the gateway is down.
 	revokeFails bool
 	lookups     int
@@ -184,6 +186,8 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		g.mints++
+		body, _ := io.ReadAll(r.Body)
+		g.minted = append(g.minted, string(body))
 		reply(http.StatusCreated, gateway.Key{ID: fmt.Sprintf("key_%d", g.mints), Secret: fmt.Sprintf("sk-%d", g.mints)})
 	case strings.HasPrefix(r.URL.Path, "/control/v1/service/keys/") && r.Method == http.MethodDelete:
 		if g.revokeFails {
@@ -206,6 +210,8 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			refuse(http.StatusInternalServerError, "internal", "database down")
 		case "usr_proxy":
 			http.Error(w, "404 page not found", http.StatusNotFound)
+		case "usr_ada":
+			reply(http.StatusOK, gateway.User{ID: id, Name: "Ada Lovelace"})
 		default:
 			reply(http.StatusOK, gateway.User{ID: id})
 		}
@@ -224,6 +230,15 @@ func (g *fakeGateway) failRevokes(fail bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.revokeFails = fail
+}
+
+func (g *fakeGateway) lastMint() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.minted) == 0 {
+		return ""
+	}
+	return g.minted[len(g.minted)-1]
 }
 
 func (g *fakeGateway) counts() (mints, lookups int) {

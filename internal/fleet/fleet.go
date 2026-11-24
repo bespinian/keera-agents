@@ -200,7 +200,7 @@ func (m *Manager) ensureKey(ctx context.Context, a *store.Agent) error {
 func (m *Manager) replaceKey(ctx context.Context, a *store.Agent) error {
 	k, err := m.gw.MintKey(ctx, gateway.KeyRequest{
 		OrgID: a.OrgID, ProjectID: a.ProjectID, UserID: a.OwnerID,
-		Name: keyName(*a), BudgetMicros: a.BudgetMicros,
+		Name: keyName(*a), BudgetMicros: a.BudgetMicros, AllowedTools: a.MCPServers,
 	})
 	if err != nil {
 		return fmt.Errorf("the gateway did not issue a key for this agent: %w", err)
@@ -214,15 +214,15 @@ func (m *Manager) replaceKey(ctx context.Context, a *store.Agent) error {
 	return nil
 }
 
-// Rekey replaces the agent's key, as when its project or budget changes. A
-// running agent's next gateway request fails with 401, and its runtime then
-// fetches the new key.
+// Rekey replaces the agent's key, as when its project, budget or MCP servers
+// change. A running agent's next gateway request fails with 401, and its
+// runtime then fetches the new key.
 //
 // It reads the agent, so the key carries what is saved now, and replaces the
 // key the agent holds now, not one it held when the caller read it.
 // The old key is revoked before the new one is stored: an old key left
-// working would keep the old project and budget. If the gateway cannot be
-// reached, the key stays stale and RekeyStale tries again.
+// working would keep the old settings. If the gateway cannot be reached, the
+// key stays stale and RekeyStale tries again.
 func (m *Manager) Rekey(ctx context.Context, id string) error {
 	return m.rekey(ctx, id, false)
 }
@@ -279,7 +279,8 @@ func (m *Manager) rekey(ctx context.Context, id string, onlyStale bool) error {
 	return nil
 }
 
-// OpenKey returns the agent's gateway key. Only the runtime API asks.
+// OpenKey returns the agent's gateway key: for the runtime API, and for the
+// model tools, which call the gateway as the agent.
 func (m *Manager) OpenKey(a store.Agent) (string, error) {
 	if len(a.GatewayKey) == 0 {
 		return "", errors.New("this agent has no gateway key")
@@ -831,6 +832,10 @@ func (m *Manager) CheckOwners(ctx context.Context) {
 		// agent and revoke every key.
 		gone := gateway.IsNotFound(err) || (err == nil && u.Disabled)
 		if !gone {
+			// People change their name in the gateway; the panel shows it.
+			if err == nil && u.Name != a.OwnerName {
+				_ = m.st.SetOwnerName(ctx, a.ID, a.OwnerID, u.Name)
+			}
 			continue
 		}
 		// The list was read before the gateway calls, so an administrator

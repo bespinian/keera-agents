@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/connectors"
+	"github.com/bespinian/keera-agents/internal/connectors/internal/web"
+	"github.com/bespinian/keera-agents/internal/connectors/internal/workspace"
 	"github.com/bespinian/keera-agents/internal/connectors/internal/workspace/workspacetest"
 )
 
@@ -56,7 +58,16 @@ func setup(t *testing.T) (*workspacetest.Fake, *Adapter, *[]sent) {
 	}
 	f.Handle("GET /calendar/v3/calendars/{cal}/events", record(`{"items":[`+eventJSON+`],"nextPageToken":"x"}`))
 	f.Handle("GET /calendar/v3/calendars/{cal}/events/{id}", record(eventJSON))
-	f.Handle("POST /calendar/v3/calendars/{cal}/events", record(`{"id":"new","summary":"Lunch","start":{"date":"2026-11-06"},"end":{"date":"2026-11-07"}}`))
+	created := record(`{"id":"new","summary":"Lunch","start":{"date":"2026-11-06"},"end":{"date":"2026-11-07"}}`)
+	withMeet := record(`{"id":"new","summary":"Call","start":{"dateTime":"2026-11-06T10:00:00Z"},"end":{"dateTime":"2026-11-06T10:30:00Z"},
+		"hangoutLink":"https://meet.google.com/abc-defg-hij","conferenceData":{"createRequest":{"status":{"statusCode":"success"}}}}`)
+	f.Handle("POST /calendar/v3/calendars/{cal}/events", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("conferenceDataVersion") {
+			withMeet(w, r)
+			return
+		}
+		created(w, r)
+	})
 	f.Handle("PATCH /calendar/v3/calendars/{cal}/events/{id}", record(eventJSON))
 	f.Handle("DELETE /calendar/v3/calendars/{cal}/events/{id}", record(""))
 	f.Handle("POST /calendar/v3/freeBusy", func(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +186,42 @@ func TestWrites(t *testing.T) {
 	out, err = call(t, a, conn, cal, "delete_event", `{"event_id":"ev1"}`)
 	if err != nil || out != `{"deleted":true,"id":"ev1"}` || (*calls)[2].path != "/calendar/v3/calendars/"+cal+"/events/ev1" {
 		t.Errorf("delete_event = %s, %v", out, err)
+	}
+}
+
+func TestMeet(t *testing.T) {
+	f, a, calls := setup(t)
+	conn := f.Conn(connectors.GoogleCalendar, "ada@acme.com")
+	out, err := call(t, a, conn, cal, "create_event",
+		`{"summary":"Call","start":"2026-11-06T10:00:00Z","end":"2026-11-06T10:30:00Z","meet":true}`)
+	if err != nil || !strings.Contains(out, `"meet":"https://meet.google.com/abc-defg-hij"`) || strings.Contains(out, `"note"`) {
+		t.Errorf("create_event = %s, %v", out, err)
+	}
+	c := (*calls)[0]
+	req := c.body["conferenceData"].(map[string]any)["createRequest"].(map[string]any)
+	if c.query != "sendUpdates=none&conferenceDataVersion=1" || req["requestId"] == "" ||
+		req["conferenceSolutionKey"].(map[string]any)["type"] != "hangoutsMeet" {
+		t.Errorf("create sent %+v", c)
+	}
+
+	// Google may make the link a moment later.
+	out, err = call(t, a, conn, cal, "update_event", `{"event_id":"ev1","meet":true}`)
+	if err != nil || !strings.Contains(out, `"note":"the Meet link is not ready yet`) {
+		t.Errorf("update_event = %s, %v", out, err)
+	}
+	out, err = call(t, a, conn, cal, "update_event", `{"event_id":"ev1","meet":false}`)
+	if v, ok := (*calls)[2].body["conferenceData"]; err != nil || !ok || v != nil || strings.Contains(out, `"note"`) {
+		t.Errorf("removing the link sent %+v: %s, %v", (*calls)[2], out, err)
+	}
+	if q := (*calls)[2].query; q != "sendUpdates=none&conferenceDataVersion=1" {
+		t.Errorf("removing the link sent %s", q)
+	}
+
+	// Google refuses a service account acting as itself.
+	refused := &web.APIError{Service: "Google", Status: http.StatusBadRequest, Message: "Invalid conference type value."}
+	yes := true
+	if err := (writeArgs{Meet: &yes}).failed(workspace.Settings{}, refused); !strings.Contains(err.Error(), "domain-wide delegation") {
+		t.Errorf("err = %v", err)
 	}
 }
 

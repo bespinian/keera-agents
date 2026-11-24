@@ -15,11 +15,11 @@ import {
   toast,
   card,
   every,
-  ago,
+  stamp,
   avatarOf,
   modal,
 } from "../ui.js";
-import { agentStatePill, isUp, workspacePath, detailTabs, EXPERIENCES, TIERS } from "../common.js";
+import { agentStatePill, isUp, workspacePath, detailTabs, settingsCard, machineText, EXPERIENCES } from "../common.js";
 import { noRuntime } from "./agents.js";
 import { bindingsTab } from "./bindings.js";
 import { logPane } from "./logs.js";
@@ -106,7 +106,7 @@ function head(ctx, w) {
     ctx,
     ["/workspaces", "Workspaces"],
     [
-      w.enabled === false ? pill("Stopped") : agentStatePill(w.state),
+      agentStatePill(w.enabled === false ? "stopped" : w.state),
       pill(EXPERIENCES[w.experience]?.name || w.experience),
       w.state_detail ? h("span", { class: "faint small", style: { alignSelf: "center" } }, w.state_detail) : null,
     ],
@@ -115,23 +115,21 @@ function head(ctx, w) {
 }
 
 async function overviewTab(ctx, w) {
-  const cls = w.class || {};
   // Whoever sees a workspace may see what its machine costs.
   const cost = ctx.state.me.billing ? await api.workspaceCost(w.id).catch(() => null) : null;
   return h(
     "div",
     { class: "grid grid-2" },
     card(
-      "About",
+      "Setup",
       h(
         "div",
         { class: "facts" },
         fact("Owner", w.owner_email),
         fact("Experience", EXPERIENCES[w.experience]?.what),
         fact("Starts with the model", h("span", { class: "mono" }, w.model)),
-        fact("Machine", `${TIERS[cls.isolation] || cls.isolation || "-"}, ${cls.cpu || "-"} CPU, ${cls.memory || "-"}`),
-        fact("Disk", cls.disk),
-        fact("Last used", w.last_active_at ? ago(w.last_active_at) : ""),
+        fact("Machine", machineText(w.class)),
+        fact("Last active", w.last_active_at ? stamp(w.last_active_at) : ""),
         h(
           "div",
           { class: "hint" },
@@ -145,16 +143,15 @@ async function overviewTab(ctx, w) {
 
 async function settingsTab(ctx, w) {
   const form = await workspaceForm(ctx, w);
-  const save = busyButton({ class: "btn btn-primary" }, "Save", async () => {
-    const body = form.values();
-    await api.updateWorkspace(w.id, body);
-    toast("Saved", "good");
-    ctx.reload();
+  const settings = settingsCard(ctx, form.el, async () => {
+    await api.updateWorkspace(w.id, form.values());
+    return "Changes saved";
   });
+  // A form as wide as the screen is hard to read down.
   return h(
     "div",
-    { class: "stack", style: { gap: "16px" } },
-    card("Settings", h("div", {}, form.el, h("div", { class: "row-tight" }, save))),
+    { class: "grid", style: { maxWidth: "820px" } },
+    settings,
     h(
       "div",
       { class: "card" },

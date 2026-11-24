@@ -218,10 +218,10 @@ func DoJSON(hc *http.Client, req *http.Request, service string, limit int64, fai
 	return json.Unmarshal(b, out)
 }
 
-// FileTooLarge is the error for a file bigger than connectors.MaxFileBytes.
-// prefix names the adapter, such as "gdrive".
-func FileTooLarge(prefix, name string) error {
-	return fmt.Errorf("%s: %q is larger than %d MiB", prefix, name, connectors.MaxFileBytes>>20)
+// FileTooLarge is the error for a file bigger than limit bytes. prefix names
+// the adapter, such as "gdrive".
+func FileTooLarge(prefix, name string, limit int64) error {
+	return fmt.Errorf("%s: %q is larger than %d MiB", prefix, name, limit>>20)
 }
 
 // Fingerprint names a set of credentials in a cache key without keeping

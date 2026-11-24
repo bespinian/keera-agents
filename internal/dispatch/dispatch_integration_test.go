@@ -30,11 +30,15 @@ import (
 
 const serviceKey = "service-key-0123456789abcdef0123"
 
-// fakeGateway answers the gateway's member lookups. down makes it fail.
+// fakeGateway answers the gateway's member lookups, and model calls with
+// agentKey. down makes it fail.
 type fakeGateway struct {
 	users map[string]gateway.User // org|email and org|id
 	down  atomic.Bool
 	calls atomic.Int32
+	// models holds the model calls it answered.
+	mu     sync.Mutex
+	models []modelCall
 }
 
 func newFakeGateway() *fakeGateway {
@@ -53,6 +57,10 @@ func (g *fakeGateway) add(org string, u gateway.User) {
 
 func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.calls.Add(1)
+	if strings.HasPrefix(r.URL.Path, gateway.ModelPrefix+"/") {
+		g.model(w, r)
+		return
+	}
 	if r.URL.Path != "/control/v1/service/users" || r.Header.Get("Authorization") != "Bearer "+serviceKey {
 		http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusTeapot)
 		return

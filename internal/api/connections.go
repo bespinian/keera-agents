@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -391,4 +392,41 @@ func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Pri
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+}
+
+// connectionChannels lists where a chat bot can post, for a picker: first
+// the direct messages between the bot and whoever asks, then the channels
+// the bot is in. Not finding the person is a notice, not a failure, since
+// the channels are still useful.
+func (s *Server) connectionChannels(w http.ResponseWriter, r *http.Request, p Principal) {
+	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	adapter, ok := connectors.ChannelsFor(connectors.Kind(c.Kind))
+	if !ok {
+		badRequest(w, c.Name+" cannot list its channels")
+		return
+	}
+	conn, err := s.disp.ConnFor(r.Context(), c, p.UserID)
+	if err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	channels, err := adapter.Channels(r.Context(), conn)
+	if err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	slices.SortFunc(channels, func(a, b connectors.Channel) int { return strings.Compare(a.Name, b.Name) })
+	out := []connectors.Channel{}
+	notice := ""
+	if me, err := adapter.Direct(r.Context(), conn, p.Email); err != nil {
+		notice = "Direct messages with you are not available: " + err.Error()
+	} else {
+		me.Name = "Direct messages with " + cmp.Or(p.Name, p.Email)
+		out = append(out, me)
+	}
+	out = append(out, channels...)
+	writeJSON(w, http.StatusOK, map[string]any{"data": out, "notice": notice})
 }

@@ -10,6 +10,7 @@ package gcalendar
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/http"
@@ -95,6 +96,7 @@ func New(opts connectors.Options) *Adapter {
 				"description":{"type":"string"},
 				"location":{"type":"string"},
 				"attendees":{"type":"array","items":{"type":"string"},"description":"The guests' emails."},
+				"meet":{"type":"boolean","description":"Add a Google Meet link."},
 				"notify":{"type":"boolean","description":"Email the guests. False by default."}},
 				"required":["summary","start","end"]}`),
 			Write: true,
@@ -112,6 +114,7 @@ func New(opts connectors.Options) *Adapter {
 				"description":{"type":"string"},
 				"location":{"type":"string"},
 				"attendees":{"type":"array","items":{"type":"string"}},
+				"meet":{"type":"boolean","description":"True adds a Google Meet link, false removes it."},
 				"notify":{"type":"boolean","description":"Email the guests about the change. False by default."}},
 				"required":["event_id"]}`),
 			Write: true,
@@ -142,7 +145,7 @@ func (a *Adapter) Descriptor() connectors.Descriptor {
 		Fields:   workspace.Fields("Google Calendar API"),
 		Setup: workspace.Setup("Google Calendar API",
 			"each calendar (with **Make changes to events** for agents that write)",
-			"Agents can then invite no guests: Google lets a service account invite people only through domain-wide delegation.",
+			"Agents can then invite no guests and add no Meet links: Google allows both only through domain-wide delegation.",
 			scope),
 		TargetLabel: "Calendar",
 		TargetHelp:  "The calendar's ID, from its settings: a person's email, such as ada@acme.com, or a shared calendar's …@group.calendar.google.com.",
@@ -232,13 +235,13 @@ type rangeArgs struct {
 func (a *Adapter) span(in rangeArgs) (from, to time.Time, err error) {
 	from = a.now().UTC().Truncate(time.Second)
 	if in.From != "" {
-		if from, err = parseTime(in.From); err != nil {
+		if from, err = workspace.ParseTime(in.From); err != nil {
 			return
 		}
 	}
 	to = from.AddDate(0, 0, 7)
 	if in.To != "" {
-		if to, err = parseTime(in.To); err != nil {
+		if to, err = workspace.ParseTime(in.To); err != nil {
 			return
 		}
 	}
@@ -246,17 +249,6 @@ func (a *Adapter) span(in rangeArgs) (from, to time.Time, err error) {
 		err = errors.New("the range ends before it starts")
 	}
 	return
-}
-
-func parseTime(s string) (time.Time, error) {
-	s = strings.TrimSpace(s)
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t, nil
-	}
-	if t, err := time.Parse(time.DateOnly, s); err == nil {
-		return t, nil
-	}
-	return time.Time{}, fmt.Errorf("%q is not a time; write RFC 3339, such as 2026-11-04T09:00:00+01:00", web.Short(s, 60))
 }
 
 func (a *Adapter) listEvents(ctx context.Context, s workspace.Settings, cal string, in rangeArgs) (any, error) {
@@ -357,6 +349,7 @@ type writeArgs struct {
 	Description *string   `json:"description"`
 	Location    *string   `json:"location"`
 	Attendees   *[]string `json:"attendees"`
+	Meet        *bool     `json:"meet"`
 	Notify      bool      `json:"notify"`
 }
 
@@ -389,7 +382,53 @@ func (in writeArgs) body() (map[string]any, error) {
 		}
 		b["attendees"] = list
 	}
+	switch {
+	case in.Meet == nil:
+	case *in.Meet:
+		// Google makes one conference per requestId, so a retried call
+		// does not add a second.
+		b["conferenceData"] = map[string]any{"createRequest": map[string]any{
+			"requestId":             rand.Text(),
+			"conferenceSolutionKey": map[string]string{"type": "hangoutsMeet"},
+		}}
+	default:
+		b["conferenceData"] = nil
+	}
 	return b, nil
+}
+
+// query is what a write sends with the event: whether guests are emailed,
+// and, when the Meet link changes, that the API may change it.
+func (in writeArgs) query() string {
+	q := sendUpdates(in.Notify)
+	if in.Meet != nil {
+		q += "&conferenceDataVersion=1"
+	}
+	return q
+}
+
+// addsMeet reports whether the write asks for a Meet link.
+func (in writeArgs) addsMeet() bool { return in.Meet != nil && *in.Meet }
+
+// failed explains why a write that asked for a Meet link was refused.
+func (in writeArgs) failed(s workspace.Settings, err error) error {
+	if in.addsMeet() && web.Status(err) == http.StatusBadRequest && s.Token == "" && s.Subject == "" {
+		return fmt.Errorf("%w; Google adds Meet links only for a user, so the connector must act as one through domain-wide delegation", err)
+	}
+	return err
+}
+
+// written is the saved event, with a note when the Meet link asked for is
+// missing.
+func (in writeArgs) written(e event) eventView {
+	v := e.view(500)
+	if in.addsMeet() && v.Meet == "" {
+		v.Note = "the Meet link is not ready yet; get_event shows it once it is"
+		if e.ConferenceData.CreateRequest.Status.StatusCode == "failure" {
+			v.Note = "the event was saved, but Google could not add a Meet link"
+		}
+	}
+	return v
 }
 
 // eventTimeOf is a time as the API takes it: a date for an all-day event, a
@@ -428,10 +467,10 @@ func (a *Adapter) createEvent(ctx context.Context, s workspace.Settings, cal str
 		return nil, err
 	}
 	var e event
-	if err := a.client.Do(ctx, s, http.MethodPost, a.api+calendarPath(cal)+"/events"+sendUpdates(in.Notify), b, &e); err != nil {
-		return nil, fmt.Errorf("creating the event: %w", err)
+	if err := a.client.Do(ctx, s, http.MethodPost, a.api+calendarPath(cal)+"/events"+in.query(), b, &e); err != nil {
+		return nil, in.failed(s, fmt.Errorf("creating the event: %w", err))
 	}
-	return e.view(500), nil
+	return in.written(e), nil
 }
 
 func (a *Adapter) updateEvent(ctx context.Context, s workspace.Settings, cal string, in writeArgs) (any, error) {
@@ -447,10 +486,10 @@ func (a *Adapter) updateEvent(ctx context.Context, s workspace.Settings, cal str
 		return nil, errors.New("give at least one field to change")
 	}
 	var e event
-	if err := a.client.Do(ctx, s, http.MethodPatch, a.api+path+sendUpdates(in.Notify), b, &e); err != nil {
-		return nil, fmt.Errorf("changing the event: %w", err)
+	if err := a.client.Do(ctx, s, http.MethodPatch, a.api+path+in.query(), b, &e); err != nil {
+		return nil, in.failed(s, fmt.Errorf("changing the event: %w", err))
 	}
-	return e.view(500), nil
+	return in.written(e), nil
 }
 
 func (a *Adapter) deleteEvent(ctx context.Context, s workspace.Settings, cal string, in writeArgs) (any, error) {
@@ -483,7 +522,14 @@ type event struct {
 		Optional       bool   `json:"optional"`
 		Resource       bool   `json:"resource"`
 	} `json:"attendees"`
-	HangoutLink      string `json:"hangoutLink"`
+	HangoutLink    string `json:"hangoutLink"`
+	ConferenceData struct {
+		CreateRequest struct {
+			Status struct {
+				StatusCode string `json:"statusCode"`
+			} `json:"status"`
+		} `json:"createRequest"`
+	} `json:"conferenceData"`
 	RecurringEventID string `json:"recurringEventId"`
 }
 
@@ -515,6 +561,7 @@ type eventView struct {
 	Meet        string         `json:"meet,omitempty"`
 	Recurring   bool           `json:"recurring,omitempty"`
 	URL         string         `json:"url,omitempty"`
+	Note        string         `json:"note,omitempty"`
 }
 
 type attendeeView struct {

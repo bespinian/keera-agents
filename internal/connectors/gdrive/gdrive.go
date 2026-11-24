@@ -230,7 +230,7 @@ func (s settings) listQuery(query string) url.Values {
 	return q
 }
 
-func (a *Adapter) Read(ctx context.Context, conn connectors.Connection, id string) (connectors.File, []byte, error) {
+func (a *Adapter) Read(ctx context.Context, conn connectors.Connection, id string, limit int64) (connectors.File, []byte, error) {
 	s, err := settingsOf(conn)
 	if err != nil {
 		return connectors.File{}, nil, err
@@ -248,17 +248,17 @@ func (a *Adapter) Read(ctx context.Context, conn connectors.Connection, id strin
 	case f.Folder:
 		return f, nil, fmt.Errorf("gdrive: %q is a folder", meta.Name)
 	case ok:
-		b, err = a.call(ctx, s, http.MethodGet, "/drive/v3/files/"+id+"/export", url.Values{"mimeType": {export}}, nil, "", connectors.MaxFileBytes)
+		b, err = a.call(ctx, s, http.MethodGet, "/drive/v3/files/"+id+"/export", url.Values{"mimeType": {export}}, nil, "", limit)
 		f.MimeType = export
 	case strings.HasPrefix(meta.MimeType, "application/vnd.google-apps."):
 		return f, nil, fmt.Errorf("gdrive: %q is a %s, which cannot be read as a file", meta.Name, strings.TrimPrefix(meta.MimeType, "application/vnd.google-apps."))
-	case f.Size > connectors.MaxFileBytes:
-		return f, nil, web.FileTooLarge("gdrive", meta.Name)
+	case f.Size > limit:
+		return f, nil, web.FileTooLarge("gdrive", meta.Name, limit)
 	default:
-		b, err = a.call(ctx, s, http.MethodGet, "/drive/v3/files/"+id, url.Values{"alt": {"media"}, "supportsAllDrives": {"true"}}, nil, "", connectors.MaxFileBytes)
+		b, err = a.call(ctx, s, http.MethodGet, "/drive/v3/files/"+id, url.Values{"alt": {"media"}, "supportsAllDrives": {"true"}}, nil, "", limit)
 	}
 	if errors.Is(err, web.ErrTooLarge) {
-		return f, nil, web.FileTooLarge("gdrive", meta.Name)
+		return f, nil, web.FileTooLarge("gdrive", meta.Name, limit)
 	}
 	if err != nil {
 		return f, nil, fmt.Errorf("gdrive: downloading the file: %w", err)

@@ -1,10 +1,12 @@
-// Package gateway calls Keera Gateway's control API.
+// Package gateway calls Keera Gateway's control API, and its model API for
+// the models agents use as tools.
 //
-// Two credentials are used. A person's sign-in, redeemed through the
+// Three credentials are used. A person's sign-in, redeemed through the
 // gateway's sign-in hand-over, acts as that person: who they are, their
 // organisations. The service key (KEERA_AGENTS_SERVICE_KEY) works only on
 // /control/v1/service/: it mints and revokes agents' keys, looks people up and
-// reads what an agent may use. Neither is an operator credential.
+// reads what an agent may use. An agent's own key calls models for it, so
+// its budget and the gateway's rules apply. None is an operator credential.
 package gateway
 
 import (
@@ -16,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -175,6 +178,10 @@ type KeyRequest struct {
 	Name      string `json:"name"`
 	// BudgetMicros is a monthly budget on the key itself; 0 is none.
 	BudgetMicros int64 `json:"budget_micros,omitempty"`
+	// AllowedTools are the MCP servers the key may call. nil is left out,
+	// which allows every one the project allows, and works with a gateway
+	// too old to know the field. Empty allows none.
+	AllowedTools []string `json:"allowed_tools,omitzero"`
 }
 
 func (c *Client) MintKey(ctx context.Context, in KeyRequest) (Key, error) {
@@ -244,10 +251,13 @@ func (c *Client) user(ctx context.Context, orgID, field, value string) (User, er
 
 // Catalog is what a key in one project may use.
 type Catalog struct {
-	ProjectID  string       `json:"project_id"`
-	Projects   []Project    `json:"projects"`
-	Models     []CatalogRef `json:"models"`
-	MCPServers []MCPRef     `json:"mcp_servers"`
+	ProjectID string       `json:"project_id"`
+	Projects  []Project    `json:"projects"`
+	Models    []CatalogRef `json:"models"`
+	// TranscriptionModels turn audio into text. An older gateway sends
+	// none.
+	TranscriptionModels []CatalogRef `json:"transcription_models"`
+	MCPServers          []MCPRef     `json:"mcp_servers"`
 }
 
 type Project struct {
@@ -258,6 +268,16 @@ type Project struct {
 type CatalogRef struct {
 	Alias string `json:"alias"`
 	Kind  string `json:"kind"`
+	// Capabilities say what the model can do beyond text, such as "tools".
+	// Nil means the gateway is too old to say; it passes on as null, so the
+	// panel can tell.
+	Capabilities []string `json:"capabilities"`
+}
+
+// CallsTools reports whether the model calls tools, which agents and coding
+// agents need. A gateway too old to say is taken to mean yes.
+func (m CatalogRef) CallsTools() bool {
+	return m.Capabilities == nil || slices.Contains(m.Capabilities, "tools")
 }
 
 type MCPRef struct {
@@ -322,12 +342,20 @@ func (c *Client) Bill(ctx context.Context, lines []BillLine) error {
 // ------------------------------------------------------------ plumbing
 
 func (c *Client) call(ctx context.Context, method, path, token string, in, out any) error {
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	return c.timed(ctx, callTimeout, opName(method, path), func(ctx context.Context) error {
+		return c.send(ctx, method, path, token, in, out)
+	})
+}
+
+// timed runs one call to the gateway within timeout, and observes how it
+// went as op.
+func (c *Client) timed(ctx context.Context, timeout time.Duration, op string, f func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	start := time.Now()
-	err := c.send(ctx, method, path, token, in, out)
+	err := f(ctx)
 	if c.observe != nil && !errors.Is(err, context.Canceled) {
-		c.observe(opName(method, path), outcome(err), time.Since(start))
+		c.observe(op, outcome(err), time.Since(start))
 	}
 	return err
 }
@@ -364,6 +392,12 @@ func (c *Client) send(ctx context.Context, method, path, token string, in, out a
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	return c.do(req, token, path, out)
+}
+
+// do sends req with token, to the control API or the model API, and reads
+// the answer into out. path names the call in errors.
+func (c *Client) do(req *http.Request, token, path string, out any) error {
 	req.Header.Set("Accept", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -380,28 +414,34 @@ func (c *Client) send(ctx context.Context, method, path, token string, in, out a
 	}
 	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode/100 != 2 {
-		var env struct {
-			Error struct {
-				Message string `json:"message"`
-				Code    any    `json:"code"`
-			} `json:"error"`
-		}
-		_ = json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(&env)
-		e := &Error{Status: res.StatusCode, Message: env.Error.Message}
-		if s, ok := env.Error.Code.(string); ok {
-			e.Code = s
-		}
-		if e.Message == "" {
-			e.Message = fmt.Sprintf("Keera Gateway answered %s to %s %s", res.Status, method, path)
-		}
-		return e
+		return readError(res, req.Method, path)
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
 		return nil
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(out); err != nil {
-		return fmt.Errorf("reading Keera Gateway's answer to %s %s: %w", method, path, err)
+		return fmt.Errorf("reading Keera Gateway's answer to %s %s: %w", req.Method, path, err)
 	}
 	return nil
+}
+
+// readError turns the gateway's refusal into an *Error with its own message.
+// Both its APIs answer in the same shape.
+func readError(res *http.Response, method, path string) error {
+	var env struct {
+		Error struct {
+			Message string `json:"message"`
+			Code    any    `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(&env)
+	e := &Error{Status: res.StatusCode, Message: env.Error.Message}
+	if s, ok := env.Error.Code.(string); ok {
+		e.Code = s
+	}
+	if e.Message == "" {
+		e.Message = fmt.Sprintf("Keera Gateway answered %s to %s %s", res.Status, method, path)
+	}
+	return e
 }

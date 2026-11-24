@@ -98,7 +98,7 @@ func (fakeFiles) List(_ context.Context, conn connectors.Connection, _ string) (
 	return []connectors.File{{ID: "f1", Name: conn.Account + " with " + conn.Token}}, nil
 }
 
-func (fakeFiles) Read(context.Context, connectors.Connection, string) (connectors.File, []byte, error) {
+func (fakeFiles) Read(context.Context, connectors.Connection, string, int64) (connectors.File, []byte, error) {
 	return connectors.File{}, nil, errors.New("not here")
 }
 
