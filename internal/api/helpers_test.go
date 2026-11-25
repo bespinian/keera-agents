@@ -168,6 +168,21 @@ func TestStrongestTier(t *testing.T) {
 	}
 }
 
+func TestClassForPicksAnOfferedTier(t *testing.T) {
+	standard := []runtime.Isolation{runtime.Standard}
+	// No class at all, as an API caller may send: podman without gVisor.
+	if got := classFor(nil, standard); got.Isolation != runtime.Standard || got.CPU != runtime.DefaultClass.CPU {
+		t.Errorf("no class: %+v", got)
+	}
+	if got := classFor(&runtime.Class{CPU: "2"}, standard); got.Isolation != runtime.Standard || got.CPU != "2" {
+		t.Errorf("no tier: %+v", got)
+	}
+	// A tier asked for is kept, so the driver can refuse one it lacks.
+	if got := classFor(&runtime.Class{Isolation: runtime.VM}, standard); got.Isolation != runtime.VM {
+		t.Errorf("a tier: %+v", got)
+	}
+}
+
 func TestPendingSignInChecksStateAndAge(t *testing.T) {
 	p := newPending()
 	good := url.Values{"state": {p.State}, "code": {"c"}}

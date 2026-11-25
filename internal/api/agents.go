@@ -422,12 +422,18 @@ func (s *Server) apply(ctx context.Context, p Principal, a *store.Agent, in agen
 // is the strongest this deployment has, since an agent runs code a model
 // wrote.
 func (s *Server) newClass(in *runtime.Class) *runtime.Class {
+	return classFor(in, s.fleet.Tiers())
+}
+
+func classFor(in *runtime.Class, tiers []runtime.Isolation) *runtime.Class {
 	c := runtime.DefaultClass
+	// DefaultClass names a tier this deployment may not have.
+	c.Isolation = ""
 	if in != nil {
 		c = *in
 	}
 	if c.Isolation == "" {
-		c.Isolation = strongestTier(s.fleet.Tiers())
+		c.Isolation = strongestTier(tiers)
 	}
 	return &c
 }
