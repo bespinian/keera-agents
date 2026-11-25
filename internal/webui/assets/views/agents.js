@@ -159,12 +159,12 @@ export function noAgents() {
   );
 }
 
-/** noRuntime warns that agents cannot start on this deployment. */
+/** noRuntime warns that agents and workspaces cannot start on this deployment. */
 export function noRuntime(me) {
   if (me.runtime && me.runtime.driver) return null;
   return banner(
     "warn",
-    "This deployment has no machine runtime set up, so agents cannot start yet. Its operator sets one up.",
+    "This deployment has no machine runtime set up, so agents and workspaces cannot start yet. Its operator sets one up.",
   );
 }
 

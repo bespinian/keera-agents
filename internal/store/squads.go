@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,7 +26,24 @@ const (
 	MaxCardTitle = 300
 	MaxCardBody  = 64 << 10
 	MaxComment   = 16 << 10
+	MaxLabel     = 40
 )
+
+// CleanLabels trims each label to MaxLabel bytes and drops empty and repeated
+// ones.
+func CleanLabels(in []string) []string {
+	var out []string
+	for _, l := range in {
+		l = strings.TrimSpace(l)
+		if len(l) > MaxLabel {
+			l = strings.ToValidUTF8(l[:MaxLabel], "")
+		}
+		if l != "" && !slices.Contains(out, l) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
 
 // A squad is agents that share a board and hand each other work on it.
 // Everyone in the organisation may read and change it.

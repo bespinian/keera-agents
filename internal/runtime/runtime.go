@@ -5,9 +5,6 @@
 // Everything is behind Driver. The Kubernetes driver makes a StatefulSet per
 // agent, so it needs nothing installed on the cluster. The podman driver runs
 // local containers, for development.
-//
-// The drivers come from Keera Gateway's sandboxes, which keera-agents
-// replaces.
 package runtime
 
 import (

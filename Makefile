@@ -165,6 +165,8 @@ dev: dev-env dev-db
 		exit 1; }
 	@$(PODMAN) image exists $(AGENT_IMAGE) || { \
 		echo "building the agent image first ($(AGENT_IMAGE))"; $(MAKE) --no-print-directory agent-image; }
+	@$(PODMAN) image exists $(WORKSPACE_IMAGE) || { \
+		echo "building the workspace image first ($(WORKSPACE_IMAGE))"; $(MAKE) --no-print-directory workspace-image; }
 	@echo
 	@echo "  panel    http://localhost:8070"
 	@echo "  gateway  $$(sed -n 's/^KEERA_AGENTS_GATEWAY_URL=//p' $(DEV_ENV))"

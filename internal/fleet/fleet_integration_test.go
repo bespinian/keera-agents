@@ -743,6 +743,9 @@ func TestDeleteRemovesTheContainerAndRevokesTheKey(t *testing.T) {
 	if state, _ := f.taskState(t, task.ID); state != store.TaskCancelled {
 		t.Fatalf("task = %s", state)
 	}
+	if _, held := f.m.locks.Load(a.ID); held {
+		t.Fatal("the deleted agent's lock stays")
+	}
 }
 
 func TestDeleteKeepsTheAgentWhenItsContainerStays(t *testing.T) {

@@ -6,7 +6,6 @@
 # Claude Code's settings and worktrees, which can hold whole copies of the
 # repository.
 .claude
-docs
 /build
 # A bare `go build ./cmd/...` writes here; `make build` uses build/.
 /keera-agents

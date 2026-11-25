@@ -151,6 +151,16 @@ func (m *Manager) lock(ctx context.Context, id string) (func(), error) {
 	}
 }
 
+// forget drops what this replica holds for a deleted agent. Anyone still
+// waiting on its old lock finds the agent gone once they get it.
+func (m *Manager) forget(id string) {
+	m.locks.Delete(id)
+	m.retryMu.Lock()
+	delete(m.retries, id)
+	delete(m.pendingSince, id)
+	m.retryMu.Unlock()
+}
+
 // tryLock takes the agent's lock if it is free.
 func (m *Manager) tryLock(id string) (func(), bool) {
 	held, _ := m.locks.LoadOrStore(id, make(chan struct{}, 1))
@@ -551,6 +561,7 @@ func (m *Manager) Delete(ctx context.Context, a store.Agent) error {
 	if err := m.st.DeleteAgent(ctx, a.ID); err != nil {
 		return err
 	}
+	m.forget(a.ID)
 	m.RevokeDeletedKeys(ctx)
 	return nil
 }
