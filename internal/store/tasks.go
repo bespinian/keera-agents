@@ -530,3 +530,57 @@ func (s *Store) Gauges(ctx context.Context) (Gauges, error) {
 		Scan(&g.Queued, &g.Running, &g.OldestQueued, &g.Undelivered)
 	return g, err
 }
+
+// OrgSummary is one organisation as an operator's overview shows it.
+type OrgSummary struct {
+	Agents            int `json:"agents"`
+	AgentsRunning     int `json:"agents_running"`
+	AgentsFailed      int `json:"agents_failed"`
+	Workspaces        int `json:"workspaces"`
+	WorkspacesRunning int `json:"workspaces_running"`
+	// Tasks and TasksFailed count the tasks since the time asked for.
+	Tasks       int        `json:"tasks"`
+	TasksFailed int        `json:"tasks_failed"`
+	LastTaskAt  *time.Time `json:"last_task_at"`
+}
+
+// OrgSummaries counts the machines of every organisation, and their tasks
+// since a time, by organisation. One with nothing is left out.
+func (s *Store) OrgSummaries(ctx context.Context, since time.Time) (map[string]OrgSummary, error) {
+	out := map[string]OrgSummary{}
+	rows, err := s.pool.Query(ctx, `SELECT org_id,
+		count(*) FILTER (WHERE kind = 'agent'),
+		count(*) FILTER (WHERE kind = 'agent' AND state IN ('running', 'starting')),
+		count(*) FILTER (WHERE kind = 'agent' AND state = 'failed'),
+		count(*) FILTER (WHERE kind = 'workspace'),
+		count(*) FILTER (WHERE kind = 'workspace' AND state IN ('running', 'starting'))
+		FROM agents WHERE deleted_at IS NULL GROUP BY org_id`)
+	if err != nil {
+		return nil, err
+	}
+	var org string
+	var o OrgSummary
+	if _, err := pgx.ForEachRow(rows, []any{
+		&org, &o.Agents, &o.AgentsRunning, &o.AgentsFailed,
+		&o.Workspaces, &o.WorkspacesRunning,
+	}, func() error {
+		out[org] = o
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	rows, err = s.pool.Query(ctx, `SELECT org_id, count(*), count(*) FILTER (WHERE state = 'failed'),
+		max(created_at) FROM tasks WHERE created_at > $1 GROUP BY org_id`, since)
+	if err != nil {
+		return nil, err
+	}
+	var tasks, failed int
+	var last time.Time
+	_, err = pgx.ForEachRow(rows, []any{&org, &tasks, &failed, &last}, func() error {
+		o, at := out[org], last
+		o.Tasks, o.TasksFailed, o.LastTaskAt = tasks, failed, &at
+		out[org] = o
+		return nil
+	})
+	return out, err
+}

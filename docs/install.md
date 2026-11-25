@@ -18,6 +18,10 @@ The first lets the gateway hand a sign-in over to
 revoke agents' keys, look people up and read what an agent may use, and nothing
 else. See Keera Gateway's `docs/agents.md`.
 
+The gateway's operators are operators here too: they see every organisation.
+The gateway's operator key signs in as well, as on the gateway
+([api.md](api.md#sign-in-like-keera-chat)).
+
 To bill organisations for their machines, set prices
 ([billing.md](billing.md)). The gateway needs nothing more.
 

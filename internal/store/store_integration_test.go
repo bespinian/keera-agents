@@ -988,3 +988,41 @@ func TestWaitingCardsWakeWhenWhatTheyHandedOutIsFinished(t *testing.T) {
 		t.Fatalf("after a move: %+v, %v", got, err)
 	}
 }
+
+func TestOrgSummaries(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	a := newAgent(t, st, "org_a", "Scout")
+	newAgent(t, st, "org_a", "Idle")
+	b := newAgent(t, st, "org_b", "Other")
+	if err := st.SetAgentState(ctx, a.ID, AgentRunning, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentState(ctx, b.ID, AgentFailed, ""); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if _, err := st.CreateTask(ctx, Task{ID: id.New("task"), OrgID: "org_a", AgentID: a.ID, Source: "manual", Prompt: "x"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := st.OrgSummaries(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := got["org_a"]; o.Agents != 2 || o.AgentsRunning != 1 || o.AgentsFailed != 0 || o.Tasks != 3 || o.LastTaskAt == nil {
+		t.Fatalf("org_a: %+v", o)
+	}
+	if o := got["org_b"]; o.Agents != 1 || o.AgentsFailed != 1 || o.Tasks != 0 || o.LastTaskAt != nil {
+		t.Fatalf("org_b: %+v", o)
+	}
+
+	// Tasks before the window are not counted; machines always are.
+	if got, err = st.OrgSummaries(ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if o := got["org_a"]; o.Tasks != 0 || o.Agents != 2 {
+		t.Fatalf("org_a, later: %+v", o)
+	}
+}

@@ -1,7 +1,8 @@
 // Package api serves the panel's JSON API under /api and sign-in under
 // /auth. Everyone who uses it is a person signed in through Keera Gateway;
 // the gateway says who they are, which organisation they are in and whether
-// they administer it.
+// they administer it. An operator sees every organisation, and names the one
+// a request is for with ?org_id, as on the gateway.
 package api
 
 import (
@@ -11,6 +12,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +23,7 @@ import (
 	"github.com/bespinian/keera-agents/internal/fleet"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/protocol"
+	"github.com/bespinian/keera-agents/internal/runtime"
 	"github.com/bespinian/keera-agents/internal/secret"
 	"github.com/bespinian/keera-agents/internal/store"
 )
@@ -44,20 +47,55 @@ type Server struct {
 	opts  Options
 	log   *slog.Logger
 
-	// whoCache keeps the gateway's answer to who a token is for a short
-	// while, so each page load is not a round trip to the gateway.
-	whoMu    sync.Mutex
-	whoCache map[string]cachedWho
+	// who and orgList keep who a token is, and the organisations an
+	// operator sees.
+	who     tokenCache[gateway.Me]
+	orgList tokenCache[[]gateway.Org]
 
 	connects connectLog
 }
 
-type cachedWho struct {
-	me gateway.Me
+// tokenCache keeps the gateway's answers about a token for a short while,
+// so each page load is not a round trip to the gateway.
+type tokenCache[T any] struct {
+	mu sync.Mutex
+	m  map[string]cached[T]
+}
+
+type cached[T any] struct {
+	v  T
 	at time.Time
 }
 
-const whoTTL = 30 * time.Second
+const cacheTTL = 30 * time.Second
+
+// get answers from the cache, or asks the gateway and keeps the answer.
+func (c *tokenCache[T]) get(ctx context.Context, token string, ask func(context.Context, string) (T, error)) (T, error) {
+	key := tokenKey(token)
+	c.mu.Lock()
+	hit, ok := c.m[key]
+	c.mu.Unlock()
+	if ok && time.Since(hit.at) < cacheTTL {
+		return hit.v, nil
+	}
+	v, err := ask(ctx, token)
+	if err != nil {
+		return v, err
+	}
+	c.mu.Lock()
+	if c.m == nil || len(c.m) > 10000 {
+		c.m = map[string]cached[T]{}
+	}
+	c.m[key] = cached[T]{v, time.Now()}
+	c.mu.Unlock()
+	return v, nil
+}
+
+func (c *tokenCache[T]) forget(token string) {
+	c.mu.Lock()
+	delete(c.m, tokenKey(token))
+	c.mu.Unlock()
+}
 
 func New(st *store.Store, gw *gateway.Client, fl *fleet.Manager, disp *dispatch.Dispatcher, box *secret.Box, opts Options) *Server {
 	if opts.Log == nil {
@@ -65,7 +103,6 @@ func New(st *store.Store, gw *gateway.Client, fl *fleet.Manager, disp *dispatch.
 	}
 	return &Server{
 		st: st, gw: gw, fleet: fl, disp: disp, box: box, opts: opts, log: opts.Log,
-		whoCache: map[string]cachedWho{},
 	}
 }
 
@@ -75,8 +112,8 @@ type Principal struct {
 	gateway.Me
 }
 
-// CanAdmin reports whether they administer their current organisation.
-func (p Principal) CanAdmin() bool { return p.CanAdminOrg || p.Role == "operator" }
+// CanAdmin reports whether they administer the organisation in view.
+func (p Principal) CanAdmin() bool { return p.CanAdminOrg || p.Unrestricted }
 
 // User is the principal as the gateway's service routes describe a person.
 func (p Principal) User() gateway.User {
@@ -89,6 +126,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/login", s.login)
 	mux.HandleFunc("GET "+callbackPath, s.callback)
 	mux.HandleFunc("POST /auth/logout", s.logout)
+	mux.HandleFunc("POST /auth/local", s.operatorLogin)
 	mux.HandleFunc("GET "+dispatch.AccountCallbackPath, s.signInCallback)
 
 	route := func(pattern string, h handler) { mux.Handle(pattern, s.signedIn(h)) }
@@ -100,6 +138,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/setup", s.setup)
 	route("GET /api/v1/audit", s.audit)
 	route("GET /api/v1/billing", s.billing)
+	route("GET /api/v1/orgs", s.orgs)
 
 	route("GET /api/v1/agents", s.listAgents)
 	route("POST /api/v1/agents", s.createAgent)
@@ -213,13 +252,43 @@ func (s *Server) signedIn(next handler) http.Handler {
 			writeError(w, http.StatusForbidden, "csrf", "reload the page and try again")
 			return
 		}
-		if me.OrgID == "" {
+		p := Principal{Token: token, Me: me}
+		if !s.viewOrg(w, r, &p) {
+			return
+		}
+		if p.OrgID == "" {
 			writeError(w, http.StatusForbidden, "no_org",
 				"you are not in an organisation; ask an administrator to add you in Keera Gateway")
 			return
 		}
-		next(w, r, Principal{Token: token, Me: me})
+		next(w, r, p)
 	})
+}
+
+// viewOrg puts an operator in the organisation ?org_id names, so every
+// route works on it as on their own. Anyone else naming another is refused,
+// not quietly given their own. It answers the request itself when it fails.
+func (s *Server) viewOrg(w http.ResponseWriter, r *http.Request, p *Principal) bool {
+	want := r.URL.Query().Get("org_id")
+	if want == "" || want == p.OrgID {
+		return true
+	}
+	if !p.Unrestricted {
+		forbid(w, "you can only see your own organisation; switch to the other one first")
+		return false
+	}
+	orgs, err := s.orgList.get(r.Context(), p.Token, s.gw.Orgs)
+	if err != nil {
+		s.gatewayFailed(w, err)
+		return false
+	}
+	i := slices.IndexFunc(orgs, func(o gateway.Org) bool { return o.ID == want })
+	if i < 0 {
+		notFound(w, "organisation")
+		return false
+	}
+	p.OrgID, p.OrgName = orgs[i].ID, orgs[i].Name
+	return true
 }
 
 // bearerToken reads "Authorization: Bearer <token>".
@@ -230,30 +299,12 @@ func bearerToken(r *http.Request) (string, bool) {
 }
 
 func (s *Server) whoIs(ctx context.Context, token string) (gateway.Me, error) {
-	key := tokenKey(token)
-	s.whoMu.Lock()
-	c, ok := s.whoCache[key]
-	s.whoMu.Unlock()
-	if ok && time.Since(c.at) < whoTTL {
-		return c.me, nil
-	}
-	me, err := s.gw.Me(ctx, token)
-	if err != nil {
-		return me, err
-	}
-	s.whoMu.Lock()
-	if len(s.whoCache) > 10000 {
-		clear(s.whoCache)
-	}
-	s.whoCache[key] = cachedWho{me: me, at: time.Now()}
-	s.whoMu.Unlock()
-	return me, nil
+	return s.who.get(ctx, token, s.gw.Me)
 }
 
 func (s *Server) forget(token string) {
-	s.whoMu.Lock()
-	delete(s.whoCache, tokenKey(token))
-	s.whoMu.Unlock()
+	s.who.forget(token)
+	s.orgList.forget(token)
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
@@ -261,6 +312,8 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 		"user_id": p.UserID, "email": p.Email, "name": p.Name, "role": p.Role,
 		"org_id": p.OrgID, "org_name": p.OrgName, "can_admin": p.CanAdmin(),
 		"csrf": csrfFor(p.Token), "gateway_url": s.opts.GatewayURL,
+		// An operator sees every organisation, and picks one in the panel.
+		"unrestricted": p.Unrestricted,
 		// Where people chat with agents, so the panel can link to it.
 		"chat_url": p.ChatURL,
 		"runtime": map[string]any{
@@ -268,6 +321,8 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 		},
 		"builtins":         protocol.Builtins,
 		"timezone_default": defaultZone,
+		// The forms show it in the sizes left empty, and price it.
+		"machine_default": runtime.DefaultClass,
 	}
 	var orgs []map[string]string
 	for _, m := range p.Orgs {
@@ -280,6 +335,8 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	}
 	if b := s.opts.Billing; b.On() {
 		out["billing"] = true
+		// The forms price the size being chosen. Anyone may know the prices.
+		out["prices"] = b.Prices()
 		// Every screen says why no machine starts. Everyone sees it, since
 		// it stops everyone's.
 		if c, ok := b.Credit(r.Context(), p.OrgID); ok && c.Refusal != nil {
@@ -347,6 +404,36 @@ func (s *Server) members(w http.ResponseWriter, r *http.Request, p Principal) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": users})
+}
+
+// orgs is an operator's overview: every organisation, with its machines and
+// its tasks this week.
+func (s *Server) orgs(w http.ResponseWriter, r *http.Request, p Principal) {
+	if !p.Unrestricted {
+		forbid(w, "only an operator sees every organisation")
+		return
+	}
+	ctx := r.Context()
+	orgs, err := s.orgList.get(ctx, p.Token, s.gw.Orgs)
+	if err != nil {
+		s.gatewayFailed(w, err)
+		return
+	}
+	since := time.Now().Add(-7 * 24 * time.Hour)
+	sums, err := s.st.OrgSummaries(ctx, since)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	type row struct {
+		gateway.Org
+		store.OrgSummary
+	}
+	out := make([]row, 0, len(orgs))
+	for _, o := range orgs {
+		out = append(out, row{o, sums[o.ID]})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": out, "since": since})
 }
 
 // defaultZone is the time zone of schedules that name none, and the one the

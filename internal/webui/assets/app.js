@@ -2,7 +2,7 @@
 // Keera Gateway control panel, so someone who knows one finds their way in
 // the other.
 
-import { api, setCsrf, ApiError } from "./api.js";
+import { api, setCsrf, setOrg as setApiOrg, ApiError } from "./api.js";
 import {
   h,
   icon,
@@ -35,6 +35,7 @@ import { connectorsView, connectorView, catalogueView } from "./views/connectors
 import { auditView } from "./views/audit.js";
 import { billingView, gatewayBilling } from "./views/billing.js";
 import { firstRunDue } from "./views/firstrun.js";
+import { orgsView, chooseOrg } from "./views/orgs.js";
 
 const root = document.getElementById("root");
 
@@ -42,6 +43,10 @@ const state = {
   me: null,
   /** setup is what the getting started guide ticks off, or null. */
   setup: null,
+  /** orgs are every organisation, for an operator only. */
+  orgs: [],
+  /** orgID is the organisation an operator views; empty is all of them. */
+  orgID: "",
 };
 
 // The part of a screen's ctx that the shell's own links and checks need.
@@ -51,9 +56,17 @@ const shellCtx = { state, navigate };
  *  sidebar. A `detail` is one row opened up, such as /agents/agent_1. With
  *  `sub`, it may take one more segment, such as /agents/agent_1/logs for a
  *  tab. A route `under` another is not in the sidebar and lights that one
- *  up. */
+ *  up. Every screen but one with `everyOrg` shows one organisation, so an
+ *  operator viewing all of them picks one first, as on Keera Gateway. */
 const routes = [
-  { path: "/", label: "Dashboard", icon: "dashboard", view: dashboardView },
+  {
+    path: "/",
+    label: "Dashboard",
+    icon: "dashboard",
+    // An operator viewing every organisation sees how each one is doing.
+    view: (ctx) => (allOrgs() ? orgsView(ctx) : dashboardView(ctx)),
+    everyOrg: true,
+  },
   {
     path: "/agents",
     group: "Work",
@@ -138,6 +151,16 @@ function navGroups(items) {
 
 function visibleRoutes() {
   return routes.filter((r) => (!r.admin || isAdmin(shellCtx)) && (!r.needs || state.me[r.needs]));
+}
+
+/** allOrgs reports whether an operator views every organisation at once. */
+function allOrgs() {
+  return Boolean(state.me.unrestricted && !state.orgID);
+}
+
+/** orgName names the organisation in view. */
+function orgName() {
+  return allOrgs() ? "All organisations" : state.me.org_name || "";
 }
 
 /** matchRoute finds the screen for a path, or the first one the reader may
@@ -355,7 +378,7 @@ function renderShell() {
           "span",
           { class: "account-id nav-text" },
           h("span", { class: "account-name" }, personName(me)),
-          h("span", { class: "account-org" }, me.org_name || ""),
+          h("span", { class: "account-org" }, orgName()),
         ),
         h("span", { class: "nav-text account-more" }, icon(icons.more)),
       ),
@@ -383,23 +406,43 @@ function renderTopbar() {
     "aria-controls": "sidebar",
   });
   applyDrawerButton(toggle);
-  replace(
-    topbarHost,
+  const bar = h(
+    "header",
+    { class: "topbar" },
+    toggle,
     h(
-      "header",
-      { class: "topbar" },
-      toggle,
-      h(
-        "div",
-        { class: "stack" },
-        // Focused when the screen changes, so a screen reader starts there.
-        h("h1", { id: "page-title", tabindex: "-1" }, ""),
-        h("div", { class: "page-sub", id: "page-sub" }, ""),
-      ),
-      h("div", { class: "spacer" }),
-      h("div", { class: "topbar-actions", id: "page-actions" }),
+      "div",
+      { class: "stack" },
+      // Focused when the screen changes, so a screen reader starts there.
+      h("h1", { id: "page-title", tabindex: "-1" }, ""),
+      h("div", { class: "page-sub", id: "page-sub" }, ""),
     ),
+    h("div", { class: "spacer" }),
+    h("div", { class: "topbar-actions", id: "page-actions" }),
   );
+  // An operator sees any organisation from one sign-in. Someone in several
+  // moves their sign-in instead, from the account menu, as their role
+  // differs in each.
+  if (state.me.unrestricted && state.orgs.length > 0) {
+    bar.append(
+      h(
+        "select",
+        {
+          class: "select",
+          style: { width: "auto" },
+          "aria-label": "Organisation",
+          onChange: async (e) => {
+            leaveDetail();
+            await setOrg(e.target.value);
+            renderRoute();
+          },
+        },
+        h("option", { value: "" }, "All organisations"),
+        state.orgs.map((o) => h("option", { value: o.id, selected: o.id === state.orgID }, o.name)),
+      ),
+    );
+  }
+  replace(topbarHost, bar);
 }
 
 /** setTitle heads the screen. mark, such as an agent's icon, goes before the
@@ -437,7 +480,8 @@ function tearDown() {
  *  link to where they pay. */
 function creditNotice() {
   const refusal = state.me.credit_refusal;
-  if (!refusal) return null;
+  // With every organisation in view, it would be about the operator's own.
+  if (!refusal || allOrgs()) return null;
   return banner(
     "bad",
     { style: { marginBottom: "16px" } },
@@ -475,6 +519,9 @@ async function renderRoute({ moved = false } = {}) {
     state,
     reload: () => renderRoute(),
     navigate,
+    /** setOrg changes the organisation an operator views. The caller then
+     *  draws the screen. */
+    setOrg,
     /** param is a detail screen's path segment, such as an agent id, and sub
      *  the one after it, such as a tab. */
     param,
@@ -497,8 +544,9 @@ async function renderRoute({ moved = false } = {}) {
      *  that finishes later. */
     current: () => gen === rendering,
   };
+  const oneOrg = !(route.parent || route).everyOrg;
   try {
-    const view = await route.view(ctx);
+    const view = oneOrg && allOrgs() ? chooseOrg(ctx) : await route.view(ctx);
     if (gen !== rendering) return;
     replace(outlet, creditNotice(), view);
     adoptListActions();
@@ -514,7 +562,8 @@ async function renderRoute({ moved = false } = {}) {
 
 function accountMenu(anchor) {
   const me = state.me;
-  const others = (me.orgs || []).filter((o) => o.id !== me.org_id);
+  // An operator picks from the topbar instead.
+  const others = me.unrestricted ? [] : (me.orgs || []).filter((o) => o.id !== me.org_id);
   menu(
     anchor,
     [
@@ -523,7 +572,7 @@ function accountMenu(anchor) {
         { class: "menu-who" },
         h("strong", {}, personName(me)),
         me.name ? h("span", {}, me.email) : null,
-        me.org_name ? h("span", {}, me.org_name) : null,
+        orgName() ? h("span", {}, orgName()) : null,
       ),
       { separator: true },
       ...others.map((o) => ({
@@ -577,6 +626,8 @@ async function boot() {
   root.classList.add("boot");
   root.append(h("div", { class: "boot-mark" }));
 
+  // Who someone is comes from their own organisation first.
+  setApiOrg("");
   let me;
   try {
     me = await api.me();
@@ -602,11 +653,59 @@ async function boot() {
 
   state.me = me;
   setCsrf(me.csrf);
-  // Without it the first screen is named Dashboard until it is opened.
-  state.setup = await api.setup().catch(() => null);
-  markHome();
+  state.orgID = me.org_id || "";
+  if (me.unrestricted) {
+    state.orgs = await api
+      .orgs()
+      .then((res) => res.data || [])
+      .catch(() => []);
+    // The choice is kept for the next visit, "all" included.
+    const last = remembered("keera.org", { lasting: true });
+    if (last === "all") state.orgID = "";
+    else if (last && state.orgs.some((o) => o.id === last)) state.orgID = last;
+    setApiOrg(state.orgID);
+  }
+  if (state.orgID && state.orgID !== me.org_id) await loadOrg();
+  else await loadSetup();
   renderShell();
   await renderRoute();
+}
+
+/** loadSetup reads what the getting started guide ticks off. Without it the
+ *  first screen is named Dashboard until it is opened. With every
+ *  organisation in view there is none. */
+async function loadSetup() {
+  state.setup = allOrgs() ? null : await api.setup().catch(() => null);
+  markHome();
+}
+
+/** loadOrg reads who the operator is in the organisation now in view: its
+ *  name, and whether its machines may start. */
+async function loadOrg() {
+  try {
+    state.me = await api.me();
+    setCsrf(state.me.csrf);
+  } catch {
+    // The screen's own calls say what is wrong.
+  }
+  await loadSetup();
+}
+
+/** setOrg changes the organisation an operator views and redraws the
+ *  sidebar. The caller then draws the screen. */
+async function setOrg(id) {
+  state.orgID = id || "";
+  remember("keera.org", state.orgID || "all", { lasting: true });
+  setApiOrg(state.orgID);
+  await loadOrg();
+  renderShell();
+}
+
+/** leaveDetail goes back to the list before the organisation changes, as the
+ *  detail belongs to the old one. */
+function leaveDetail() {
+  const { route } = matchRoute(visibleRoutes(), location.pathname);
+  if (route.parent) history.replaceState({}, "", route.parent.path);
 }
 
 boot();

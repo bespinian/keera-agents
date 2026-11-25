@@ -81,6 +81,9 @@ its machine cost this month, and what an hour of it running costs at its
 size: CPU, memory and its share of the disk. The disk costs while it is
 stopped too.
 
+The form that creates or edits an agent or a workspace says the same for
+the size being chosen, beside its buttons.
+
 ## When an organisation may not run machines
 
 Before a machine starts or resumes, keera-agents asks the gateway whether its

@@ -263,6 +263,8 @@ func permissionTable(f fixture) []check {
 		// Each reads their own organisation's. This deployment bills no
 		// machine time, so an administrator finds nothing.
 		{route: "GET /api/v1/billing", other: notFound, member: forbidden},
+		// Only an operator sees every organisation.
+		{route: "GET /api/v1/orgs", other: forbidden, member: forbidden},
 
 		{route: "GET /api/v1/agents", other: ok, member: ok},
 		{route: "POST /api/v1/agents", body: map[string]any{"name": "Mole", "model": "keera-speed"}, other: created},
@@ -789,4 +791,42 @@ func TestOwnersAndAdmins(t *testing.T) {
 			t.Errorf("Scout's schedules: %+v (%v)", s, err)
 		}
 	})
+}
+
+// An operator sees every organisation, and any one of them as its
+// administrators do. Anyone else naming another organisation is refused.
+func TestOperatorSeesEveryOrganisation(t *testing.T) {
+	ta := startApp(t)
+	f := seed(t, ta)
+	op, eve := ta.as(t, "tok-op"), ta.as(t, "tok-eve")
+
+	var list struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Agents int    `json:"agents"`
+		} `json:"data"`
+	}
+	must(t, op, "GET", "/api/v1/orgs", nil, http.StatusOK, &list)
+	if len(list.Data) != 3 || list.Data[0].ID != "org_a" || list.Data[0].Agents != 2 || list.Data[1].Agents != 0 {
+		t.Errorf("the overview: %+v", list.Data)
+	}
+
+	var me struct {
+		OrgID        string `json:"org_id"`
+		OrgName      string `json:"org_name"`
+		CanAdmin     bool   `json:"can_admin"`
+		Unrestricted bool   `json:"unrestricted"`
+	}
+	must(t, op, "GET", "/api/v1/me?org_id=org_a", nil, http.StatusOK, &me)
+	if me.OrgID != "org_a" || me.OrgName != "Acme" || !me.CanAdmin || !me.Unrestricted {
+		t.Errorf("the operator in org_a: %+v", me)
+	}
+	must(t, op, "GET", "/api/v1/agents/"+f.adaAgent+"?org_id=org_a", nil, http.StatusOK, nil)
+	// Without naming it, the operator is in their own.
+	must(t, op, "GET", "/api/v1/agents/"+f.adaAgent, nil, http.StatusNotFound, nil)
+	must(t, op, "GET", "/api/v1/agents?org_id=org_x", nil, http.StatusNotFound, nil)
+
+	must(t, eve, "GET", "/api/v1/agents?org_id=org_a", nil, http.StatusForbidden, nil)
+	must(t, eve, "GET", "/api/v1/agents?org_id=org_b", nil, http.StatusOK, nil)
 }

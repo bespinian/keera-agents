@@ -3,6 +3,9 @@
 // Every mutating call carries the session's CSRF token. It comes from
 // /api/v1/me, not a cookie, so a page that has not loaded its identity cannot
 // change anything.
+//
+// An operator's calls name the organisation in view with ?org_id, as in
+// Keera Gateway.
 
 export class ApiError extends Error {
   constructor(status, message, code) {
@@ -18,6 +21,20 @@ export function setCsrf(token) {
   csrf = token || "";
 }
 
+let orgID = "";
+
+/** setOrg names the organisation an operator's calls are for. Empty is
+ *  their own. */
+export function setOrg(id) {
+  orgID = id || "";
+}
+
+// withOrg adds the organisation in view to an API path.
+function withOrg(path) {
+  if (!orgID || !path.startsWith(V1 + "/")) return path;
+  return path + (path.includes("?") ? "&" : "?") + "org_id=" + encodeURIComponent(orgID);
+}
+
 // request sends one call and decodes the answer. raw returns the response,
 // for a body that streams. A refusal is an ApiError either way.
 async function request(method, path, body, { raw, signal } = {}) {
@@ -27,7 +44,7 @@ async function request(method, path, body, { raw, signal } = {}) {
 
   let res;
   try {
-    res = await fetch(path, {
+    res = await fetch(withOrg(path), {
       method,
       headers,
       credentials: "same-origin",
@@ -81,9 +98,14 @@ export const api = {
   authConfig: () => get("/auth/config"),
   // Signing in is a page the browser goes to, not a call.
   loginURL: (provider) => "/auth/login" + query({ provider }),
+  silentLoginURL: () => "/auth/login?silent=1",
   signOut: () => post("/auth/logout"),
+  // The gateway's operator key, which it checks. It is not kept.
+  operatorSignIn: (key) => post("/auth/local", { key }),
 
   me: () => get(V1 + "/me"),
+  // Operators only: every organisation, with its agents and tasks.
+  orgs: () => get(V1 + "/orgs"),
   switchOrg: (orgID) => post(V1 + "/me/org", { org_id: orgID }),
   catalog: (projectID) => get(V1 + "/catalog" + query({ project_id: projectID })),
   // Administrators only: whom they can create an agent for.

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -111,5 +112,83 @@ func TestCallsTools(t *testing.T) {
 		if got := m.CallsTools(); got != tc.want {
 			t.Errorf("%s: CallsTools() = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+// fakeOperatorGateway signs the key "op-key" in, and hands a signed-in
+// browser's sign-in over when handOver is set. ended says whether its
+// session was signed out.
+func fakeOperatorGateway(t *testing.T, handOver bool, ended *bool) *httptest.Server {
+	t.Helper()
+	signedIn := func(r *http.Request) bool {
+		c, err := r.Cookie("keera_session")
+		return err == nil && c.Value == "sess"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /control/auth/local", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Key string }
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		if in.Key != "op-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"code":"invalid_api_key","message":"that operator key is not valid"}}`))
+			return
+		}
+		// Secure, as behind HTTPS: it must still come back over plain HTTP.
+		http.SetCookie(w, &http.Cookie{Name: "keera_session", Value: "sess", Secure: true, HttpOnly: true})
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	mux.HandleFunc("GET /control/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if !handOver || !signedIn(r) || q.Get("cli_challenge") != "chal" {
+			w.WriteHeader(http.StatusNotImplemented)
+			_, _ = w.Write([]byte(`{"error":{"code":"sso_disabled","message":"no identity provider is configured"}}`))
+			return
+		}
+		http.Redirect(w, r, q.Get("cli_redirect")+"?code=the-code&state="+q.Get("cli_state"), http.StatusFound)
+	})
+	mux.HandleFunc("GET /control/v1/me", func(w http.ResponseWriter, r *http.Request) {
+		if !signedIn(r) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"csrf":"tok"}`))
+	})
+	mux.HandleFunc("POST /control/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		if signedIn(r) && r.Header.Get("X-CSRF-Token") == "tok" {
+			*ended = true
+		}
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestOperatorSignIn(t *testing.T) {
+	ctx := context.Background()
+	const back = "https://agents.example.ch/auth/callback"
+
+	var ended bool
+	c := New(fakeOperatorGateway(t, true, &ended).URL, "")
+	code, err := c.OperatorSignIn(ctx, "op-key", back, "chal", "st")
+	if err != nil || code != "the-code" {
+		t.Fatalf("OperatorSignIn = %q, %v", code, err)
+	}
+	if !ended {
+		t.Error("the gateway's own session was left signed in")
+	}
+
+	if _, err := c.OperatorSignIn(ctx, "wrong", back, "chal", "st"); err == nil || err.Error() != "that operator key is not valid" {
+		t.Errorf("a wrong key: %v", err)
+	}
+
+	ended = false
+	c = New(fakeOperatorGateway(t, false, &ended).URL, "")
+	_, err = c.OperatorSignIn(ctx, "op-key", back, "chal", "st")
+	if e, ok := errors.AsType[*Error](err); !ok || e.Code != "no_hand_over" {
+		t.Errorf("without a hand-over: %v", err)
+	}
+	if !ended {
+		t.Error("the gateway's own session was left signed in after a failure")
 	}
 }

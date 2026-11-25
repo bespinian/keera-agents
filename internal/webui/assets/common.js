@@ -17,8 +17,10 @@ import {
   fold,
   busyButton,
   toast,
+  money,
 } from "./ui.js";
 import { areaChart } from "./chart.js";
+import { hourCost } from "./views/billing.js";
 
 /** agentPath is an agent's screen, or one of its tabs. */
 export function agentPath(id, tab) {
@@ -223,8 +225,11 @@ const TIERS = {
 
 /** machineFold is the Machine section of an agent's or a workspace's form.
  *  hints says what its memory and disk are for, and whether the disk is
- *  fixed, as once the machine exists. value() is the class to send. */
+ *  fixed, as once the machine exists. Empty sizes show the default. value()
+ *  is the class to send. cost says what an hour of it costs, for beside the
+ *  form's buttons; null on a deployment that bills no machines. */
 export function machineFold(me, cls, hints) {
+  const defaults = me.machine_default;
   const tiers = (me.runtime && me.runtime.tiers) || ["standard"];
   // Tiers come weakest first. A new machine gets the strongest, as the server
   // gives it, since an agent runs code a model wrote.
@@ -244,12 +249,12 @@ export function machineFold(me, cls, hints) {
         )
       : null,
   );
-  const cpu = h("input", { class: "input", value: cls.cpu || "", placeholder: "1", inputmode: "decimal" });
-  const memory = h("input", { class: "input", value: cls.memory || "", placeholder: "2Gi" });
+  const cpu = h("input", { class: "input", value: cls.cpu || "", placeholder: defaults.cpu, inputmode: "decimal" });
+  const memory = h("input", { class: "input", value: cls.memory || "", placeholder: defaults.memory });
   const disk = h("input", {
     class: "input",
     value: cls.disk || "",
-    placeholder: hints.diskSize,
+    placeholder: defaults.disk,
     readonly: Boolean(hints.diskFixed),
   });
   // With nothing to choose, the field only takes room. Its value still goes.
@@ -268,7 +273,30 @@ export function machineFold(me, cls, hints) {
     memory: memory.value.trim(),
     disk: disk.value.trim(),
   });
-  return { el, value };
+  let cost = null;
+  if (me.billing) {
+    cost = h("span", {
+      class: "muted",
+      style: { alignSelf: "center", fontSize: "13px" },
+      title: "While it runs: CPU, memory and its disk. The disk costs while it is stopped too.",
+      "aria-live": "polite",
+    });
+    const estimate = () => {
+      const micros = hourCost(me.prices, defaults, value());
+      // A size that is not one has no price. Saving says what is wrong.
+      replace(
+        cost,
+        micros !== null && [
+          "About ",
+          h("strong", { style: { color: "var(--text)", fontWeight: 650 } }, money(micros)),
+          " per hour running",
+        ],
+      );
+    };
+    for (const input of [cpu, memory, disk]) input.addEventListener("input", estimate);
+    estimate();
+  }
+  return { el, value, cost };
 }
 
 /** machineText says in one line what a machine has, such as "Standard
@@ -333,8 +361,8 @@ export function fillModels(select, models, saved) {
 
 /** settingsCard is a detail screen's Settings form. save stores it and
  *  returns what the toast says; an error shows above the form. Enter in a
- *  field saves, as in the dialogs. */
-export function settingsCard(ctx, form, save) {
+ *  field saves, as in the dialogs. lead, if any, goes left of the button. */
+export function settingsCard(ctx, form, save, lead) {
   const err = h("div");
   const button = busyButton({ class: "btn btn-primary" }, "Save changes", async () => {
     replace(err);
@@ -360,7 +388,7 @@ export function settingsCard(ctx, form, save) {
       { class: "card-body" },
       err,
       form,
-      h("div", { class: "row", style: { marginTop: "16px" } }, h("div", { class: "spacer" }), button),
+      h("div", { class: "row", style: { marginTop: "16px" } }, lead, h("div", { class: "spacer" }), button),
     ),
   );
 }

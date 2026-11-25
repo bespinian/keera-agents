@@ -323,10 +323,15 @@ async function settingsTab(ctx, agent) {
     return banner("info", "Only its owner or an administrator can change this agent.");
   }
   const form = await agentForm(ctx, agent);
-  const settings = settingsCard(ctx, form.el, async () => {
-    await api.updateAgent(agent.id, form.values());
-    return "Changes saved. A running agent picks them up with its next task.";
-  });
+  const settings = settingsCard(
+    ctx,
+    form.el,
+    async () => {
+      await api.updateAgent(agent.id, form.values());
+      return "Changes saved. A running agent picks them up with its next task.";
+    },
+    form.cost,
+  );
 
   // A form as wide as the screen is hard to read down.
   return h(

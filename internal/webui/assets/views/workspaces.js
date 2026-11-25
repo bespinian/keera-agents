@@ -133,6 +133,7 @@ async function openNewWorkspace(ctx) {
     wide: true,
     body: form.el,
     submitLabel: "Create workspace",
+    lead: form.cost && (() => form.cost),
     submit: () => api.createWorkspace(form.values()),
     done: (w) => {
       ctx.navigate(workspacePath(w.id));
@@ -244,7 +245,6 @@ export async function workspaceForm(ctx, workspace) {
   const machine = machineFold(ctx.state.me, w.class || {}, {
     memory: "Such as 2Gi or 8Gi.",
     disk: "Your files and what you install. Fixed once the workspace exists.",
-    diskSize: "5Gi",
     diskFixed: Boolean(workspace),
   });
 
@@ -288,7 +288,7 @@ export async function workspaceForm(ctx, workspace) {
     return body;
   }
 
-  return { el, values, first: tiles.tiles.firstChild };
+  return { el, values, first: tiles.tiles.firstChild, cost: machine.cost };
 }
 
 // ------------------------------------------------------------ SSH keys

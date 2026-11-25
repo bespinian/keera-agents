@@ -275,7 +275,7 @@ func (k *Kubernetes) Create(ctx context.Context, spec Spec) (Status, error) {
 
 	err = k.c.post(ctx, k.collection(), obj)
 	if err == nil {
-		return Status{State: Pending, Detail: "created; waiting for its pod"}, nil
+		return Status{State: Pending, Detail: "starting"}, nil
 	}
 	if !isConflict(err) {
 		return Status{}, err

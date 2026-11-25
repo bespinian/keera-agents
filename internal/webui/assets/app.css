@@ -1336,6 +1336,10 @@ a.pill-button:hover {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* Named members need room between them, or the names run together. */
+.wrap-chips.members {
+  gap: 8px 16px;
+}
 
 .key-value {
   font-family: var(--mono);
@@ -1640,6 +1644,23 @@ a.pill-button:hover {
   color: var(--muted);
   margin-top: 18px;
   line-height: 1.55;
+}
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--faint);
+  font-size: 11.5px;
+  margin: 20px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 .banner {
   padding: 10px 13px;

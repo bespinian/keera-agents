@@ -88,10 +88,12 @@ func (s *Server) signInCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := s.st.Connection(r.Context(), pending.ConnectionID)
-	if err != nil || c.OrgID != me.OrgID {
+	if err != nil || (c.OrgID != me.OrgID && !me.Unrestricted) {
 		s.signedInTo(w, r, "", "the connector is gone, or belongs to another of your organisations")
 		return
 	}
+	// An operator may have started in any organisation: the connector's.
+	me.OrgID = c.OrgID
 	a, err := s.disp.Connect(r.Context(), c, me.UserID, q.Get("code"), pending.Verifier)
 	if err != nil {
 		s.signedInTo(w, r, c.ID, err.Error())

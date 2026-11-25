@@ -139,7 +139,7 @@ function memberChips(ctx, q, { small = false } = {}) {
   const rest = q.members.filter((m) => m !== lead);
   return h(
     "div",
-    { class: "wrap-chips" },
+    { class: small ? "wrap-chips" : "wrap-chips members" },
     [lead, ...rest].filter(Boolean).map((m) =>
       link(
         ctx,

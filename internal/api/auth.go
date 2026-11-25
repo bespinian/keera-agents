@@ -1,14 +1,17 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/bespinian/keera-agents/internal/gateway"
@@ -28,6 +31,11 @@ const (
 	loginCookie   = "keera_agents_login"
 	// errorCookie holds why a sign-in failed, until the screen shows it.
 	errorCookie = "keera_agents_error"
+	// askedCookie says the gateway was already asked this browser session
+	// whether the browser is signed in there, or that the person signed out
+	// here. Without it, the sign-in screen asks first, and is skipped for a
+	// browser signed in to the gateway's panel.
+	askedCookie = "keera_agents_asked"
 
 	// loginTTL matches the gateway's. People leave consent screens open.
 	loginTTL = 15 * time.Minute
@@ -84,11 +92,14 @@ func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
 	if s.readSealed(r, errorCookie, &signInError) {
 		s.clearCookie(w, errorCookie, "/auth")
 	}
+	_, err = r.Cookie(askedCookie)
+	notAsked := err != nil
 	writeJSON(w, http.StatusOK, map[string]any{
 		"providers":     providers,
 		"passkeys":      cfg.Passkeys,
 		"gateway_url":   s.opts.GatewayURL,
 		"sign_in_error": signInError,
+		"silent":        notAsked && signInError == "" && (len(providers) > 0 || cfg.Passkeys),
 	})
 }
 
@@ -103,7 +114,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		"cli_challenge": {challenge(p.Verifier)},
 		"cli_state":     {p.State},
 	}
-	if provider := r.URL.Query().Get("provider"); provider != "" {
+	// silent=1 only asks the gateway whether this browser is signed in there.
+	// It is asked once per browser session, so a no is not asked again.
+	if r.URL.Query().Get("silent") == "1" {
+		http.SetCookie(w, s.cookie(askedCookie, "1", "/auth", 0))
+		q.Set("silent", "1")
+	} else if provider := r.URL.Query().Get("provider"); provider != "" {
 		q.Set("provider", provider)
 	}
 	http.Redirect(w, r, s.opts.GatewayURL+gateway.ControlPrefix+"/auth/login?"+q.Encode(), http.StatusFound)
@@ -114,29 +130,75 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	ok := s.readSealed(r, loginCookie, &p)
 	s.clearCookie(w, loginCookie, "/auth")
 	q := r.URL.Query()
-	if msg, _ := p.check(ok, q); msg != "" {
+	if msg, started := p.check(ok, q); msg != "" {
+		// Asked silently and not signed in at the gateway: no error, the
+		// screen shows the ways to sign in.
+		if started && q.Get("error") == "login_required" {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
 		s.failSignIn(w, r, msg)
 		return
 	}
-	tok, err := s.gw.Redeem(r.Context(), q.Get("code"), p.Verifier)
-	if err != nil {
+	if err := s.startSession(r.Context(), w, q.Get("code"), p.Verifier); err != nil {
 		s.failSignIn(w, r, err.Error())
 		return
 	}
-	if _, err := s.whoIs(r.Context(), tok.Token); err != nil {
-		s.failSignIn(w, r, err.Error())
-		return
+	// Once this sign-in ends, the gateway may be asked again.
+	s.clearCookie(w, askedCookie, "/auth")
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// startSession redeems the gateway's one-time code for its sign-in, checks
+// who it is for, and keeps it in the session cookie.
+func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, code, verifier string) error {
+	tok, err := s.gw.Redeem(ctx, code, verifier)
+	if err != nil {
+		return err
+	}
+	if _, err := s.whoIs(ctx, tok.Token); err != nil {
+		return err
 	}
 	ttl := time.Until(tok.ExpiresAt)
 	if ttl <= 0 {
-		s.failSignIn(w, r, "the gateway issued a sign-in that has already expired; try again")
+		return errors.New("the gateway issued a sign-in that has already expired; try again")
+	}
+	return s.setSealed(w, sessionCookie, "/", session{Token: tok.Token, Expires: tok.ExpiresAt.Unix()}, ttl)
+}
+
+// operatorLogin signs in with the gateway's operator key, as the gateway's
+// own panel does. The gateway checks the key and hands its sign-in for it
+// over, as for any other sign-in, so the key is never kept here. See
+// gateway.OperatorSignIn.
+func (s *Server) operatorLogin(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Key string `json:"key"`
+	}
+	if !readJSON(w, r, &in) {
 		return
 	}
-	if err := s.setSealed(w, sessionCookie, "/", session{Token: tok.Token, Expires: tok.ExpiresAt.Unix()}, ttl); err != nil {
-		s.fail(w, err)
+	key := strings.TrimSpace(in.Key)
+	if key == "" {
+		badRequest(w, "enter the operator key")
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusFound)
+	ctx := r.Context()
+	p := newPending()
+	code, err := s.gw.OperatorSignIn(ctx, key, s.opts.PublicURL+callbackPath, challenge(p.Verifier), p.State)
+	if e, ok := errors.AsType[*gateway.Error](err); ok && e.Status == http.StatusUnauthorized {
+		// The gateway's words for a wrong key, which is no sign-in ending.
+		writeError(w, http.StatusUnauthorized, "invalid_operator_key", e.Message)
+		return
+	}
+	if err != nil {
+		s.gatewayFailed(w, err)
+		return
+	}
+	if err := s.startSession(ctx, w, code, p.Verifier); err != nil {
+		s.gatewayFailed(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // logout ends the sign-in at the gateway too, so a copied cookie is useless.
@@ -148,6 +210,9 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.clearCookie(w, sessionCookie, "/")
+	// The browser may still be signed in to the gateway's panel. Without
+	// this, the sign-in screen would sign the person straight back in.
+	http.SetCookie(w, s.cookie(askedCookie, "1", "/auth", 0))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

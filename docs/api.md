@@ -30,21 +30,38 @@ answer 404.
   sign in to, and only their own.
 - A workspace is its owner's. Administrators also see, change, stop and
   delete it. Nobody else sees it: it answers 404. Only the owner connects.
+- An operator sees every organisation, and is an administrator in each. A
+  call names the one it is for with `?org_id=`, as on the gateway; without
+  it, it is for the operator's own. Anyone else naming another organisation
+  gets 403.
 
 ## Sign-in (like Keera Chat)
 
-- `GET /auth/config` → `{providers:[{name,label}], passkeys:bool, gateway_url, sign_in_error}` (sign_in_error shown once)
+- `GET /auth/config` → `{providers:[{name,label}], passkeys:bool, gateway_url, sign_in_error, silent:bool}` (sign_in_error shown once)
 - `GET /auth/login?provider=<name>` → browser navigation (redirects to the gateway). Passkeys: `provider=passkey`.
+- `GET /auth/login?silent=1` → asks the gateway only whether this browser is signed in to its panel. If so, it comes back signed in. If not, it comes back to the sign-in screen with no error. The screen tries this first when `silent` is true: once per browser session, and not right after signing out.
+- `POST /auth/local {key}` → `{ok:true}`: signs in with the gateway's operator key. 401 for a wrong key.
 - `POST /auth/logout` → `{ok:true}`
+
+The panel asks for the operator key as the gateway's does: when the gateway
+has no identity provider, or at `/?operator_key=1`. keera-agents does not know
+the key. It hands the key to the gateway's `POST /control/auth/local`, which
+checks it, then asks the gateway to hand that sign-in over, as for a browser
+already signed in there. The result is the gateway's own sign-in for the key:
+an operator, for 12 hours, ended by signing out or by changing the key. The
+key is not kept. This needs `KEERA_AGENTS_URL` set on the gateway, as every
+sign-in does, and a gateway that hands an operator key's sign-in over (v0.15.0
+or later).
 
 ## Me
 
 - `GET /api/v1/me` →
-  `{user_id,email,name,role:"operator"|"admin"|"member",org_id,org_name,can_admin:bool,csrf,gateway_url,chat_url,
+  `{user_id,email,name,role:"operator"|"admin"|"member",org_id,org_name,can_admin:bool,unrestricted:bool,csrf,gateway_url,chat_url,
 orgs:[{id,name}] (only when >1), runtime:{driver:"podman"|"kubernetes"|"", tiers:["standard","isolated","vm"]},
-builtins:["memory","files","shell","web"], timezone_default:"Europe/Zurich",
-billing:true (only when machines are billed), credit_refusal:{code,message} (only when no machine may start)}`
-- `POST /api/v1/me/org {org_id}` → switches organisation; reload after.
+builtins:["memory","files","shell","web"], timezone_default:"Europe/Zurich", machine_default:{isolation,cpu,memory,disk},
+billing:true, prices:{cpu_hour_micros,memory_gib_hour_micros,disk_gib_month_micros} (both only when machines are billed),
+credit_refusal:{code,message} (only when no machine may start)}`
+- `POST /api/v1/me/org {org_id}` → switches organisation; reload after. An operator names one with `?org_id=` instead.
 - `GET /api/v1/catalog?project_id=` → `{project_id, projects:[{id,name}], models:[{alias,kind:"model"|"router",capabilities}], transcription_models:[{alias,kind}], mcp_servers:[{alias}]}`
   What an agent in that project may use. `projects` is only filled for admins (members get the default project).
 - `GET /api/v1/members` → `{data:[{id,email,name}]}` (administrators: the organisation's active members, whom they may create an agent or a workspace for)
@@ -52,6 +69,9 @@ billing:true (only when machines are billed), credit_refusal:{code,message} (onl
 ## Overview
 
 What the panel's dashboard shows.
+
+- `GET /api/v1/orgs` → `{data:[{id,name,created_at,agents,agents_running,agents_failed,workspaces,workspaces_running,
+tasks,tasks_failed,last_task_at}], since}` (operators only: every organisation; tasks since `since`, 7 days ago)
 
 - `GET /api/v1/overview?since=168h` →
   `{agents:{total,running,suspended,stopped,failed}, tasks:{queued,running,succeeded,failed},

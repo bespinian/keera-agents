@@ -132,7 +132,8 @@ func (p Prices) Cost(u store.MachineUse) int64 {
 }
 
 // Hour is what an hour of a's machine running costs at its size now: CPU,
-// memory and its share of the disk. a need not be running.
+// memory and its share of the disk. a need not be running. The panel's forms
+// work it out too, in hourCost; keep the two the same.
 func (p Prices) Hour(a store.Agent) int64 {
 	a.State, a.HasDisk = store.AgentRunning, true
 	return p.Cost(measure(a, secondsPerHour))

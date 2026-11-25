@@ -39,6 +39,53 @@ export function gatewayBilling(me, label, style = {}) {
   );
 }
 
+// Suffixes of Kubernetes quantities, such as 4Gi and 500m, as
+// internal/runtime reads them.
+const QUANTITY = {
+  Ki: 2 ** 10,
+  Mi: 2 ** 20,
+  Gi: 2 ** 30,
+  Ti: 2 ** 40,
+  Pi: 2 ** 50,
+  Ei: 2 ** 60,
+  n: 1e-9,
+  u: 1e-6,
+  m: 1e-3,
+  k: 1e3,
+  M: 1e6,
+  G: 1e9,
+  T: 1e12,
+  P: 1e15,
+  E: 1e18,
+};
+
+/** quantity reads a size such as 2, 500m or 4Gi. NaN if it is none. */
+export function quantity(s) {
+  s = String(s || "").trim();
+  const suffix = Object.keys(QUANTITY).find((k) => s.endsWith(k));
+  const n = suffix ? s.slice(0, -suffix.length) : s;
+  const v = /^\+?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(n) ? Number(n) : NaN;
+  return v * (suffix ? QUANTITY[suffix] : 1);
+}
+
+/** hourCost is what an hour of a machine of class cls costs running, in
+ *  micro-CHF: CPU, memory and its share of the disk. Sizes left empty are
+ *  the defaults. It is billing.Prices.Hour, done here so the forms can say it
+ *  while someone types; keep the two the same. null if a size is not one. */
+export function hourCost(prices, defaults, cls) {
+  const size = (k) => quantity(cls[k] || defaults[k]);
+  const cpuMillis = Math.round(size("cpu") * 1000);
+  const memoryMiB = Math.round(size("memory") / 2 ** 20);
+  const diskMiB = Math.round(size("disk") / 2 ** 20);
+  if (!(cpuMillis > 0 && memoryMiB > 0 && diskMiB > 0)) return null;
+  // A month of disk is 730 hours.
+  return (
+    Math.round((cpuMillis * prices.cpu_hour_micros) / 1000) +
+    Math.round((memoryMiB * prices.memory_gib_hour_micros) / 1024) +
+    Math.round((diskMiB * prices.disk_gib_month_micros) / (1024 * 730))
+  );
+}
+
 /** priceNote says what machine time costs, leaving out what is free. */
 export function priceNote(p) {
   const parts = [];

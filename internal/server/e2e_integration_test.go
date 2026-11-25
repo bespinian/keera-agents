@@ -56,6 +56,13 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reply(me)
+	case r.URL.Path == "/control/v1/orgs" && r.Method == http.MethodGet:
+		// Anyone but an operator sees only their own.
+		me := people[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+		seen := slices.DeleteFunc(slices.Clone(orgs), func(o gateway.Org) bool {
+			return !me.Unrestricted && o.ID != me.OrgID
+		})
+		reply(map[string]any{"data": seen})
 	case r.URL.Path == "/control/v1/me/org" && r.Method == http.MethodPost:
 		// Only an organisation the person is in.
 		var in struct {
@@ -155,7 +162,15 @@ var people = map[string]gateway.Me{
 		UserID: "usr_eve", Email: "eve@example.ch", Name: "Eve", Role: "admin",
 		OrgID: "org_b", OrgName: "Bravo", CanAdminOrg: true,
 	},
+	// The operator key's stand-in, as the gateway signs it in.
+	"tok-op": {
+		UserID: "usr_op", Email: "operator@localhost", Role: "operator",
+		OrgID: "org_k", OrgName: "Keera", Unrestricted: true,
+	},
 }
+
+// orgs are the gateway's organisations.
+var orgs = []gateway.Org{{ID: "org_a", Name: "Acme"}, {ID: "org_b", Name: "Bravo"}, {ID: "org_k", Name: "Keera"}}
 
 // fakeChat is a chat service whose webhooks are plain JSON.
 type fakeChat struct {

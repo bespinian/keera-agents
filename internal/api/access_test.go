@@ -1,14 +1,18 @@
 package api
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 
+	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/store"
 )
 
 var (
 	admin    = Principal{UserID: "usr_root", Email: "root@acme.ch", OrgID: "org_a", CanAdminOrg: true}
-	operator = Principal{UserID: "usr_op", Email: "op@keera.ch", OrgID: "org_a", Role: "operator"}
+	operator = Principal{UserID: "usr_op", Email: "op@keera.ch", OrgID: "org_a", Role: "operator", Unrestricted: true}
 	owner    = Principal{UserID: "usr_ada", Email: "ada@acme.ch", OrgID: "org_a"}
 	member   = Principal{UserID: "usr_bob", Email: "bob@acme.ch", OrgID: "org_a"}
 	outsider = Principal{UserID: "usr_eve", Email: "eve@bravo.ch", OrgID: "org_b", CanAdminOrg: true}
@@ -90,5 +94,50 @@ func TestAgentViewSaysWhoMayGiveWork(t *testing.T) {
 	a.Access, a.AllowedEmails = store.AccessPeople, []string{"bob@acme.ch"}
 	if v := viewAgent(member, a, store.AgentLoad{}, 0); !v.CanGive {
 		t.Error("a member on the list may not give work")
+	}
+}
+
+// An operator views any organisation the gateway has; anyone else only their
+// own, and naming another is refused rather than ignored.
+func TestViewOrg(t *testing.T) {
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/control/v1/orgs" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"org_a","name":"A"},{"id":"org_b","name":"Bank B"}]}`))
+	}))
+	defer gw.Close()
+	s := testServer(t)
+	s.gw = gateway.New(gw.URL, "")
+
+	member := Principal{Token: "t1", UserID: "usr_m", OrgID: "org_a", Role: "member"}
+	op := Principal{Token: "t2", UserID: "usr_op", OrgID: "org_a", Role: "operator", Unrestricted: true}
+	for _, tc := range []struct {
+		name    string
+		p       Principal
+		orgID   string
+		status  int
+		wantOrg string
+	}{
+		{"a member, own", member, "org_a", 0, "org_a"},
+		{"a member, none", member, "", 0, "org_a"},
+		{"a member, another", member, "org_b", http.StatusForbidden, ""},
+		{"an operator, another", op, "org_b", 0, "org_b"},
+		{"an operator, unknown", op, "org_x", http.StatusNotFound, ""},
+	} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/api/v1/agents?"+url.Values{"org_id": {tc.orgID}}.Encode(), nil)
+		p := tc.p
+		ok := s.viewOrg(w, r, &p)
+		switch {
+		case tc.status != 0 && (ok || w.Code != tc.status):
+			t.Errorf("%s: ok %v, %d; want %d", tc.name, ok, w.Code, tc.status)
+		case tc.status == 0 && (!ok || p.OrgID != tc.wantOrg):
+			t.Errorf("%s: ok %v, in %q; want %q", tc.name, ok, p.OrgID, tc.wantOrg)
+		}
+	}
+	if p := op; !s.viewOrg(httptest.NewRecorder(), httptest.NewRequest("GET", "/?org_id=org_b", nil), &p) || p.OrgName != "Bank B" {
+		t.Errorf("an operator in org_b sees the name %q", p.OrgName)
 	}
 }

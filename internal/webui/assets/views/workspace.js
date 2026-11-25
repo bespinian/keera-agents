@@ -143,10 +143,15 @@ async function overviewTab(ctx, w) {
 
 async function settingsTab(ctx, w) {
   const form = await workspaceForm(ctx, w);
-  const settings = settingsCard(ctx, form.el, async () => {
-    await api.updateWorkspace(w.id, form.values());
-    return "Changes saved";
-  });
+  const settings = settingsCard(
+    ctx,
+    form.el,
+    async () => {
+      await api.updateWorkspace(w.id, form.values());
+      return "Changes saved";
+    },
+    form.cost,
+  );
   // A form as wide as the screen is hard to read down.
   return h(
     "div",

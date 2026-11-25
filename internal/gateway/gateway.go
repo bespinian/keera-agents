@@ -7,6 +7,8 @@
 // /control/v1/service/: it mints and revokes agents' keys, looks people up and
 // reads what an agent may use. An agent's own key calls models for it, so
 // its budget and the gateway's rules apply. None is an operator credential.
+// The operator key only passes through OperatorSignIn, which trades it for
+// the gateway's sign-in, as a person's.
 package gateway
 
 import (
@@ -115,14 +117,16 @@ type Token struct {
 }
 
 type Me struct {
-	UserID      string       `json:"user_id"`
-	Email       string       `json:"email"`
-	Name        string       `json:"name"`
-	Role        string       `json:"role"`
-	OrgID       string       `json:"org_id"`
-	OrgName     string       `json:"org_name"`
-	CanAdminOrg bool         `json:"can_admin_org"`
-	Orgs        []Membership `json:"orgs"`
+	UserID      string `json:"user_id"`
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	Role        string `json:"role"`
+	OrgID       string `json:"org_id"`
+	OrgName     string `json:"org_name"`
+	CanAdminOrg bool   `json:"can_admin_org"`
+	// Unrestricted is true of an operator, who sees every organisation.
+	Unrestricted bool         `json:"unrestricted"`
+	Orgs         []Membership `json:"orgs"`
 	// ChatURL is Keera Chat's address, when the gateway has one connected.
 	ChatURL string `json:"chat_url"`
 }
@@ -161,6 +165,93 @@ func (c *Client) Me(ctx context.Context, token string) (Me, error) {
 
 func (c *Client) SwitchOrg(ctx context.Context, token, orgID string) error {
 	return c.call(ctx, "POST", "/v1/me/org", token, map[string]string{"org_id": orgID}, nil)
+}
+
+// Org is an organisation, as an operator sees it.
+type Org struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Orgs lists every organisation. Only an operator's token gets them all.
+func (c *Client) Orgs(ctx context.Context, token string) ([]Org, error) {
+	var out struct {
+		Data []Org `json:"data"`
+	}
+	err := c.call(ctx, "GET", "/v1/orgs", token, nil, &out)
+	return out.Data, err
+}
+
+// OperatorSignIn signs in with the operator key, and returns a one-time code
+// for the sign-in, as Redeem takes it.
+//
+// The gateway signs a browser in with the key, and hands a signed-in
+// browser's sign-in straight to Keera Agents. This plays that browser, so
+// the result is the gateway's own sign-in for the key: short, and ended by
+// signing out. The key itself is not kept.
+func (c *Client) OperatorSignIn(ctx context.Context, key, redirect, challenge, state string) (string, error) {
+	var code string
+	err := c.timed(ctx, callTimeout, "operator sign-in", func(ctx context.Context) error {
+		res, err := c.browse(ctx, "POST", "/auth/local", nil, "", map[string]string{"key": key}, nil)
+		if err != nil {
+			return err
+		}
+		// The gateway's session. It is never sent to the person's browser,
+		// so cookie flags such as Secure do not apply here.
+		cookies := res.Cookies()
+		defer c.endSession(ctx, cookies)
+
+		q := url.Values{"cli_redirect": {redirect}, "cli_challenge": {challenge}, "cli_state": {state}}
+		res, err = c.browse(ctx, "GET", "/auth/login?"+q.Encode(), cookies, "", nil, nil)
+		if e, ok := errors.AsType[*Error](err); ok && e.Code == "gateway_unreachable" {
+			return err
+		}
+		// Anything but a redirect back here means the gateway did not hand
+		// the sign-in over, whatever it answered instead.
+		var to *url.URL
+		if err == nil && res.StatusCode == http.StatusFound {
+			to, _ = url.Parse(res.Header.Get("Location"))
+		}
+		if to == nil || !strings.HasPrefix(to.String(), redirect+"?") || to.Query().Get("state") != state {
+			return &Error{
+				Status: http.StatusBadGateway, Code: "no_hand_over",
+				Message: "Keera Gateway took the operator key but did not hand the sign-in back to " +
+					redirect + "; check that its KEERA_AGENTS_URL is this address, and that it is " +
+					"a release that hands an operator key's sign-in to Keera Agents",
+			}
+		}
+		code = to.Query().Get("code")
+		return nil
+	})
+	return code, err
+}
+
+// endSession signs the gateway's session for the operator key out. It is
+// only a step on the way, so a failure leaves it to expire.
+func (c *Client) endSession(ctx context.Context, cookies []*http.Cookie) {
+	var me struct {
+		CSRF string `json:"csrf"`
+	}
+	if _, err := c.browse(ctx, "GET", "/v1/me", cookies, "", nil, &me); err == nil {
+		_, _ = c.browse(ctx, "POST", "/auth/logout", cookies, me.CSRF, nil, nil)
+	}
+}
+
+// browse sends one request as a browser would: with cookies and no token.
+// It answers the response for its headers, such as a redirect's.
+func (c *Client) browse(ctx context.Context, method, path string, cookies []*http.Cookie, csrf string, in, out any) (*http.Response, error) {
+	req, err := newRequest(ctx, method, c.base+ControlPrefix+path, in)
+	if err != nil {
+		return nil, err
+	}
+	if csrf != "" {
+		req.Header.Set("X-CSRF-Token", csrf)
+	}
+	for _, ck := range cookies {
+		req.AddCookie(&http.Cookie{Name: ck.Name, Value: ck.Value})
+	}
+	return c.exchange(req, "", path, out, true)
 }
 
 // ------------------------------------------------------------ service
@@ -392,27 +483,41 @@ func outcome(err error) string {
 }
 
 func (c *Client) send(ctx context.Context, method, path, token string, in, out any) error {
+	req, err := newRequest(ctx, method, c.base+ControlPrefix+path, in)
+	if err != nil {
+		return err
+	}
+	return c.do(req, token, path, out)
+}
+
+// newRequest is a request with in as its JSON body, if any.
+func newRequest(ctx context.Context, method, url string, in any) (*http.Request, error) {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+ControlPrefix+path, body)
-	if err != nil {
-		return err
-	}
-	if in != nil {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err == nil && in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	return c.do(req, token, path, out)
+	return req, err
 }
 
 // do sends req with token, to the control API or the model API, and reads
 // the answer into out. path names the call in errors.
 func (c *Client) do(req *http.Request, token, path string, out any) error {
+	_, err := c.exchange(req, token, path, out, false)
+	return err
+}
+
+// exchange is do, answering the response for its headers. A redirect is a
+// refusal unless redirects is set: anywhere else it is a proxy's sign-in
+// page.
+func (c *Client) exchange(req *http.Request, token, path string, out any, redirects bool) (*http.Response, error) {
 	req.Header.Set("Accept", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -423,22 +528,22 @@ func (c *Client) do(req *http.Request, token, path string, out any) error {
 	res, err := c.http.Do(req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			return err
+			return nil, err
 		}
-		return &Error{Status: http.StatusBadGateway, Code: "gateway_unreachable", Message: noAnswer}
+		return nil, &Error{Status: http.StatusBadGateway, Code: "gateway_unreachable", Message: noAnswer}
 	}
 	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode/100 != 2 {
-		return readError(res, req.Method, path)
+	if class := res.StatusCode / 100; class != 2 && (class != 3 || !redirects) {
+		return nil, readError(res, req.Method, path)
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
-		return nil
+		return res, nil
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(out); err != nil {
-		return fmt.Errorf("reading Keera Gateway's answer to %s %s: %w", req.Method, path, err)
+		return nil, fmt.Errorf("reading Keera Gateway's answer to %s %s: %w", req.Method, path, err)
 	}
-	return nil
+	return res, nil
 }
 
 // readError turns the gateway's refusal into an *Error with its own message.
