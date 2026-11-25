@@ -140,18 +140,20 @@ function memberChips(ctx, q, { small = false } = {}) {
   return h(
     "div",
     { class: small ? "wrap-chips" : "wrap-chips members" },
-    [lead, ...rest].filter(Boolean).map((m) =>
-      link(
-        ctx,
-        agentPath(m.id),
-        [
-          avatarOf(m.name, { agent: true, icon: m.icon }),
-          small ? null : h("span", {}, m.name),
-          m === lead && !small ? pill("Lead", "accent") : null,
-        ],
-        { class: "who", title: m === lead ? `${m.name}, the lead` : m.description || m.name },
+    [lead, ...rest]
+      .filter(Boolean)
+      .map((m) =>
+        link(
+          ctx,
+          agentPath(m.id),
+          [
+            avatarOf(m.name, { agent: true, icon: m.icon }),
+            small ? null : h("span", {}, m.name),
+            m === lead && !small ? pill("Lead", "accent") : null,
+          ],
+          { class: "who", title: m === lead ? `${m.name}, the lead` : m.description || m.name },
+        ),
       ),
-    ),
   );
 }
 

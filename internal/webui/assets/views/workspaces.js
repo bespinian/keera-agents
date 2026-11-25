@@ -221,11 +221,7 @@ export async function workspaceForm(ctx, workspace) {
           "select",
           { class: "select" },
           people.map((m) =>
-            h(
-              "option",
-              { value: m.id, selected: m.id === me.user_id },
-              m.name ? `${m.name} (${m.email})` : m.email,
-            ),
+            h("option", { value: m.id, selected: m.id === me.user_id }, m.name ? `${m.name} (${m.email})` : m.email),
           ),
         )
       : null;

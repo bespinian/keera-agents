@@ -272,8 +272,8 @@ function addBinding(ctx, agent, connections, kinds) {
             h("code", {}, "*"),
             chat
               ? " is every conversation the bot is in, direct messages included. It only answers there. " +
-                  "To have it post on its own, such as a schedule's results, name a channel" +
-                  (kind.channels ? " or your direct messages (Browse)." : ".")
+                "To have it post on its own, such as a schedule's results, name a channel" +
+                (kind.channels ? " or your direct messages (Browse)." : ".")
               : " is everything the connector reaches.",
           ]
         : null,

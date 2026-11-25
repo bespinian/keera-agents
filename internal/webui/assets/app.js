@@ -35,7 +35,7 @@ import { connectorsView, connectorView, catalogueView } from "./views/connectors
 import { auditView } from "./views/audit.js";
 import { billingView, gatewayBilling } from "./views/billing.js";
 import { firstRunDue } from "./views/firstrun.js";
-import { orgsView, chooseOrg } from "./views/orgs.js";
+import { orgsView, orgsDashboard, chooseOrg } from "./views/orgs.js";
 
 const root = document.getElementById("root");
 
@@ -56,16 +56,17 @@ const shellCtx = { state, navigate };
  *  sidebar. A `detail` is one row opened up, such as /agents/agent_1. With
  *  `sub`, it may take one more segment, such as /agents/agent_1/logs for a
  *  tab. A route `under` another is not in the sidebar and lights that one
- *  up. Every screen but one with `everyOrg` shows one organisation, so an
- *  operator viewing all of them picks one first, as on Keera Gateway. */
+ *  up. `perOrg` names what a screen holds when it shows one organisation, so
+ *  an operator viewing all of them picks one first, as on Keera Gateway. Its
+ *  details belong to one too. One that is `operator` only shows to
+ *  operators. */
 const routes = [
   {
     path: "/",
     label: "Dashboard",
     icon: "dashboard",
-    // An operator viewing every organisation sees how each one is doing.
-    view: (ctx) => (allOrgs() ? orgsView(ctx) : dashboardView(ctx)),
-    everyOrg: true,
+    // An operator viewing every organisation sees how they do together.
+    view: (ctx) => (allOrgs() ? orgsDashboard(ctx) : dashboardView(ctx)),
   },
   {
     path: "/agents",
@@ -73,6 +74,7 @@ const routes = [
     label: "Agents",
     icon: "agents",
     view: agentsView,
+    perOrg: "Agents",
     detail: { label: "Agent", view: agentView, sub: true },
   },
   {
@@ -81,6 +83,7 @@ const routes = [
     label: "Workspaces",
     icon: "workspace",
     view: workspacesView,
+    perOrg: "Workspaces",
     detail: { label: "Workspace", view: workspaceView, sub: true },
   },
   {
@@ -89,6 +92,7 @@ const routes = [
     label: "Squads",
     icon: "squads",
     view: squadsView,
+    perOrg: "Squads",
     detail: { label: "Squad", view: squadView },
   },
   {
@@ -97,15 +101,24 @@ const routes = [
     label: "Tasks",
     icon: "tasks",
     view: tasksView,
+    perOrg: "Tasks",
     detail: { label: "Task", view: taskView },
   },
-  { path: "/schedules", group: "Work", label: "Schedules", icon: "schedules", view: schedulesView },
+  {
+    path: "/schedules",
+    group: "Work",
+    label: "Schedules",
+    icon: "schedules",
+    view: schedulesView,
+    perOrg: "Schedules",
+  },
   {
     path: "/connectors",
     group: "Organisation",
     label: "Connectors",
     icon: "connections",
     view: connectorsView,
+    perOrg: "Connectors",
     detail: { label: "Connector", view: connectorView },
   },
   // Every kind of connector. It opens from Connectors.
@@ -115,6 +128,7 @@ const routes = [
     label: "Connector catalogue",
     icon: "connections",
     view: catalogueView,
+    perOrg: "Connectors",
     under: "/connectors",
   },
   {
@@ -123,6 +137,7 @@ const routes = [
     label: "Audit log",
     icon: "audit",
     view: auditView,
+    perOrg: "Audit log entries",
     admin: true,
   },
   // Only on a deployment that bills machine time.
@@ -132,8 +147,17 @@ const routes = [
     label: "Billing",
     icon: "billing",
     view: billingView,
+    perOrg: "Machine costs",
     admin: true,
     needs: "billing",
+  },
+  {
+    path: "/organisations",
+    group: "Operator",
+    label: "Organisations",
+    icon: "orgs",
+    view: orgsView,
+    operator: true,
   },
 ];
 
@@ -150,7 +174,9 @@ function navGroups(items) {
 }
 
 function visibleRoutes() {
-  return routes.filter((r) => (!r.admin || isAdmin(shellCtx)) && (!r.needs || state.me[r.needs]));
+  return routes.filter(
+    (r) => (!r.operator || state.me.unrestricted) && (!r.admin || isAdmin(shellCtx)) && (!r.needs || state.me[r.needs]),
+  );
 }
 
 /** allOrgs reports whether an operator views every organisation at once. */
@@ -544,9 +570,10 @@ async function renderRoute({ moved = false } = {}) {
      *  that finishes later. */
     current: () => gen === rendering,
   };
-  const oneOrg = !(route.parent || route).everyOrg;
+  // These screens belong to one organisation, so an operator picks one first.
+  const perOrg = (route.parent || route).perOrg;
   try {
-    const view = oneOrg && allOrgs() ? chooseOrg(ctx) : await route.view(ctx);
+    const view = perOrg && allOrgs() ? chooseOrg(ctx, perOrg) : await route.view(ctx);
     if (gen !== rendering) return;
     replace(outlet, creditNotice(), view);
     adoptListActions();

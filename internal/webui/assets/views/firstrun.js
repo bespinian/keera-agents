@@ -20,8 +20,7 @@ export function firstRun(ctx, setup, agents) {
       icon: icons.agents,
       done: setup.agents > 0,
       body:
-        "An agent is an assistant with its own machine. Give it " +
-        "instructions, a model and the tools it may use.",
+        "An agent is an assistant with its own machine. Give it " + "instructions, a model and the tools it may use.",
       action: { label: "New agent", run: () => openNewAgent(ctx) },
     },
     {

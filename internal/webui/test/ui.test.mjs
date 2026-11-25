@@ -211,7 +211,10 @@ test("shellArg keeps a name with spaces one argument", () => {
 });
 
 test("callsTools trusts a gateway too old to list capabilities", () => {
-  assert.equal(callsTools({ alias: "a", capabilities: ["tools", "vision"] }), true);
+  assert.equal(
+    callsTools({ alias: "a", capabilities: ["tools", "vision"] }),
+    true,
+  );
   assert.equal(callsTools({ alias: "a", capabilities: ["vision"] }), false);
   assert.equal(callsTools({ alias: "a", capabilities: [] }), false);
   assert.equal(callsTools({ alias: "a", capabilities: null }), true);
