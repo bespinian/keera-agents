@@ -1,6 +1,6 @@
 // Package billing meters agents' and workspaces' machines and bills them to
 // Keera Gateway, which holds each organisation's credit and takes its
-// payments. keera-agents takes no money itself. See docs/billing.md.
+// payments. keera-agents takes no money itself.
 //
 // Each minute the leader meters the machines: CPU and memory while one runs,
 // disk while it exists, into one row per machine and hour. Once an hour is

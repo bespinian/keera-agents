@@ -401,7 +401,7 @@ func (c *Client) Catalog(ctx context.Context, orgID, projectID string) (Catalog,
 }
 
 // Credit is whether an organisation may run machines, as the gateway, which
-// holds its credit, decides. See docs/billing.md.
+// holds its credit, decides.
 type Credit struct {
 	// Payments says organisations pay in advance on this gateway.
 	Payments      bool  `json:"payments"`

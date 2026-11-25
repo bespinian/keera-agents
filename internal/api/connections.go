@@ -364,7 +364,7 @@ func (s *Server) checkConnection(w http.ResponseWriter, r *http.Request, p Princ
 // as the caller when people sign in to the connector. A member sees folder
 // names only: the connection may reach files they could not open
 // themselves. Their agents can still read those files once connected to a
-// folder; docs/connectors.md says so.
+// folder.
 func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Principal) {
 	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
 	if !ok {

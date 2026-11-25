@@ -14,7 +14,7 @@ linters:
       rules:
         # What runs in agents' and workspaces' containers stays small: the
         # standard library and these packages, never the control plane's code
-        # or modules. See docs/agents.md.
+        # or modules.
         runtime:
           list-mode: strict
           files:

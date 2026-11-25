@@ -75,7 +75,7 @@ func NewKubernetes(ctx context.Context, opts KubernetesOptions) (*Kubernetes, er
 	}
 	if err := c.get(ctx, k.collection()+"?limit=1", &probe); err != nil {
 		return nil, fmt.Errorf("listing StatefulSets in namespace %s: %w; keera-agents needs "+
-			"the Role in docs/agents.md there", opts.Namespace, err)
+			"the Role in https://docs.keera.ch/operate/kubernetes/#where-agents-run there", opts.Namespace, err)
 	}
 	return k, nil
 }

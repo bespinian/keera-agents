@@ -1,6 +1,6 @@
 // What the organisation's machines cost: the time keera-agents metered, per
 // agent and workspace. The bill and the credit are in Keera Gateway, which
-// takes the payments. See docs/billing.md.
+// takes the payments.
 
 import { api } from "../api.js";
 import { h, table, money, icons, iconButton, stat, remembered, remember, card, fact, link, isAdmin } from "../ui.js";

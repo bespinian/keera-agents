@@ -1,5 +1,6 @@
 # keera-agents on one host: its database and the control plane. Keera Gateway
-# runs from its own repository. See docs/install.md.
+# runs from its own repository. See
+# https://docs.keera.ch/operate/agents/.
 #
 # The control plane in a container runs no agents: podman cannot run inside
 # it, and the kubernetes driver works only in a cluster. `make dev` runs it on

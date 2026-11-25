@@ -150,7 +150,7 @@ sbom: image agent-image workspace-image
 # ---------------------------------------------------------------------------
 # The development loop: Postgres in a container, keera-agents on the host
 # under air, so the podman driver can start agents next to it. Keera Gateway
-# runs from its own repository with `make dev`; see docs/run-locally.md.
+# runs from its own repository with `make dev`; see README.md.
 # ---------------------------------------------------------------------------
 
 AIR ?= air

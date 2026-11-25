@@ -29,7 +29,7 @@ calls its control API and never imports its code.
 | `internal/stream`          | Connections passed through HTTP, to a port inside a workspace.             |
 | `internal/dispatch`        | Tasks from chats, schedules, cards and folders; delivery; tools.           |
 | `internal/schedule`        | Cron expressions.                                                          |
-| `internal/connectors`      | The adapters, one package per service; see `docs/connectors.md`.           |
+| `internal/connectors`      | The adapters, one package per service.                                     |
 | `internal/connectors/all`  | Registers every adapter.                                                   |
 | `internal/webui`           | The panel, embedded. Same design as the gateway's.                         |
 | `internal/metrics`         | The Prometheus exposition on `/metrics`.                                   |
@@ -83,9 +83,9 @@ plain text.
 
 ## Docs
 
-`docs/` explains how each piece works and why, for operators and
-contributors. Explain each thing in one place and link to it. Update the docs
-when behaviour changes.
+The docs are at https://docs.keera.ch, from the keera-docs repository. This
+repository has no docs folder. Comments, errors and the panel link there. When
+behaviour changes, update keera-docs too.
 
 ## Instructions
 

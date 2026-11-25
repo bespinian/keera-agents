@@ -66,11 +66,11 @@ type Config struct {
 
 	// Egress is where connectors may connect: never to loopback or the
 	// cloud metadata service, and inside the network only to the hosts
-	// named. See docs/install.md.
+	// named.
 	Egress egress.Policy
 
 	// Prices of machine time, in micro-CHF, billed to the gateway. All zero
-	// is no billing. See docs/billing.md.
+	// is no billing.
 	PriceCPUHour       int64
 	PriceMemoryGiBHour int64
 	PriceDiskGiBMonth  int64
@@ -305,7 +305,7 @@ func load(getenv func(string) string) (Config, error) {
 	// database, and anyone who reads pods there reads agents' tokens.
 	if c.Runtime.Driver == "kubernetes" && c.Runtime.Namespace == "" {
 		return c, errors.New("KEERA_AGENTS_NAMESPACE must name where agents run: " +
-			"a namespace of their own, with the NetworkPolicy in docs/agents.md#hardening")
+			"a namespace of their own, with the NetworkPolicy in https://docs.keera.ch/operate/kubernetes/#where-agents-run")
 	}
 	if !slices.Contains([]string{"debug", "info", "warn", "error"}, c.LogLevel) {
 		return c, fmt.Errorf("KEERA_AGENTS_LOG_LEVEL must be debug, info, warn or error, not %q", c.LogLevel)

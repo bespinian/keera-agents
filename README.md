@@ -37,8 +37,7 @@ servers and audit log apply to agents as they do to people.
 Two Go binaries from one module: `keera-agents`, the **control plane**, and
 `keera-agents-runtime`, the **runtime** inside each agent's container
 (`keera-agents-runtime agent`) and each workspace's
-(`keera-agents-runtime workspace`)
-([docs/agents.md](docs/agents.md#two-binaries)). Agents run on
+(`keera-agents-runtime workspace`). Agents run on
 **podman** for local development, or on any **Kubernetes** cluster, as one
 StatefulSet each.
 
@@ -67,36 +66,42 @@ StatefulSet each.
 - **Services.** An agent connected to a service, such as a Jira project or an
   AWS region, gets tools for it, such as searching issues or reading costs.
   A binding, an agent's link to a service, may only read or also write, and
-  its tools stay within what it names ([docs/connectors.md](docs/connectors.md#services)).
+  its tools stay within what it names
+  ([Connectors](https://docs.keera.ch/manage/connectors/#connect-an-agent)).
 - **Credentials stay out of agents.** The control plane makes the calls that
-  need them ([docs/agents.md](docs/agents.md#what-an-agent-holds)).
+  need them.
 - **Workspaces.** An engineer gets a machine of their own with a coding
   agent: pi in a terminal, or VS Code with Cline, in the browser. It has the
   models of their key and the connectors they give it. They reach it with the
   `keera` command line, in the browser or over SSH
-  ([docs/workspaces.md](docs/workspaces.md)).
+  ([Workspaces](https://docs.keera.ch/use/workspaces/)).
 
 ## Run it
 
-You need Go, podman and a Keera Gateway. Set the gateway up once as
-[docs/run-locally.md](docs/run-locally.md#once) says, then run `make dev` and
-open <http://localhost:8070>. [docs/install.md](docs/install.md) has every
-setting.
+You need Go, podman and a Keera Gateway running from its own repository. In
+the gateway's `compose/.env`, add:
+
+```sh
+KEERA_PUBLIC_URL=http://localhost:8080
+KEERA_AGENTS_URL=http://localhost:8070
+KEERA_AGENTS_SERVICE_KEY=<the service key `make dev` prints here>
+```
+
+Run `make dev` here, which creates `compose/.env` with fresh keys the first
+time, then the gateway's own `make dev`. Open <http://localhost:8070>; use
+`localhost` everywhere, not `127.0.0.1`, or the sign-in is lost.
 
 A new organisation sees **Getting started** in place of the dashboard: create
 an agent, connect your services and give it a first task
-([docs/api.md](docs/api.md#overview)).
+([Keera Agents](https://docs.keera.ch/use/agents/)).
 
 ## Docs
 
-`docs/` is for operators and contributors:
+The docs are at [docs.keera.ch](https://docs.keera.ch):
 
-- [install.md](docs/install.md) - every setting, and the deployment shapes
-- [run-locally.md](docs/run-locally.md) - the development loop
-- [agents.md](docs/agents.md) - how an agent runs, its keys and its lifecycle
-- [workspaces.md](docs/workspaces.md) - machines to work in, with a coding agent
-- [tasks.md](docs/tasks.md) - where tasks come from and where results go
-- [billing.md](docs/billing.md) - billing machine time through the gateway
-- [api.md](docs/api.md) - the panel's API
-- [connectors.md](docs/connectors.md) - setting up the chat services, folders,
-  repositories and service connectors
+- [Use Keera Agents](https://docs.keera.ch/use/agents/) and
+  [workspaces](https://docs.keera.ch/use/workspaces/)
+- [Connectors](https://docs.keera.ch/manage/connectors/) and
+  [billing](https://docs.keera.ch/manage/billing/)
+- [Run Keera Agents](https://docs.keera.ch/operate/agents/), and
+  [on Kubernetes](https://docs.keera.ch/operate/kubernetes/#keera-agents)

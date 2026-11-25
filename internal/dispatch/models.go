@@ -19,7 +19,6 @@ import (
 // the agent's container, because the audio comes from connected folders,
 // which only the control plane reads. Each call goes out with the agent's
 // own key, so its budget and the gateway's rules apply as to its own model.
-// See docs/agents.md.
 
 // modelTools are the tools for a's other models. folders lists its
 // connected folders, from which it transcribes.
