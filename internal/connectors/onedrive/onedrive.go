@@ -169,7 +169,7 @@ func (a *Adapter) getJSON(ctx context.Context, s settings, u string, v any) erro
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(b, v)
+	return web.Decode(b, "Microsoft Graph", v)
 }
 
 func (a *Adapter) driveURL(s settings, path string, q url.Values) string {

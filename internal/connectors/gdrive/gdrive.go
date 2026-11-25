@@ -159,7 +159,7 @@ func (a *Adapter) getJSON(ctx context.Context, s settings, path string, q url.Va
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(b, v)
+	return web.Decode(b, "Google Drive", v)
 }
 
 func (a *Adapter) Check(ctx context.Context, conn connectors.Connection) error {

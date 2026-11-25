@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"net/http"
 	"net/url"
@@ -82,17 +81,6 @@ func NewAuth(opts connectors.Options) *Auth {
 	return &Auth{hc: web.Client(opts), login: web.Endpoint(opts, "login", "https://login.microsoftonline.com")}
 }
 
-// token returns a cached token for the app.
-func (a *Auth) token(ctx context.Context, app App) (string, error) {
-	tok, err := a.cache.Get(ctx, app.key(), func(ctx context.Context) (oauth.Token, error) {
-		return a.fetch(ctx, app)
-	})
-	if err != nil {
-		return "", oauth.Describe("Microsoft", err)
-	}
-	return tok, nil
-}
-
 // Check gets a new token, bypassing the cache, to prove the credentials
 // work.
 func (a *Auth) Check(ctx context.Context, app App) error {
@@ -102,28 +90,16 @@ func (a *Auth) Check(ctx context.Context, app App) error {
 	return nil
 }
 
-// forget drops the app's token after a service refused it, so the next call
-// gets a new one.
-func (a *Auth) forget(app App) {
-	a.cache.Forget(app.key())
-}
-
 // Do sends req with the app's token, or the person's, and returns the body
 // of a 2xx answer, of at most limit bytes. A refused token is forgotten.
 // service names who is called, such as "Microsoft Graph".
 func (a *Auth) Do(req *http.Request, app App, service string, limit int64) ([]byte, error) {
-	token := app.Token
-	if token == "" {
-		var err error
-		if token, err = a.token(req.Context(), app); err != nil {
-			return nil, err
-		}
+	b := oauth.Bearer{Token: app.Token}
+	if b.Token == "" {
+		b.Key = app.key()
+		b.Fetch = func(ctx context.Context) (oauth.Token, error) { return a.fetch(ctx, app) }
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	return web.Do(a.hc, req, service, limit, func(status int, body []byte) error {
-		if status == http.StatusUnauthorized {
-			a.forget(app)
-		}
+	return a.cache.Do(a.hc, req, b, "Microsoft", service, limit, func(status int, body []byte) error {
 		return apiError(service, status, body)
 	})
 }
@@ -132,13 +108,10 @@ func (a *Auth) Do(req *http.Request, app App, service string, limit int64) ([]by
 // body is empty, as a 202 Accepted's or a 204 No Content's is.
 func (a *Auth) DoJSON(req *http.Request, app App, service string, limit int64, out any) error {
 	b, err := a.Do(req, app, service, limit)
-	if err != nil || out == nil || len(b) == 0 {
+	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("could not read the answer of %s: %w", service, err)
-	}
-	return nil
+	return web.Decode(b, service, out)
 }
 
 // Query encodes OData options, such as $filter, in a stable order. Graph

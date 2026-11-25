@@ -9,11 +9,18 @@ import (
 	"testing"
 
 	"github.com/bespinian/keera-agents/internal/connectors"
+	"github.com/bespinian/keera-agents/internal/connectors/internal/web"
 )
 
 func TestAuth(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api" {
+			if r.Header.Get("Authorization") != "Bearer m" {
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+			return
+		}
 		calls.Add(1)
 		_ = r.ParseForm()
 		if r.URL.Path != "/login/tenant-1/oauth2/v2.0/token" || r.Form.Get("scope") != "s" {
@@ -29,18 +36,26 @@ func TestAuth(t *testing.T) {
 	defer srv.Close()
 	a := NewAuth(connectors.Options{HTTP: srv.Client(), Endpoints: map[string]string{"login": srv.URL + "/login"}})
 	app := App{Tenant: "tenant-1", ClientID: "c", Secret: "pw", Scope: "s"}
+	call := func(app App) error {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api", nil)
+		_, err := a.Do(req, app, "Microsoft Graph", 1<<10)
+		return err
+	}
 	for range 2 {
-		if tok, err := a.token(context.Background(), app); err != nil || tok != "m" {
-			t.Fatalf("Token = %q, %v", tok, err)
+		if err := call(app); err != nil {
+			t.Fatal(err)
 		}
 	}
 	if calls.Load() != 1 {
 		t.Errorf("token fetched %d times", calls.Load())
 	}
-	a.forget(app)
-	_, _ = a.token(context.Background(), app)
-	if calls.Load() != 2 {
-		t.Errorf("forgotten token reused")
+	// A person's refused token leaves the app's be.
+	if err := call(App{Token: "theirs"}); web.Status(err) != http.StatusUnauthorized {
+		t.Errorf("err = %v", err)
+	}
+	_ = call(app)
+	if calls.Load() != 1 {
+		t.Errorf("token fetched %d times, want 1", calls.Load())
 	}
 	app.Secret = "wrong"
 	err := a.Check(context.Background(), app)

@@ -145,23 +145,17 @@ func orgOf(conn connectors.Connection) (org, error) {
 	return o, nil
 }
 
-// session is a token and the server to call with it. oauth.Cache keeps one
-// string per key, so the server rides along with the token, after a space,
-// which neither contains.
+// session is a token and the server to call with it.
 type session struct {
 	token, instance string
 }
 
 func (a *Adapter) session(ctx context.Context, o org) (session, error) {
-	v, err := a.tokens.Get(ctx, o.key(), func(ctx context.Context) (oauth.Token, error) {
+	tok, err := a.tokens.Get(ctx, o.key(), func(ctx context.Context) (oauth.Token, error) {
 		s, err := a.signIn(ctx, o)
-		return oauth.Token{Access: s.instance + " " + s.token, Expiry: time.Now().Add(lifetime)}, err
+		return oauth.Token{Access: s.token, Instance: s.instance, Expiry: time.Now().Add(lifetime)}, err
 	})
-	if err != nil {
-		return session{}, err
-	}
-	instance, token, _ := strings.Cut(v, " ")
-	return session{token: token, instance: instance}, nil
+	return session{token: tok.Access, instance: tok.Instance}, err
 }
 
 // sessionFor is the session a call uses: the person's own, on a connector

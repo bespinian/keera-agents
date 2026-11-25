@@ -218,6 +218,18 @@ func DoJSON(hc *http.Client, req *http.Request, service string, limit int64, fai
 	return json.Unmarshal(b, out)
 }
 
+// Decode reads an answer of service into out, unless out is nil or the body
+// is empty, as a 202 Accepted's or a 204 No Content's is.
+func Decode(b []byte, service string, out any) error {
+	if out == nil || len(b) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(b, out); err != nil {
+		return fmt.Errorf("could not read the answer of %s: %w", service, err)
+	}
+	return nil
+}
+
 // FileTooLarge is the error for a file bigger than limit bytes. prefix names
 // the adapter, such as "gdrive".
 func FileTooLarge(prefix, name string, limit int64) error {

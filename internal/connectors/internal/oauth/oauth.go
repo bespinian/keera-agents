@@ -242,7 +242,7 @@ const early = 2 * time.Minute
 
 // Get returns the cached token for key, or fetches a new one. key should
 // change when the credentials do, such as by including web.Fingerprint.
-func (c *Cache) Get(ctx context.Context, key string, fetch func(context.Context) (Token, error)) (string, error) {
+func (c *Cache) Get(ctx context.Context, key string, fetch func(context.Context) (Token, error)) (Token, error) {
 	c.mu.Lock()
 	if c.m == nil || len(c.m) > 1000 {
 		// Many keys means many connections came and went; starting over only
@@ -259,14 +259,14 @@ func (c *Cache) Get(ctx context.Context, key string, fetch func(context.Context)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.tok.Access != "" && time.Now().Before(s.tok.Expiry.Add(-early)) {
-		return s.tok.Access, nil
+		return s.tok, nil
 	}
 	tok, err := fetch(ctx)
 	if err != nil {
-		return "", err
+		return Token{}, err
 	}
 	s.tok = tok
-	return tok.Access, nil
+	return tok, nil
 }
 
 // Forget drops a token the service refused, so the next call gets a new one.
@@ -274,6 +274,36 @@ func (c *Cache) Forget(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.m, key)
+}
+
+// Bearer is what a call signs in with: a person's own access Token, or else
+// the app's token, which Fetch gets and the cache keeps under Key.
+type Bearer struct {
+	Token string
+	Key   string
+	Fetch func(context.Context) (Token, error)
+}
+
+// Do sends req with b's token and returns the body of a 2xx answer, of at
+// most limit bytes. A refused app token is forgotten, so the next call gets
+// a new one. who names whose sign-in it is, such as "Microsoft", service who
+// answers, and fail reads the service's error.
+func (c *Cache) Do(hc *http.Client, req *http.Request, b Bearer, who, service string, limit int64, fail func(status int, body []byte) error) ([]byte, error) {
+	token := b.Token
+	if token == "" {
+		tok, err := c.Get(req.Context(), b.Key, b.Fetch)
+		if err != nil {
+			return nil, Describe(who, err)
+		}
+		token = tok.Access
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return web.Do(hc, req, service, limit, func(status int, body []byte) error {
+		if status == http.StatusUnauthorized && b.Token == "" {
+			c.Forget(b.Key)
+		}
+		return fail(status, body)
+	})
 }
 
 // ServiceAccount is a Google service account key file.

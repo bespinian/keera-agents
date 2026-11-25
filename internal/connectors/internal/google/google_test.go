@@ -18,6 +18,12 @@ func TestAuth(t *testing.T) {
 	key := jwttest.NewKey(t, "k")
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api" {
+			if r.Header.Get("Authorization") != "Bearer g" || r.URL.Query().Has("refuse") {
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+			return
+		}
 		calls.Add(1)
 		_ = r.ParseForm()
 		c := jwttest.Claims(t, r.Form.Get("assertion"), &key.Private.PublicKey)
@@ -31,18 +37,25 @@ func TestAuth(t *testing.T) {
 	defer srv.Close()
 	a := NewAuth(connectors.Options{HTTP: srv.Client(), Endpoints: map[string]string{"token": srv.URL}})
 	sa := key.ServiceAccountJSON("sa@p.iam.gserviceaccount.com")
+	call := func(c Creds, path string) error {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		_, err := a.Do(req, c, "s", 1<<10)
+		return err
+	}
 	for range 2 {
-		if tok, err := a.token(context.Background(), sa, "s", ""); err != nil || tok != "g" {
-			t.Fatalf("Token = %q, %v", tok, err)
+		if err := call(Creds{Key: sa}, "/api"); err != nil {
+			t.Fatal(err)
 		}
 	}
 	if calls.Load() != 1 {
 		t.Errorf("token fetched %d times", calls.Load())
 	}
-	a.forget(sa, "s", "")
-	_, _ = a.token(context.Background(), sa, "s", "")
+	// A refused token is forgotten, but a person's own is never fetched.
+	_ = call(Creds{Key: sa}, "/api?refuse")
+	_ = call(Creds{Token: "theirs"}, "/api")
+	_ = call(Creds{Key: sa}, "/api")
 	if calls.Load() != 2 {
-		t.Error("forgotten token reused")
+		t.Errorf("token fetched %d times, want 2", calls.Load())
 	}
 	if err := a.Check(context.Background(), Creds{Key: sa}, "s"); err != nil || calls.Load() != 3 {
 		t.Errorf("Check = %v after %d calls", err, calls.Load())
@@ -52,8 +65,8 @@ func TestAuth(t *testing.T) {
 		!strings.Contains(err.Error(), "domain-wide delegation for s,t") {
 		t.Errorf("err = %v", err)
 	}
-	if _, err := a.token(context.Background(), "{}", "s", ""); err == nil {
-		t.Error("empty key accepted")
+	if err := call(Creds{Key: "{}"}, "/api"); err == nil || !strings.Contains(err.Error(), "client_email") {
+		t.Errorf("empty key: %v", err)
 	}
 }
 

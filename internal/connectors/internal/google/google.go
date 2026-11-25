@@ -75,19 +75,22 @@ func (a *Auth) Accounts(scope, apis string) oauth.Accounts {
 	})
 }
 
-// token returns a cached token for the key file, scope and subject.
-func (a *Auth) token(ctx context.Context, keyJSON, scope, subject string) (string, error) {
-	sa, err := oauth.ParseServiceAccount(keyJSON)
-	if err != nil {
-		return "", err
+// bearer is what a call with c signs in with, a service account's token
+// being for scope.
+func (a *Auth) bearer(c Creds, scope string) (oauth.Bearer, error) {
+	if c.Token != "" {
+		return oauth.Bearer{Token: c.Token}, nil
 	}
-	tok, err := a.cache.Get(ctx, web.Fingerprint(keyJSON, scope, subject), func(ctx context.Context) (oauth.Token, error) {
-		return a.fetch(ctx, sa, scope, subject)
-	})
+	sa, err := oauth.ParseServiceAccount(c.Key)
 	if err != nil {
-		return "", oauth.Describe("Google", err)
+		return oauth.Bearer{}, err
 	}
-	return tok, nil
+	return oauth.Bearer{
+		Key: web.Fingerprint(c.Key, scope, c.Subject),
+		Fetch: func(ctx context.Context) (oauth.Token, error) {
+			return a.fetch(ctx, sa, scope, c.Subject)
+		},
+	}, nil
 }
 
 // Check gets a new token for c's key, bypassing the cache, to prove the key
@@ -115,12 +118,6 @@ func Delegation(err error, scope string) error {
 		err, strings.ReplaceAll(scope, " ", ","))
 }
 
-// forget drops a token after Google refused it, so the next call gets a new
-// one.
-func (a *Auth) forget(keyJSON, scope, subject string) {
-	a.cache.Forget(web.Fingerprint(keyJSON, scope, subject))
-}
-
 // Creds are what a call is made with: a person's access Token, or else a
 // service account's key file, acting as Subject when it is set.
 type Creds struct {
@@ -145,33 +142,21 @@ func CredsOf(conn connectors.Connection) (Creds, error) {
 // returns the body of a 2xx answer, of at most limit bytes. A refused
 // service account's token is forgotten.
 func (a *Auth) Do(req *http.Request, c Creds, scope string, limit int64) ([]byte, error) {
-	token := c.Token
-	if token == "" {
-		var err error
-		if token, err = a.token(req.Context(), c.Key, scope, c.Subject); err != nil {
-			return nil, err
-		}
+	b, err := a.bearer(c, scope)
+	if err != nil {
+		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	return web.Do(a.hc, req, "Google", limit, func(status int, body []byte) error {
-		if status == http.StatusUnauthorized && c.Token == "" {
-			a.forget(c.Key, scope, c.Subject)
-		}
-		return apiError(status, body)
-	})
+	return a.cache.Do(a.hc, req, b, "Google", "Google", limit, apiError)
 }
 
 // DoJSON is Do, then decodes the body into out, unless out is nil or the
 // body is empty, as a 204 No Content's is.
 func (a *Auth) DoJSON(req *http.Request, c Creds, scope string, limit int64, out any) error {
 	b, err := a.Do(req, c, scope, limit)
-	if err != nil || out == nil || len(b) == 0 {
+	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("could not read Google's answer: %w", err)
-	}
-	return nil
+	return web.Decode(b, "Google", out)
 }
 
 func (a *Auth) fetch(ctx context.Context, sa *oauth.ServiceAccount, scope, subject string) (oauth.Token, error) {
@@ -183,7 +168,7 @@ func (a *Auth) fetch(ctx context.Context, sa *oauth.ServiceAccount, scope, subje
 }
 
 // apiError describes a failed API call from its status and body.
-func apiError(status int, body []byte) *web.APIError {
+func apiError(status int, body []byte) error {
 	var e struct {
 		Error struct {
 			Message string `json:"message"`
