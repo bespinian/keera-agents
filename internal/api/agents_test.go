@@ -85,7 +85,9 @@ func TestNewOwner(t *testing.T) {
 		{"for someone in another organisation", outsider, "usr_bob", http.StatusBadRequest},
 	} {
 		w := httptest.NewRecorder()
-		u, ok := s.newOwner(w, httptest.NewRequest("POST", "/", nil), tc.p, tc.user)
+		u, err := s.newOwner(httptest.NewRequest("POST", "/", nil), tc.p, tc.user)
+		ok := err == nil
+		s.answer(w, err)
 		if ok != (tc.want == http.StatusOK) || w.Code != tc.want {
 			t.Errorf("%s: ok %v, %d %s; want %d", tc.name, ok, w.Code, w.Body, tc.want)
 		}

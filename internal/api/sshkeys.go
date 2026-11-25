@@ -18,46 +18,45 @@ import (
 // A person's SSH keys let them into their own workspaces. Each person sees
 // and changes only their own.
 
-func (s *Server) listSSHKeys(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) listSSHKeys(w http.ResponseWriter, r *http.Request, p Principal) error {
 	keys, err := s.st.SSHKeys(r.Context(), p.OrgID, p.UserID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": keys})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": keys})
 }
 
-func (s *Server) addSSHKey(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) addSSHKey(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		Name      string `json:"name"`
 		PublicKey string `json:"public_key"`
 	}
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	line, comment, fingerprint, err := parsePublicKey(in.PublicKey)
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	k, err := s.st.AddSSHKey(r.Context(), store.SSHKey{
 		ID: id.New("ssh"), OrgID: p.OrgID, UserID: p.UserID,
 		Name: trim(cmp.Or(strings.TrimSpace(in.Name), comment), 100), PublicKey: line, Fingerprint: fingerprint,
 	})
-	if !s.saved(w, err, "exists", "you added this key already") {
-		return
+	if err = saved(err, "exists", "you added this key already"); err != nil {
+		return err
 	}
 	s.record(r.Context(), p, "ssh_key.add", k.ID, map[string]string{"fingerprint": fingerprint})
-	writeJSON(w, http.StatusCreated, k)
+	return writeJSON(w, http.StatusCreated, k)
 }
 
-func (s *Server) deleteSSHKey(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) deleteSSHKey(w http.ResponseWriter, r *http.Request, p Principal) error {
 	err := s.st.DeleteSSHKey(r.Context(), p.OrgID, p.UserID, r.PathValue("id"))
-	if !s.found(w, err, true, "key") {
-		return
+	if err = found(err, true, "key"); err != nil {
+		return err
 	}
 	s.record(r.Context(), p, "ssh_key.delete", r.PathValue("id"), nil)
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // sshKeyTypes are the key types OpenSSH takes today. DSA is gone from it.

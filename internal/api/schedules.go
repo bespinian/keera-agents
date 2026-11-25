@@ -33,13 +33,12 @@ func viewSchedule(sc store.Schedule) scheduleView {
 	return v
 }
 
-func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request, p Principal) error {
 	list, err := s.st.Schedules(r.Context(), p.OrgID, r.URL.Query().Get("agent_id"))
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": viewSchedules(list)})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": viewSchedules(list)})
 }
 
 type scheduleInput struct {
@@ -107,129 +106,119 @@ func (s *Server) applySchedule(ctx context.Context, sc *store.Schedule, in sched
 	return nil
 }
 
-func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in scheduleInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	if in.AgentID == nil {
-		badRequest(w, "choose an agent")
-		return
+		return badRequest("choose an agent")
 	}
-	a, ok := s.editableAgent(w, r, p, *in.AgentID)
-	if !ok {
-		return
+	a, err := s.editableAgent(r, p, *in.AgentID)
+	if err != nil {
+		return err
 	}
 	sc := store.Schedule{
 		ID: id.New("sch"), AgentID: a.ID, Enabled: true, CreatedBy: p.Email,
 		RequestedBy: p.Email, RequestedByID: p.UserID,
 	}
 	if err := s.applySchedule(r.Context(), &sc, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.CreateSchedule(r.Context(), sc)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "schedule.create", out.ID, map[string]string{"agent": a.Name, "cron": out.Cron})
-	writeJSON(w, http.StatusCreated, viewSchedule(out))
+	return writeJSON(w, http.StatusCreated, viewSchedule(out))
 }
 
 // loadSchedule finds a schedule the caller may change, and its agent.
-func (s *Server) loadSchedule(w http.ResponseWriter, r *http.Request, p Principal) (store.Schedule, store.Agent, bool) {
+func (s *Server) loadSchedule(r *http.Request, p Principal) (store.Schedule, store.Agent, error) {
 	sc, err := s.st.Schedule(r.Context(), r.PathValue("id"))
-	if !s.found(w, err, sc.OrgID == p.OrgID, "schedule") {
-		return sc, store.Agent{}, false
+	if err := found(err, sc.OrgID == p.OrgID, "schedule"); err != nil {
+		return sc, store.Agent{}, err
 	}
-	a, ok := s.editableAgent(w, r, p, sc.AgentID)
-	return sc, a, ok
+	a, err := s.editableAgent(r, p, sc.AgentID)
+	return sc, a, err
 }
 
-func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request, p Principal) {
-	sc, _, ok := s.loadSchedule(w, r, p)
-	if !ok {
-		return
+func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request, p Principal) error {
+	sc, _, err := s.loadSchedule(r, p)
+	if err != nil {
+		return err
 	}
 	var in scheduleInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	if in.AgentID != nil && *in.AgentID != sc.AgentID {
-		badRequest(w, "a schedule stays with its agent; create a new one for another agent")
-		return
+		return badRequest("a schedule stays with its agent; create a new one for another agent")
 	}
 	if err := s.applySchedule(r.Context(), &sc, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	// It runs for whoever changed it last, so nobody can borrow the rights
 	// of the person who set it up.
 	sc.RequestedBy, sc.RequestedByID = p.Email, p.UserID
 	out, err := s.st.UpdateSchedule(r.Context(), sc)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "schedule.update", out.ID, map[string]any{"cron": out.Cron, "enabled": out.Enabled})
-	writeJSON(w, http.StatusOK, viewSchedule(out))
+	return writeJSON(w, http.StatusOK, viewSchedule(out))
 }
 
-func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, p Principal) {
-	sc, _, ok := s.loadSchedule(w, r, p)
-	if !ok {
-		return
+func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request, p Principal) error {
+	sc, _, err := s.loadSchedule(r, p)
+	if err != nil {
+		return err
 	}
 	if err := s.st.DeleteSchedule(r.Context(), sc.ID); err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "schedule.delete", sc.ID, map[string]string{"name": sc.Name})
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
-func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request, p Principal) {
-	sc, a, ok := s.loadSchedule(w, r, p)
-	if !ok {
-		return
+func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request, p Principal) error {
+	sc, a, err := s.loadSchedule(r, p)
+	if err != nil {
+		return err
 	}
 	if !a.Enabled {
-		agentStopped(w, p, a)
-		return
+		return agentStopped(p, a)
 	}
 	// Run now, it runs for whoever asked.
 	sc.RequestedBy, sc.RequestedByID = p.Email, p.UserID
 	t, err := s.disp.SubmitSchedule(r.Context(), sc)
 	if err != nil {
-		s.submitFailed(w, err)
-		return
+		return submitErr(err)
 	}
-	writeJSON(w, http.StatusCreated, t)
+	return writeJSON(w, http.StatusCreated, t)
 }
 
 // previewSchedule says when an expression runs, so the panel can show it
 // while someone types.
-func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, _ Principal) {
+func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, _ Principal) error {
 	var in struct {
 		Cron     string `json:"cron"`
 		Timezone string `json:"timezone"`
 	}
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	c, err := schedule.Parse(in.Cron)
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	if in.Timezone == "" {
 		in.Timezone = defaultZone
 	}
 	loc, err := schedule.Zone(in.Timezone)
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	next := []time.Time{}
 	at := time.Now()
@@ -242,8 +231,7 @@ func (s *Server) previewSchedule(w http.ResponseWriter, r *http.Request, _ Princ
 		at = t
 	}
 	if len(next) == 0 {
-		badRequest(w, schedule.ErrNever.Error())
-		return
+		return badRequest(schedule.ErrNever.Error())
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"description": c.Describe(), "next": next})
+	return writeJSON(w, http.StatusOK, map[string]any{"description": c.Describe(), "next": next})
 }

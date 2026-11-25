@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bespinian/keera-agents/internal/billing"
 	"github.com/bespinian/keera-agents/internal/gateway"
 	"github.com/bespinian/keera-agents/internal/runtime"
 	"github.com/bespinian/keera-agents/internal/secret"
@@ -54,6 +55,7 @@ func TestTrimDoesNotSplitACharacter(t *testing.T) {
 }
 
 func TestReadJSONRefusesUnknownFieldsAndLargeBodies(t *testing.T) {
+	s := testServer(t)
 	for _, tc := range []struct {
 		name, body string
 		want       int
@@ -66,7 +68,9 @@ func TestReadJSONRefusesUnknownFieldsAndLargeBodies(t *testing.T) {
 		var in struct {
 			Name string `json:"name"`
 		}
-		if readJSON(w, httptest.NewRequest("POST", "/", strings.NewReader(tc.body)), &in) || w.Code != tc.want {
+		err := readJSON(w, httptest.NewRequest("POST", "/", strings.NewReader(tc.body)), &in)
+		s.answer(w, err)
+		if err == nil || w.Code != tc.want {
 			t.Errorf("%s: %d, want %d", tc.name, w.Code, tc.want)
 		}
 	}
@@ -108,7 +112,9 @@ func TestFoundHidesOtherOrganisations(t *testing.T) {
 		{"the database failed", errors.New("connection reset"), false, false, http.StatusInternalServerError},
 	} {
 		w := httptest.NewRecorder()
-		if ok := s.found(w, tc.err, tc.sameOrg, "agent"); ok != tc.ok || w.Code != tc.want {
+		err := found(tc.err, tc.sameOrg, "agent")
+		s.answer(w, err)
+		if ok := err == nil; ok != tc.ok || w.Code != tc.want {
 			t.Errorf("%s: ok %v, %d; want %v, %d", tc.name, ok, w.Code, tc.ok, tc.want)
 		}
 		if w.Code == http.StatusInternalServerError && strings.Contains(w.Body.String(), "connection reset") {
@@ -120,17 +126,20 @@ func TestFoundHidesOtherOrganisations(t *testing.T) {
 func TestSavedAnswersAConflict(t *testing.T) {
 	s := testServer(t)
 	w := httptest.NewRecorder()
-	if s.saved(w, fmt.Errorf("insert: %w", store.ErrConflict), "name_taken", "taken") ||
-		w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "name_taken") {
+	err := saved(fmt.Errorf("insert: %w", store.ErrConflict), "name_taken", "taken")
+	s.answer(w, err)
+	if err == nil || w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "name_taken") {
 		t.Errorf("conflict: %d %s", w.Code, w.Body)
 	}
 	w = httptest.NewRecorder()
-	if !s.saved(w, nil, "", "") || w.Body.Len() != 0 {
+	err = saved(nil, "", "")
+	s.answer(w, err)
+	if err != nil || w.Body.Len() != 0 {
 		t.Errorf("no error: %d %s", w.Code, w.Body)
 	}
 }
 
-func TestGatewayFailedPassesOnTheGatewaysWords(t *testing.T) {
+func TestGatewayErrPassesOnTheGatewaysWords(t *testing.T) {
 	s := testServer(t)
 	for _, tc := range []struct {
 		name     string
@@ -145,9 +154,25 @@ func TestGatewayFailedPassesOnTheGatewaysWords(t *testing.T) {
 		{"no answer", errors.New("dial tcp: refused"), 500, "internal"},
 	} {
 		w := httptest.NewRecorder()
-		s.gatewayFailed(w, tc.err)
+		s.answer(w, gatewayErr(tc.err))
 		if w.Code != tc.want || !strings.Contains(w.Body.String(), `"code":"`+tc.wantCode+`"`) {
 			t.Errorf("%s: %d %s", tc.name, w.Code, w.Body)
+		}
+	}
+}
+
+// Only errors marked as the gateway's or a machine's are answered in their
+// words; any other is ours, and says nothing of what failed.
+func TestAnswerKeepsUnmarkedErrorsToItself(t *testing.T) {
+	s := testServer(t)
+	for _, err := range []error{
+		&gateway.Error{Status: 403, Code: "forbidden", Message: "no"},
+		&billing.Refused{Code: "credit_exhausted", Message: "no credit"},
+	} {
+		w := httptest.NewRecorder()
+		s.answer(w, err)
+		if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), `"no`) {
+			t.Errorf("%v: %d %s", err, w.Code, w.Body)
 		}
 	}
 }

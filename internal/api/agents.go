@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bespinian/keera-agents/internal/billing"
 	"github.com/bespinian/keera-agents/internal/connectors"
 	"github.com/bespinian/keera-agents/internal/dispatch"
 	"github.com/bespinian/keera-agents/internal/fleet"
@@ -55,122 +54,101 @@ func viewAgent(p Principal, a store.Agent, l store.AgentLoad, bindings int) agen
 }
 
 // writeAgent answers a changed agent as the list shows it.
-func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent) {
+func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent) error {
 	l, err := s.st.AgentLoad(r.Context(), a.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	bindings, err := s.st.AgentBindings(r.Context(), a.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, viewAgent(p, a, l, len(bindings)))
+	return writeJSON(w, http.StatusOK, viewAgent(p, a, l, len(bindings)))
 }
 
 // loadAgent finds an agent in the caller's organisation. Another
 // organisation's agent is not found, not forbidden, so ids say nothing. Nor
 // is a workspace: the agents' routes do not serve them.
-func (s *Server) loadAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
+func (s *Server) loadAgent(r *http.Request, p Principal, id string) (store.Agent, error) {
 	a, err := s.st.Agent(r.Context(), id)
-	return a, s.found(w, err, a.OrgID == p.OrgID && a.Kind == store.KindAgent, "agent")
+	return a, found(err, a.OrgID == p.OrgID && a.Kind == store.KindAgent, "agent")
 }
 
-func (s *Server) editableAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
-	a, ok := s.loadAgent(w, r, p, id)
-	if ok && !canEdit(p, a) {
-		forbid(w, "only "+a.OwnerEmail+" and administrators can change "+a.Name)
-		return a, false
+func (s *Server) editableAgent(r *http.Request, p Principal, id string) (store.Agent, error) {
+	a, err := s.loadAgent(r, p, id)
+	if err == nil && !canEdit(p, a) {
+		return a, forbid("only " + a.OwnerEmail + " and administrators can change " + a.Name)
 	}
-	return a, ok
+	return a, err
 }
 
 // givableAgent finds an agent the caller may give work to now.
-func (s *Server) givableAgent(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Agent, bool) {
-	a, ok := s.loadAgent(w, r, p, id)
-	if !ok {
-		return a, false
+func (s *Server) givableAgent(r *http.Request, p Principal, id string) (store.Agent, error) {
+	a, err := s.loadAgent(r, p, id)
+	if err != nil {
+		return a, err
 	}
 	if allowed, why := dispatch.May(a, p.User()); !allowed {
-		forbid(w, why)
-		return a, false
+		return a, forbid(why)
 	}
 	if !a.Enabled {
-		agentStopped(w, p, a)
-		return a, false
+		return a, agentStopped(p, a)
 	}
-	return a, true
+	return a, nil
 }
 
 // agentStopped refuses work for a stopped agent, which would otherwise wait
 // until someone starts it.
-func agentStopped(w http.ResponseWriter, p Principal, a store.Agent) {
+func agentStopped(p Principal, a store.Agent) error {
 	then := "start it first"
 	if !canEdit(p, a) {
 		then = "ask " + a.OwnerEmail + " to start it"
 	}
-	writeError(w, http.StatusConflict, "agent_stopped", a.Name+" is stopped; "+then)
+	return refuse(http.StatusConflict, "agent_stopped", a.Name+" is stopped; "+then)
 }
 
-// runtimeFailed answers a machine that would not start. Refused for credit,
-// it is 402, as the gateway answers a model call then.
-func runtimeFailed(w http.ResponseWriter, err error) {
-	if e, ok := errors.AsType[*billing.Refused](err); ok {
-		writeError(w, http.StatusPaymentRequired, e.Code, e.Message)
-		return
-	}
-	writeError(w, http.StatusBadGateway, "runtime_error", err.Error())
-}
-
-func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, p Principal) error {
 	agents, err := s.st.Agents(r.Context(), p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	loads, err := s.st.AgentLoads(r.Context(), p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	counts, err := s.st.AgentBindingCounts(r.Context(), p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	out := make([]agentView, 0, len(agents))
 	for _, a := range agents {
 		out = append(out, viewAgent(p, a, loads[a.ID], counts[a.ID]))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
 
-func (s *Server) getAgent(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.loadAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) getAgent(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.loadAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	ctx := r.Context()
 	bindings, err := s.st.AgentBindings(ctx, a.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	schedules, err := s.st.Schedules(ctx, p.OrgID, a.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	l, err := s.st.AgentLoad(ctx, a.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	type stats struct {
 		LastTaskAt *time.Time `json:"last_task_at"`
 	}
-	writeJSON(w, http.StatusOK, struct {
+	return writeJSON(w, http.StatusOK, struct {
 		agentView
 		Bindings  []store.Binding `json:"bindings"`
 		Schedules []scheduleView  `json:"schedules"`
@@ -183,14 +161,16 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request, p Principal) {
 
 // agentActivity is the dashboard's chart for one agent. Everyone in the
 // organisation sees the agent, so everyone sees its counts.
-func (s *Server) agentActivity(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.loadAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) agentActivity(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.loadAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
-	if act, ok := s.taskActivity(w, r, p.OrgID, a.ID); ok {
-		writeJSON(w, http.StatusOK, act)
+	act, err := s.taskActivity(r, p.OrgID, a.ID)
+	if err != nil {
+		return err
 	}
+	return writeJSON(w, http.StatusOK, act)
 }
 
 // agentInput is what people set. Pointers tell a PATCH which fields it
@@ -451,14 +431,13 @@ func strongestTier(tiers []runtime.Isolation) runtime.Isolation {
 	return runtime.Standard
 }
 
-func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in agentInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	if in.Model == nil {
-		badRequest(w, "choose a model")
-		return
+		return badRequest("choose a model")
 	}
 	a := store.Agent{
 		ID: id.New("agt"), OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email, OwnerName: p.Name,
@@ -466,47 +445,43 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request, p Principal
 		Builtins: []string{protocol.BuiltinMemory, protocol.BuiltinFiles},
 	}
 	if in.OwnerID != nil && *in.OwnerID != "" && *in.OwnerID != p.UserID {
-		u, ok := s.newOwner(w, r, p, *in.OwnerID)
-		if !ok {
-			return
+		u, err := s.newOwner(r, p, *in.OwnerID)
+		if err != nil {
+			return err
 		}
 		a.OwnerID, a.OwnerEmail, a.OwnerName = u.ID, u.Email, u.Name
 	}
 	in.Class = s.newClass(in.Class)
 	if err := s.apply(r.Context(), p, &a, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.CreateAgent(r.Context(), a)
-	if !s.saved(w, err, "name_taken", "another agent in this organisation is called "+a.Name) {
-		return
+	if err = saved(err, "name_taken", "another agent in this organisation is called "+a.Name); err != nil {
+		return err
 	}
 	s.record(r.Context(), p, "agent.create", out.ID, map[string]any{
 		"name": out.Name, "model": out.Model, "owner": out.OwnerEmail,
 	})
 	s.startLater(out)
 	// A new agent has no tasks and no bindings yet.
-	writeJSON(w, http.StatusCreated, viewAgent(p, out, store.AgentLoad{}, 0))
+	return writeJSON(w, http.StatusCreated, viewAgent(p, out, store.AgentLoad{}, 0))
 }
 
 // newOwner checks the person an administrator creates an agent or a
 // workspace for: an active member of the organisation. It spends in their
 // name.
-func (s *Server) newOwner(w http.ResponseWriter, r *http.Request, p Principal, userID string) (gateway.User, bool) {
+func (s *Server) newOwner(r *http.Request, p Principal, userID string) (gateway.User, error) {
 	if !p.CanAdmin() {
-		forbid(w, "only an administrator can create one for someone else")
-		return gateway.User{}, false
+		return gateway.User{}, forbid("only an administrator can create one for someone else")
 	}
 	u, err := s.gw.UserByID(r.Context(), p.OrgID, userID)
 	if gateway.IsNotFound(err) || (err == nil && u.Disabled) {
-		badRequest(w, "the owner must be an active member of this organisation")
-		return gateway.User{}, false
+		return gateway.User{}, badRequest("the owner must be an active member of this organisation")
 	}
 	if err != nil {
-		s.gatewayFailed(w, err)
-		return gateway.User{}, false
+		return gateway.User{}, gatewayErr(err)
 	}
-	return u, true
+	return u, nil
 }
 
 // rekeyIfChanged gives a changed agent or workspace a new key when its
@@ -536,27 +511,25 @@ func (s *Server) startLater(a store.Agent) {
 	}()
 }
 
-func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.editableAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.editableAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	var in agentInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	if in.OwnerID != nil && *in.OwnerID != a.OwnerID {
-		badRequest(w, "an agent's owner changes only when an administrator takes it over")
-		return
+		return badRequest("an agent's owner changes only when an administrator takes it over")
 	}
 	before := a
 	if err := s.apply(r.Context(), p, &a, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.UpdateAgent(r.Context(), a)
-	if !s.saved(w, err, "name_taken", "another agent in this organisation is called "+a.Name) {
-		return
+	if err = saved(err, "name_taken", "another agent in this organisation is called "+a.Name); err != nil {
+		return err
 	}
 	s.record(r.Context(), p, "agent.update", out.ID, map[string]any{"name": out.Name})
 	// Instructions and the model reach the runtime at its next task.
@@ -564,49 +537,48 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request, p Principal
 	if out.Enabled && (before.Image != out.Image || before.Class != out.Class) {
 		s.startLater(out)
 	}
-	s.writeAgent(w, r, p, out)
+	return s.writeAgent(w, r, p, out)
 }
 
-func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.editableAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.editableAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	if err := s.fleet.Delete(r.Context(), a); err != nil {
-		runtimeFailed(w, err)
-		return
+		return runtimeErr(err)
 	}
 	s.record(r.Context(), p, "agent.delete", a.ID, map[string]any{"name": a.Name})
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // setEnabled starts, stops or restarts an agent. A restart replaces the
 // container and keeps its files.
 func (s *Server) setEnabled(enabled, restart bool) handler {
-	return func(w http.ResponseWriter, r *http.Request, p Principal) {
-		a, ok := s.editableAgent(w, r, p, r.PathValue("id"))
-		if !ok {
-			return
+	return func(w http.ResponseWriter, r *http.Request, p Principal) error {
+		a, err := s.editableAgent(r, p, r.PathValue("id"))
+		if err != nil {
+			return err
 		}
-		if out, ok := s.setMachineEnabled(w, r, p, a, enabled, restart); ok {
-			s.writeAgent(w, r, p, out)
+		out, err := s.setMachineEnabled(r, p, a, enabled, restart)
+		if err != nil {
+			return err
 		}
+		return s.writeAgent(w, r, p, out)
 	}
 }
 
-// setMachineEnabled starts, stops or restarts an agent or a workspace, and
-// answers only when that fails.
-func (s *Server) setMachineEnabled(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent,
+// setMachineEnabled starts, stops or restarts an agent or a workspace.
+func (s *Server) setMachineEnabled(r *http.Request, p Principal, a store.Agent,
 	enabled, restart bool,
-) (store.Agent, bool) {
+) (store.Agent, error) {
 	if !s.fleet.Runs() && enabled {
-		writeError(w, http.StatusConflict, "no_runtime", fleet.ErrNoRuntime.Error())
-		return a, false
+		return a, refuse(http.StatusConflict, "no_runtime", fleet.ErrNoRuntime.Error())
 	}
 	out, err := s.st.SetEnabled(r.Context(), a.ID, enabled)
 	if err != nil {
-		s.fail(w, err)
-		return a, false
+		return a, err
 	}
 	action := startOrStop(enabled)
 	if restart {
@@ -619,11 +591,10 @@ func (s *Server) setMachineEnabled(w http.ResponseWriter, r *http.Request, p Pri
 		err = s.fleet.Stop(r.Context(), out, "the "+a.Kind+" was stopped")
 	}
 	if err != nil {
-		runtimeFailed(w, err)
-		return a, false
+		return a, runtimeErr(err)
 	}
 	out, _ = s.st.Agent(r.Context(), a.ID)
-	return out, true
+	return out, nil
 }
 
 // startOrStop is the end of the audit action for starting or stopping.
@@ -636,18 +607,16 @@ func startOrStop(enabled bool) string {
 
 // takeOverAgent makes the caller the owner, as when the owner left. Only an
 // administrator may: the agent's spend and actions become the new owner's.
-func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.loadAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.loadAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	if !p.CanAdmin() {
-		forbid(w, "only an administrator can take over an agent")
-		return
+		return forbid("only an administrator can take over an agent")
 	}
 	if err := s.st.SetOwner(r.Context(), a.ID, p.UserID, p.Email, p.Name); err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	// The agent is taken over once the owner is saved. A key the gateway
 	// could not replace now stays stale, and RekeyStale replaces it soon.
@@ -658,30 +627,30 @@ func (s *Server) takeOverAgent(w http.ResponseWriter, r *http.Request, p Princip
 	s.record(r.Context(), p, "agent.take_over", a.ID, map[string]string{"previous_owner": a.OwnerEmail})
 	out, err := s.st.Agent(r.Context(), a.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	s.writeAgent(w, r, p, out)
+	return s.writeAgent(w, r, p, out)
 }
 
-func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request, p Principal) {
-	if a, ok := s.editableAgent(w, r, p, r.PathValue("id")); ok {
-		s.streamLogs(w, r, a)
+func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.editableAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
+	return s.streamLogs(w, r, a)
 }
 
 // streamLogs answers with a machine's output, and with ?follow=1 what it
-// prints next.
-func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request, a store.Agent) {
+// prints next. Once the output has started, it returns nil: the status is
+// already sent.
+func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request, a store.Agent) error {
 	follow, _ := strconv.ParseBool(r.URL.Query().Get("follow"))
 	rc, err := s.fleet.Logs(r.Context(), a.ID, follow)
 	if errors.Is(err, runtime.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no_machine", "this "+a.Kind+" has no running machine to read")
-		return
+		return refuse(http.StatusNotFound, "no_machine", "this "+a.Kind+" has no running machine to read")
 	}
 	if err != nil {
-		runtimeFailed(w, err)
-		return
+		return runtimeErr(err)
 	}
 	defer func() { _ = rc.Close() }()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -695,7 +664,7 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request, a store.Agen
 		n, err := rc.Read(buf)
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {
-				return
+				return nil
 			}
 			_ = rw.Flush()
 		}
@@ -703,23 +672,23 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request, a store.Agen
 			if !errors.Is(err, io.EOF) && r.Context().Err() == nil {
 				s.log.Debug("log stream ended", "agent", a.ID, "error", err)
 			}
-			return
+			return nil
 		}
 	}
 }
 
 // giveTask queues a task typed in the panel. The agent's access rule
 // applies, as for a chat message.
-func (s *Server) giveTask(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.givableAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) giveTask(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.givableAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	var in struct {
 		Prompt string `json:"prompt"`
 	}
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	t, err := s.disp.Submit(r.Context(), store.Task{
 		OrgID: p.OrgID, AgentID: a.ID, Source: protocol.SourceManual,
@@ -730,31 +699,31 @@ func (s *Server) giveTask(w http.ResponseWriter, r *http.Request, p Principal) {
 		RequestedByID: p.UserID,
 	})
 	if err != nil {
-		s.submitFailed(w, err)
-		return
+		return submitErr(err)
 	}
-	writeJSON(w, http.StatusCreated, t)
+	return writeJSON(w, http.StatusCreated, t)
 }
 
-// submitFailed answers a task that could not be queued.
-func (s *Server) submitFailed(w http.ResponseWriter, err error) {
+// submitErr is why a task could not be queued.
+func submitErr(err error) error {
 	if errors.Is(err, dispatch.ErrNoPrompt) {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
-	s.fail(w, err)
+	return err
 }
 
 // ------------------------------------------------------------ bindings
 
-func (s *Server) createBinding(w http.ResponseWriter, r *http.Request, p Principal) {
-	if a, ok := s.editableAgent(w, r, p, r.PathValue("id")); ok {
-		s.bind(w, r, p, a)
+func (s *Server) createBinding(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.editableAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
+	return s.bind(w, r, p, a)
 }
 
 // bind connects an agent or a workspace to a connection.
-func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent) {
+func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a store.Agent) error {
 	var in struct {
 		ConnectionID string `json:"connection_id"`
 		Target       string `json:"target"`
@@ -762,12 +731,12 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 		Mode         string `json:"mode"`
 		Prompt       string `json:"prompt"`
 	}
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
-	c, ok := s.loadConnection(w, r, p, in.ConnectionID)
-	if !ok {
-		return
+	c, err := s.loadConnection(r, p, in.ConnectionID)
+	if err != nil {
+		return err
 	}
 	desc, _ := connectors.Describe(connectors.Kind(c.Kind))
 	in.Target = strings.TrimSpace(in.Target)
@@ -782,30 +751,22 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 	case !slices.Contains([]string{
 		store.ModeChat, store.ModeWatch, store.ModeFiles, store.ModeRepo, store.ModeRead, store.ModeWrite,
 	}, in.Mode):
-		badRequest(w, "mode must be chat, watch, files, repo, read or write")
-		return
+		return badRequest("mode must be chat, watch, files, repo, read or write")
 	case a.Kind == store.KindWorkspace && (in.Mode == store.ModeChat || in.Mode == store.ModeWatch):
 		// Both give work, and a workspace takes none.
-		badRequest(w, "a workspace takes no tasks, so it connects with files, repo, read or write")
-		return
+		return badRequest("a workspace takes no tasks, so it connects with files, repo, read or write")
 	case in.Target == "":
-		badRequest(w, "name the "+strings.ToLower(desc.TargetLabel))
-		return
+		return badRequest("name the " + strings.ToLower(desc.TargetLabel))
 	case in.Mode == store.ModeChat && !desc.Chat:
-		badRequest(w, desc.Label+" is not a chat")
-		return
+		return badRequest(desc.Label + " is not a chat")
 	case (in.Mode == store.ModeWatch || in.Mode == store.ModeFiles) && !desc.Files:
-		badRequest(w, desc.Label+" holds no files")
-		return
+		return badRequest(desc.Label + " holds no files")
 	case (in.Mode == store.ModeRepo) != desc.Code:
-		badRequest(w, desc.Label+" takes the mode repo, and only it does")
-		return
+		return badRequest(desc.Label + " takes the mode repo, and only it does")
 	case apiMode != desc.API:
-		badRequest(w, desc.Label+" takes the mode read or write, and only it does")
-		return
+		return badRequest(desc.Label + " takes the mode read or write, and only it does")
 	case in.Target == store.AnyConversation && !anyAllowed:
-		badRequest(w, "name the "+strings.ToLower(cmp.Or(desc.TargetLabel, "target"))+"; * is not allowed here")
-		return
+		return badRequest("name the " + strings.ToLower(cmp.Or(desc.TargetLabel, "target")) + "; * is not allowed here")
 	}
 	// All agents answer through the same bot, so people cannot tell whose
 	// agent picks up a message. A member may not join a conversation where
@@ -813,12 +774,10 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 	if in.Mode == store.ModeChat && !p.CanAdmin() {
 		holders, err := s.st.ChatHolders(r.Context(), c.ID, in.Target)
 		if err != nil {
-			s.fail(w, err)
-			return
+			return err
 		}
 		if b, ok := heldByOther(holders, a); ok {
-			forbid(w, b.AgentName+" already listens there; ask an administrator to add "+a.Name+" too")
-			return
+			return forbid(b.AgentName + " already listens there; ask an administrator to add " + a.Name + " too")
 		}
 	}
 	// Checked now, so a typo, or credentials that cannot reach it, fail
@@ -829,25 +788,21 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 	case in.Mode == store.ModeRepo:
 		repo, err := s.disp.LookupRepo(r.Context(), c, in.Target, p.UserID)
 		if err != nil {
-			badRequest(w, err.Error())
-			return
+			return badRequest(err.Error())
 		}
 		in.Target = repo.Path
 	case apiMode:
 		target, err := s.disp.LookupTarget(r.Context(), c, in.Target, p.UserID)
 		if err != nil {
-			badRequest(w, err.Error())
-			return
+			return badRequest(err.Error())
 		}
 		in.Target = target
 		if err := mayNameMailbox(p, desc, c, target); err != nil {
-			forbid(w, err.Error())
-			return
+			return forbid(err.Error())
 		}
 	case c.PerUser:
 		if _, err := s.disp.ConnFor(r.Context(), c, p.UserID); err != nil {
-			badRequest(w, err.Error())
-			return
+			return badRequest(err.Error())
 		}
 	}
 	b, err := s.st.CreateBinding(r.Context(), store.Binding{
@@ -855,13 +810,13 @@ func (s *Server) bind(w http.ResponseWriter, r *http.Request, p Principal, a sto
 		Label: trim(in.Label, 200), Mode: in.Mode, Prompt: trim(in.Prompt, 8<<10),
 		CreatedBy: p.Email, CreatedByID: p.UserID,
 	})
-	if !s.saved(w, err, "exists", a.Name+" is already connected there") {
-		return
+	if err = saved(err, "exists", a.Name+" is already connected there"); err != nil {
+		return err
 	}
 	s.record(r.Context(), p, "binding.create", b.ID, map[string]string{
 		"agent": a.Name, "connection": c.Name, "target": b.Target, "mode": b.Mode,
 	})
-	writeJSON(w, http.StatusCreated, b)
+	return writeJSON(w, http.StatusCreated, b)
 }
 
 // mayNameMailbox stops a member from binding someone else's mailbox or
@@ -885,25 +840,24 @@ func heldByOther(holders []store.Binding, a store.Agent) (store.Binding, bool) {
 	return store.Binding{}, false
 }
 
-func (s *Server) deleteBinding(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) deleteBinding(w http.ResponseWriter, r *http.Request, p Principal) error {
 	b, err := s.st.Binding(r.Context(), r.PathValue("id"))
-	if !s.found(w, err, b.OrgID == p.OrgID, "binding") {
-		return
+	if err = found(err, b.OrgID == p.OrgID, "binding"); err != nil {
+		return err
 	}
 	// Another's workspace is not found, as on its own routes; another's
 	// agent is only forbidden.
 	a, err := s.st.Agent(r.Context(), b.AgentID)
-	if !s.found(w, err, a.OrgID == p.OrgID && (a.Kind == store.KindAgent || canEdit(p, a)), "binding") {
-		return
+	if err = found(err, a.OrgID == p.OrgID && (a.Kind == store.KindAgent || canEdit(p, a)), "binding"); err != nil {
+		return err
 	}
 	if !canEdit(p, a) {
-		forbid(w, "only "+a.OwnerEmail+" and administrators can change "+a.Name)
-		return
+		return forbid("only " + a.OwnerEmail + " and administrators can change " + a.Name)
 	}
 	if err := s.st.DeleteBinding(r.Context(), b.ID); err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "binding.delete", b.ID, map[string]string{"target": b.Target})
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }

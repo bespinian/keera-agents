@@ -29,11 +29,10 @@ type chatAgent struct {
 
 // chatAgents lists the running or resumable agents the caller may give work
 // to.
-func (s *Server) chatAgents(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) chatAgents(w http.ResponseWriter, r *http.Request, p Principal) error {
 	agents, err := s.st.Agents(r.Context(), p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	out := []chatAgent{}
 	vision := s.visionOf(r.Context(), p.OrgID)
@@ -45,7 +44,7 @@ func (s *Server) chatAgents(w http.ResponseWriter, r *http.Request, p Principal)
 			})
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
 
 // visionOf returns whether an agent's model reads images, reading each
@@ -74,32 +73,29 @@ func (s *Server) visionOf(ctx context.Context, orgID string) func(store.Agent) b
 // chatID is Keera Chat's id of a conversation.
 var chatID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-func (s *Server) chatMessage(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.givableAgent(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) chatMessage(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.givableAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	var in struct {
 		Conversation string `json:"conversation"`
 		Text         string `json:"text"`
 		protocol.Attachments
 	}
-	if !readJSONUpTo(w, r, &in, protocol.MaxMessageBytes) {
-		return
+	if err := readJSONUpTo(w, r, &in, protocol.MaxMessageBytes); err != nil {
+		return err
 	}
 	if !chatID.MatchString(in.Conversation) {
-		badRequest(w, "conversation must be 1 to 64 letters, digits, - or _")
-		return
+		return badRequest("conversation must be 1 to 64 letters, digits, - or _")
 	}
 	if msg := in.Check(); msg != "" {
-		badRequest(w, msg)
-		return
+		return badRequest(msg)
 	}
 	// The model would refuse them, and the task fail with the provider's
 	// words.
 	if len(in.Images) > 0 && !s.visionOf(r.Context(), p.OrgID)(a) {
-		badRequest(w, a.Name+" reads text only, so it cannot see images")
-		return
+		return badRequest(a.Name + " reads text only, so it cannot see images")
 	}
 	t, err := s.disp.Submit(r.Context(), store.Task{
 		OrgID: p.OrgID, AgentID: a.ID, Source: protocol.SourceChat,
@@ -113,8 +109,7 @@ func (s *Server) chatMessage(w http.ResponseWriter, r *http.Request, p Principal
 		Attachments:   in.Attachments,
 	})
 	if err != nil {
-		s.submitFailed(w, err)
-		return
+		return submitErr(err)
 	}
-	writeJSON(w, http.StatusCreated, t)
+	return writeJSON(w, http.StatusCreated, t)
 }

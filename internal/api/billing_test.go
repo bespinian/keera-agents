@@ -25,7 +25,7 @@ func TestBillingIsForAdministratorsOnBillingDeployments(t *testing.T) {
 	} {
 		s.opts.Billing = tc.biller
 		w := httptest.NewRecorder()
-		s.billing(w, httptest.NewRequest("GET", "/api/v1/billing", nil), tc.p)
+		s.answer(w, s.billing(w, httptest.NewRequest("GET", "/api/v1/billing", nil), tc.p))
 		if w.Code != tc.status {
 			t.Errorf("%s: %d, want %d", tc.name, w.Code, tc.status)
 		}
@@ -33,8 +33,9 @@ func TestBillingIsForAdministratorsOnBillingDeployments(t *testing.T) {
 }
 
 func TestARefusalForCreditIs402(t *testing.T) {
+	s := testServer(t)
 	w := httptest.NewRecorder()
-	runtimeFailed(w, &billing.Refused{Code: "credit_exhausted", Message: "no credit"})
+	s.answer(w, runtimeErr(&billing.Refused{Code: "credit_exhausted", Message: "no credit"}))
 	var body struct {
 		Error struct{ Code, Message string }
 	}
@@ -43,7 +44,7 @@ func TestARefusalForCreditIs402(t *testing.T) {
 		t.Errorf("%d %+v", w.Code, body)
 	}
 	w = httptest.NewRecorder()
-	runtimeFailed(w, errors.New("no node"))
+	s.answer(w, runtimeErr(errors.New("no node")))
 	if w.Code != http.StatusBadGateway {
 		t.Errorf("any other failure: %d", w.Code)
 	}

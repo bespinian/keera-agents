@@ -81,7 +81,7 @@ func (p pending) check(ok bool, q url.Values) (msg string, started bool) {
 func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.gw.AuthConfig(r.Context())
 	if err != nil {
-		s.gatewayFailed(w, err)
+		s.answer(w, gatewayErr(err))
 		return
 	}
 	providers := []gateway.Provider{}
@@ -94,7 +94,7 @@ func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = r.Cookie(askedCookie)
 	notAsked := err != nil
-	writeJSON(w, http.StatusOK, map[string]any{
+	_ = writeJSON(w, http.StatusOK, map[string]any{
 		"providers":     providers,
 		"passkeys":      cfg.Passkeys,
 		"gateway_url":   s.opts.GatewayURL,
@@ -106,7 +106,7 @@ func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	p := newPending()
 	if err := s.setSealed(w, loginCookie, "/auth", p, loginTTL); err != nil {
-		s.fail(w, err)
+		s.answer(w, err)
 		return
 	}
 	q := url.Values{
@@ -174,12 +174,13 @@ func (s *Server) operatorLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Key string `json:"key"`
 	}
-	if !readJSON(w, r, &in) {
+	if err := readJSON(w, r, &in); err != nil {
+		s.answer(w, err)
 		return
 	}
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		badRequest(w, "enter the operator key")
+		s.answer(w, badRequest("enter the operator key"))
 		return
 	}
 	ctx := r.Context()
@@ -191,14 +192,14 @@ func (s *Server) operatorLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.gatewayFailed(w, err)
+		s.answer(w, gatewayErr(err))
 		return
 	}
 	if err := s.startSession(ctx, w, code, p.Verifier); err != nil {
-		s.gatewayFailed(w, err)
+		s.answer(w, gatewayErr(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	_ = writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // logout ends the sign-in at the gateway too, so a copied cookie is useless.
@@ -213,14 +214,14 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	// The browser may still be signed in to the gateway's panel. Without
 	// this, the sign-in screen would sign the person straight back in.
 	http.SetCookie(w, s.cookie(askedCookie, "1", "/auth", 0))
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	_ = writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // failSignIn puts the reason in a sealed cookie, not the URL, so a link
 // cannot put anyone's words on the sign-in screen.
 func (s *Server) failSignIn(w http.ResponseWriter, r *http.Request, msg string) {
 	if err := s.setSealed(w, errorCookie, "/auth", msg, errorTTL); err != nil {
-		s.fail(w, err)
+		s.answer(w, err)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusFound)

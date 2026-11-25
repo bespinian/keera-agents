@@ -42,55 +42,51 @@ func viewWorkspace(p Principal, a store.Agent) workspaceView {
 // among the caller's own, which is how the CLI names one. Another member's
 // is not found, as another organisation's is, so ids and names say nothing.
 // Only the owner and administrators see it, so whoever does may change it.
-func (s *Server) workspaceRef(w http.ResponseWriter, r *http.Request, p Principal) (store.Agent, bool) {
+func (s *Server) workspaceRef(r *http.Request, p Principal) (store.Agent, error) {
 	ref := r.PathValue("id")
 	if !strings.HasPrefix(ref, "wks_") {
 		a, err := s.st.WorkspaceByName(r.Context(), p.OrgID, p.UserID, ref)
 		if err != nil {
-			s.found(w, err, false, "workspace")
-			return a, false
+			return a, found(err, false, "workspace")
 		}
 		ref = a.ID
 	}
 	a, err := s.st.Agent(r.Context(), ref)
 	visible := a.Kind == store.KindWorkspace && a.OrgID == p.OrgID && (a.OwnerID == p.UserID || p.CanAdmin())
-	return a, s.found(w, err, visible, "workspace")
+	return a, found(err, visible, "workspace")
 }
 
 // listWorkspaces lists the caller's workspaces, or with ?all=true every one
 // in the organisation, for an administrator.
-func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request, p Principal) error {
 	owner := p.UserID
 	if all, _ := strconv.ParseBool(r.URL.Query().Get("all")); all {
 		if !p.CanAdmin() {
-			forbid(w, "only an administrator sees other people's workspaces")
-			return
+			return forbid("only an administrator sees other people's workspaces")
 		}
 		owner = ""
 	}
 	list, err := s.st.Workspaces(r.Context(), p.OrgID, owner)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	out := make([]workspaceView, 0, len(list))
 	for _, a := range list {
 		out = append(out, viewWorkspace(p, a))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
 
-func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.workspaceRef(w, r, p)
-	if !ok {
-		return
+func (s *Server) getWorkspace(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.workspaceRef(r, p)
+	if err != nil {
+		return err
 	}
 	bindings, err := s.st.AgentBindings(r.Context(), a.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, struct {
+	return writeJSON(w, http.StatusOK, struct {
 		workspaceView
 		Bindings []store.Binding `json:"bindings"`
 	}{viewWorkspace(p, a), bindings})
@@ -131,10 +127,10 @@ func (s *Server) applyWorkspace(ctx context.Context, p Principal, a *store.Agent
 	})
 }
 
-func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in workspaceInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	a := store.Agent{
 		ID: id.New("wks"), Kind: store.KindWorkspace, OrgID: p.OrgID, OwnerID: p.UserID, OwnerEmail: p.Email,
@@ -142,9 +138,9 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 	}
 	// The owner comes first: whether an image may be chosen depends on it.
 	if in.OwnerID != nil && *in.OwnerID != "" && *in.OwnerID != p.UserID {
-		u, ok := s.newOwner(w, r, p, *in.OwnerID)
-		if !ok {
-			return
+		u, err := s.newOwner(r, p, *in.OwnerID)
+		if err != nil {
+			return err
 		}
 		a.OwnerID, a.OwnerEmail, a.OwnerName = u.ID, u.Email, u.Name
 	}
@@ -158,30 +154,27 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 		}
 		cat, err := s.gw.Catalog(r.Context(), p.OrgID, project)
 		if err != nil {
-			s.gatewayFailed(w, err)
-			return
+			return gatewayErr(err)
 		}
 		i := slices.IndexFunc(cat.Models, gateway.CatalogRef.CallsTools)
 		if i < 0 {
-			badRequest(w, "your project allows no model that calls tools; ask an administrator")
-			return
+			return badRequest("your project allows no model that calls tools; ask an administrator")
 		}
 		in.Model = &cat.Models[i].Alias
 	}
 	in.Class = s.newClass(in.Class)
 	if err := s.applyWorkspace(r.Context(), p, &a, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.CreateAgent(r.Context(), a)
-	if !s.saved(w, err, "name_taken", nameTaken(p, a)) {
-		return
+	if err = saved(err, "name_taken", nameTaken(p, a)); err != nil {
+		return err
 	}
 	s.record(r.Context(), p, "workspace.create", out.ID, map[string]any{
 		"name": out.Name, "experience": out.Experience, "owner": out.OwnerEmail,
 	})
 	s.startLater(out)
-	writeJSON(w, http.StatusCreated, viewWorkspace(p, out))
+	return writeJSON(w, http.StatusCreated, viewWorkspace(p, out))
 }
 
 // nameTaken says whose workspace already has a's name: names are unique per
@@ -193,27 +186,25 @@ func nameTaken(p Principal, a store.Agent) string {
 	return a.OwnerEmail + " already has a workspace called " + a.Name
 }
 
-func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.workspaceRef(w, r, p)
-	if !ok {
-		return
+func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.workspaceRef(r, p)
+	if err != nil {
+		return err
 	}
 	var in workspaceInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	if in.OwnerID != nil && *in.OwnerID != a.OwnerID {
-		badRequest(w, "a workspace's owner never changes")
-		return
+		return badRequest("a workspace's owner never changes")
 	}
 	before := a
 	if err := s.applyWorkspace(r.Context(), p, &a, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.UpdateAgent(r.Context(), a)
-	if !s.saved(w, err, "name_taken", nameTaken(p, a)) {
-		return
+	if err = saved(err, "name_taken", nameTaken(p, a)); err != nil {
+		return err
 	}
 	s.record(r.Context(), p, "workspace.update", out.ID, map[string]any{"name": out.Name})
 	s.rekeyIfChanged(r.Context(), out)
@@ -222,45 +213,51 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request, p Princ
 	if out.Enabled && (before.Image != out.Image || before.Class != out.Class || before.Experience != out.Experience) {
 		s.startLater(out)
 	}
-	writeJSON(w, http.StatusOK, viewWorkspace(p, out))
+	return writeJSON(w, http.StatusOK, viewWorkspace(p, out))
 }
 
-func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.workspaceRef(w, r, p)
-	if !ok {
-		return
+func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.workspaceRef(r, p)
+	if err != nil {
+		return err
 	}
 	if err := s.fleet.Delete(r.Context(), a); err != nil {
-		runtimeFailed(w, err)
-		return
+		return runtimeErr(err)
 	}
 	s.record(r.Context(), p, "workspace.delete", a.ID, map[string]any{"name": a.Name})
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // setWorkspaceEnabled starts or stops a workspace.
 func (s *Server) setWorkspaceEnabled(enabled bool) handler {
-	return func(w http.ResponseWriter, r *http.Request, p Principal) {
-		a, ok := s.workspaceRef(w, r, p)
-		if !ok {
-			return
+	return func(w http.ResponseWriter, r *http.Request, p Principal) error {
+		a, err := s.workspaceRef(r, p)
+		if err != nil {
+			return err
 		}
-		if out, ok := s.setMachineEnabled(w, r, p, a, enabled, false); ok {
-			writeJSON(w, http.StatusOK, viewWorkspace(p, out))
+		out, err := s.setMachineEnabled(r, p, a, enabled, false)
+		if err != nil {
+			return err
 		}
+		return writeJSON(w, http.StatusOK, viewWorkspace(p, out))
 	}
 }
 
-func (s *Server) workspaceLogs(w http.ResponseWriter, r *http.Request, p Principal) {
-	if a, ok := s.workspaceRef(w, r, p); ok {
-		s.streamLogs(w, r, a)
+func (s *Server) workspaceLogs(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.workspaceRef(r, p)
+	if err != nil {
+		return err
 	}
+	return s.streamLogs(w, r, a)
 }
 
-func (s *Server) createWorkspaceBinding(w http.ResponseWriter, r *http.Request, p Principal) {
-	if a, ok := s.workspaceRef(w, r, p); ok {
-		s.bind(w, r, p, a)
+func (s *Server) createWorkspaceBinding(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.workspaceRef(r, p)
+	if err != nil {
+		return err
 	}
+	return s.bind(w, r, p, a)
 }
 
 // ------------------------------------------------------------ connect
@@ -276,46 +273,40 @@ const frontDial = 30 * time.Second
 //
 // Only the owner connects. An administrator can stop or delete a workspace,
 // but what is inside is its owner's.
-func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Principal) {
-	a, ok := s.workspaceRef(w, r, p)
-	if !ok {
-		return
+func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.workspaceRef(r, p)
+	if err != nil {
+		return err
 	}
 	if a.OwnerID != p.UserID {
-		forbid(w, "only "+a.OwnerEmail+" can connect to "+a.Name)
-		return
+		return forbid("only " + a.OwnerEmail + " can connect to " + a.Name)
 	}
 	port := r.URL.Query().Get("port")
 	if _, ok := protocol.Port(port); !ok {
-		badRequest(w, "port must be web, ssh or a number from 1 to 65535")
-		return
+		return badRequest("port must be web, ssh or a number from 1 to 65535")
 	}
 	if !stream.IsUpgrade(r) {
-		writeError(w, http.StatusUpgradeRequired, "upgrade_required",
+		return refuse(http.StatusUpgradeRequired, "upgrade_required",
 			"connect with the keera CLI: keera workspace open "+shellArg(a.Name))
-		return
 	}
 	ctx := r.Context()
 	addr, a, err := s.fleet.Reach(ctx, a.ID)
 	switch {
 	case errors.Is(err, fleet.ErrStopped):
-		writeError(w, http.StatusConflict, "workspace_stopped",
+		return refuse(http.StatusConflict, "workspace_stopped",
 			a.Name+" is stopped; start it with: keera workspace start "+shellArg(a.Name))
-		return
 	case err != nil:
-		runtimeFailed(w, err)
-		return
+		return runtimeErr(err)
 	}
 	front, err := s.dialFront(ctx, addr, s.fleet.IngressSecret(a), port)
 	if err != nil {
-		runtimeFailed(w, err)
-		return
+		return runtimeErr(err)
 	}
 	client, err := stream.Accept(w, r)
 	if err != nil {
 		_ = front.Close()
 		s.log.Warn("could not take over a connection to a workspace", "workspace", a.ID, "error", err)
-		return
+		return nil
 	}
 	if s.connects.first(a.ID+"|"+port, time.Now()) {
 		s.record(ctx, p, "workspace.connect", a.ID, map[string]string{"port": port})
@@ -340,6 +331,7 @@ func (s *Server) connectWorkspace(w http.ResponseWriter, r *http.Request, p Prin
 	stream.Join(client, front)
 	close(done)
 	_ = s.st.TouchAgent(context.WithoutCancel(ctx), a.ID)
+	return nil
 }
 
 // dialFront opens a stream to port through the workspace's front. A front

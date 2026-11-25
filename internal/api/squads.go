@@ -18,13 +18,12 @@ import (
 // them, as on a shared wall. Each agent's access rule still decides who may
 // give it work.
 
-func (s *Server) listSquads(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) listSquads(w http.ResponseWriter, r *http.Request, p Principal) error {
 	squads, err := s.st.Squads(r.Context(), p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": squads})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": squads})
 }
 
 // squadInput is what a squad is created or changed with. A PATCH changes
@@ -93,64 +92,59 @@ func optionalID(raw json.RawMessage, field string) (*string, error) {
 	return v, nil
 }
 
-func (s *Server) createSquad(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) createSquad(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in squadInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	q := store.Squad{ID: id.New("sqd"), OrgID: p.OrgID, CreatedBy: p.Email}
 	if err := s.applySquad(r.Context(), p, &q, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	q, err := s.st.CreateSquad(r.Context(), q, q.MemberIDs())
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "squad.create", q.ID, map[string]string{"name": q.Name})
-	writeJSON(w, http.StatusCreated, q)
+	return writeJSON(w, http.StatusCreated, q)
 }
 
-func (s *Server) loadSquad(w http.ResponseWriter, r *http.Request, p Principal, squadID string) (store.Squad, bool) {
+func (s *Server) loadSquad(r *http.Request, p Principal, squadID string) (store.Squad, error) {
 	q, err := s.st.Squad(r.Context(), squadID)
-	return q, s.found(w, err, q.OrgID == p.OrgID, "squad")
+	return q, found(err, q.OrgID == p.OrgID, "squad")
 }
 
-func (s *Server) getSquad(w http.ResponseWriter, r *http.Request, p Principal) {
-	q, ok := s.loadSquad(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) getSquad(w http.ResponseWriter, r *http.Request, p Principal) error {
+	q, err := s.loadSquad(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	cards, err := s.st.SquadCards(r.Context(), q.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, struct {
+	return writeJSON(w, http.StatusOK, struct {
 		store.Squad
 		CardsList []store.Card `json:"cards_list"`
 	}{q, cards})
 }
 
-func (s *Server) updateSquad(w http.ResponseWriter, r *http.Request, p Principal) {
-	q, ok := s.loadSquad(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) updateSquad(w http.ResponseWriter, r *http.Request, p Principal) error {
+	q, err := s.loadSquad(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	var in squadInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	before := q
 	if err := s.applySquad(r.Context(), p, &q, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.UpdateSquad(r.Context(), q, q.MemberIDs())
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	// Who joins a squad decides who agents may hand work to, so a change is
 	// recorded; a save that changes nothing is not.
@@ -158,20 +152,20 @@ func (s *Server) updateSquad(w http.ResponseWriter, r *http.Request, p Principal
 		!slices.Equal(before.MemberIDs(), out.MemberIDs()) {
 		s.record(r.Context(), p, "squad.update", q.ID, map[string]string{"name": out.Name})
 	}
-	writeJSON(w, http.StatusOK, out)
+	return writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) deleteSquad(w http.ResponseWriter, r *http.Request, p Principal) {
-	q, ok := s.loadSquad(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) deleteSquad(w http.ResponseWriter, r *http.Request, p Principal) error {
+	q, err := s.loadSquad(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	if err := s.st.DeleteSquad(r.Context(), q.ID); err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "squad.delete", q.ID, map[string]string{"name": q.Name})
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // cardInput uses raw messages so a PATCH can tell "set to null" from "left
@@ -220,13 +214,7 @@ func (s *Server) applyCard(ctx context.Context, p Principal, q store.Squad, c *s
 		c.AgentID = agentID
 	}
 	if in.Labels != nil {
-		var labels []string
-		for _, l := range *in.Labels {
-			if l = trim(l, 40); l != "" && !slices.Contains(labels, l) {
-				labels = append(labels, l)
-			}
-		}
-		c.Labels = labels
+		c.Labels = store.CleanLabels(*in.Labels)
 	}
 	if len(in.DueAt) > 0 {
 		var due *time.Time
@@ -255,45 +243,42 @@ func (s *Server) applyCard(ctx context.Context, p Principal, q store.Squad, c *s
 	return nil
 }
 
-func (s *Server) createCard(w http.ResponseWriter, r *http.Request, p Principal) {
-	q, ok := s.loadSquad(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) createCard(w http.ResponseWriter, r *http.Request, p Principal) error {
+	q, err := s.loadSquad(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	var in cardInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	c := store.Card{
 		ID: id.New("card"), SquadID: q.ID, Status: store.CardBacklog, CreatedBy: p.Email,
 		RequestedBy: p.Email, RequestedByID: p.UserID,
 	}
 	if err := s.applyCard(r.Context(), p, q, &c, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.CreateCard(r.Context(), c)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusCreated, out)
+	return writeJSON(w, http.StatusCreated, out)
 }
 
-func (s *Server) loadCard(w http.ResponseWriter, r *http.Request, p Principal) (store.Card, bool) {
+func (s *Server) loadCard(r *http.Request, p Principal) (store.Card, error) {
 	c, err := s.st.Card(r.Context(), r.PathValue("id"))
-	return c, s.found(w, err, c.OrgID == p.OrgID, "card")
+	return c, found(err, c.OrgID == p.OrgID, "card")
 }
 
-func (s *Server) getCard(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadCard(w, r, p)
-	if !ok {
-		return
+func (s *Server) getCard(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadCard(r, p)
+	if err != nil {
+		return err
 	}
 	comments, err := s.st.Comments(r.Context(), c.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	var task *store.Task
 	if c.TaskID != nil {
@@ -302,66 +287,62 @@ func (s *Server) getCard(w http.ResponseWriter, r *http.Request, p Principal) {
 			task = &t
 		}
 	}
-	writeJSON(w, http.StatusOK, struct {
+	return writeJSON(w, http.StatusOK, struct {
 		store.Card
 		CommentsList []store.Comment `json:"comments_list"`
 		Task         *store.Task     `json:"task"`
 	}{c, comments, task})
 }
 
-func (s *Server) updateCard(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadCard(w, r, p)
-	if !ok {
-		return
+func (s *Server) updateCard(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadCard(r, p)
+	if err != nil {
+		return err
 	}
 	var in cardInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	q, err := s.st.Squad(r.Context(), c.SquadID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	before := c
 	if err := s.applyCard(r.Context(), p, q, &c, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.UpdateCard(r.Context(), before, c)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, out)
+	return writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadCard(w, r, p)
-	if !ok {
-		return
+func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadCard(r, p)
+	if err != nil {
+		return err
 	}
 	if err := s.st.DeleteCard(r.Context(), c.ID); err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
-func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadCard(w, r, p)
-	if !ok {
-		return
+func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadCard(r, p)
+	if err != nil {
+		return err
 	}
 	var in struct {
 		Body string `json:"body"`
 	}
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	if in.Body = strings.TrimSpace(in.Body); in.Body == "" || len(in.Body) > store.MaxComment {
-		badRequest(w, "a comment is 1 character to 16 KiB")
-		return
+		return badRequest("a comment is 1 character to 16 KiB")
 	}
 	author := p.Name
 	if author == "" {
@@ -371,12 +352,10 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal)
 	if dispatch.CommentGivesWork(c) {
 		a, err := s.st.Agent(r.Context(), *c.AgentID)
 		if err != nil {
-			badRequest(w, "there is no such agent")
-			return
+			return badRequest("there is no such agent")
 		}
 		if allowed, why := dispatch.May(a, p.User()); !allowed {
-			forbid(w, why)
-			return
+			return forbid(why)
 		}
 		// The comment goes into the task, so the task runs for whoever
 		// wrote it, never with the earlier giver's rights.
@@ -384,10 +363,9 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, p Principal)
 	}
 	out, err := s.st.AddComment(r.Context(), cm)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusCreated, out)
+	return writeJSON(w, http.StatusCreated, out)
 }
 
 // sameID reports whether two optional ids are the same.

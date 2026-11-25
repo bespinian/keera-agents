@@ -218,7 +218,9 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-type handler func(w http.ResponseWriter, r *http.Request, p Principal)
+// handler serves a signed-in request. answer writes the response to an
+// error it returns, so handlers do not write their failures themselves.
+type handler func(w http.ResponseWriter, r *http.Request, p Principal) error
 
 // signedIn finds the person behind the session cookie, or behind a gateway
 // sign-in sent as a bearer token, as Keera Chat does. Requests that change
@@ -244,7 +246,7 @@ func (s *Server) signedIn(next handler) http.Handler {
 				writeError(w, http.StatusUnauthorized, "unauthenticated", "your sign-in has ended; sign in again")
 				return
 			}
-			s.gatewayFailed(w, err)
+			s.answer(w, gatewayErr(err))
 			return
 		}
 		if !bearer && r.Method != http.MethodGet && r.Method != http.MethodHead &&
@@ -253,7 +255,8 @@ func (s *Server) signedIn(next handler) http.Handler {
 			return
 		}
 		p := Principal{Token: token, Me: me}
-		if !s.viewOrg(w, r, &p) {
+		if err := s.viewOrg(r, &p); err != nil {
+			s.answer(w, err)
 			return
 		}
 		if p.OrgID == "" {
@@ -261,34 +264,33 @@ func (s *Server) signedIn(next handler) http.Handler {
 				"you are not in an organisation; ask an administrator to add you in Keera Gateway")
 			return
 		}
-		next(w, r, p)
+		if err := next(w, r, p); err != nil {
+			s.answer(w, err)
+		}
 	})
 }
 
 // viewOrg puts an operator in the organisation ?org_id names, so every
 // route works on it as on their own. Anyone else naming another is refused,
-// not quietly given their own. It answers the request itself when it fails.
-func (s *Server) viewOrg(w http.ResponseWriter, r *http.Request, p *Principal) bool {
+// not quietly given their own.
+func (s *Server) viewOrg(r *http.Request, p *Principal) error {
 	want := r.URL.Query().Get("org_id")
 	if want == "" || want == p.OrgID {
-		return true
+		return nil
 	}
 	if !p.Unrestricted {
-		forbid(w, "you can only see your own organisation; switch to the other one first")
-		return false
+		return forbid("you can only see your own organisation; switch to the other one first")
 	}
 	orgs, err := s.orgList.get(r.Context(), p.Token, s.gw.Orgs)
 	if err != nil {
-		s.gatewayFailed(w, err)
-		return false
+		return gatewayErr(err)
 	}
 	i := slices.IndexFunc(orgs, func(o gateway.Org) bool { return o.ID == want })
 	if i < 0 {
-		notFound(w, "organisation")
-		return false
+		return notFound("organisation")
 	}
 	p.OrgID, p.OrgName = orgs[i].ID, orgs[i].Name
-	return true
+	return nil
 }
 
 // bearerToken reads "Authorization: Bearer <token>".
@@ -307,7 +309,7 @@ func (s *Server) forget(token string) {
 	s.orgList.forget(token)
 }
 
-func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) error {
 	out := map[string]any{
 		"user_id": p.UserID, "email": p.Email, "name": p.Name, "role": p.Role,
 		"org_id": p.OrgID, "org_name": p.OrgName, "can_admin": p.CanAdmin(),
@@ -343,36 +345,34 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 			out["credit_refusal"] = c.Refusal
 		}
 	}
-	writeJSON(w, http.StatusOK, out)
+	return writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) switchOrg(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) switchOrg(w http.ResponseWriter, r *http.Request, p Principal) error {
 	var in struct {
 		OrgID string `json:"org_id"`
 	}
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	if err := s.gw.SwitchOrg(r.Context(), p.Token, in.OrgID); err != nil {
-		s.gatewayFailed(w, err)
-		return
+		return gatewayErr(err)
 	}
 	s.forget(p.Token)
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // catalog is what an agent in a project may use. Only an administrator
 // chooses a project; a member's agents go in the organisation's default one,
 // as a member's keys do in the gateway.
-func (s *Server) catalog(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) catalog(w http.ResponseWriter, r *http.Request, p Principal) error {
 	project := r.URL.Query().Get("project_id")
 	if !p.CanAdmin() {
 		project = ""
 	}
 	cat, err := s.gw.Catalog(r.Context(), p.OrgID, project)
 	if err != nil {
-		s.gatewayFailed(w, err)
-		return
+		return gatewayErr(err)
 	}
 	if !p.CanAdmin() {
 		cat.Projects = nil
@@ -389,41 +389,36 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request, p Principal) {
 	if cat.MCPServers == nil {
 		cat.MCPServers = []gateway.MCPRef{}
 	}
-	writeJSON(w, http.StatusOK, cat)
+	return writeJSON(w, http.StatusOK, cat)
 }
 
 // members lists the people an administrator can create an agent for.
-func (s *Server) members(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) members(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if !p.CanAdmin() {
-		forbid(w, "only administrators see the organisation's members")
-		return
+		return forbid("only administrators see the organisation's members")
 	}
 	users, err := s.gw.Members(r.Context(), p.Token, p.OrgID)
 	if err != nil {
-		s.gatewayFailed(w, err)
-		return
+		return gatewayErr(err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": users})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": users})
 }
 
 // orgs is an operator's overview: every organisation, with its machines and
 // its tasks this week.
-func (s *Server) orgs(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) orgs(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if !p.Unrestricted {
-		forbid(w, "only an operator sees every organisation")
-		return
+		return forbid("only an operator sees every organisation")
 	}
 	ctx := r.Context()
 	orgs, err := s.orgList.get(ctx, p.Token, s.gw.Orgs)
 	if err != nil {
-		s.gatewayFailed(w, err)
-		return
+		return gatewayErr(err)
 	}
 	since := time.Now().Add(-7 * 24 * time.Hour)
 	sums, err := s.st.OrgSummaries(ctx, since)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	type row struct {
 		gateway.Org
@@ -433,19 +428,18 @@ func (s *Server) orgs(w http.ResponseWriter, r *http.Request, p Principal) {
 	for _, o := range orgs {
 		out = append(out, row{o, sums[o.ID]})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out, "since": since})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": out, "since": since})
 }
 
 // defaultZone is the time zone of schedules that name none, and the one the
 // dashboard's days are counted in.
 const defaultZone = "Europe/Zurich"
 
-func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) error {
 	ctx := r.Context()
 	agents, err := s.st.Agents(ctx, p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	counts := map[string]int{"total": len(agents), "running": 0, "suspended": 0, "stopped": 0, "failed": 0}
 	for _, a := range agents {
@@ -460,19 +454,17 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) {
 			counts["stopped"]++
 		}
 	}
-	act, ok := s.taskActivity(w, r, p.OrgID, "")
-	if !ok {
-		return
+	act, err := s.taskActivity(r, p.OrgID, "")
+	if err != nil {
+		return err
 	}
 	recent, err := s.st.Tasks(ctx, visibleTo(p, store.TaskQuery{OrgID: p.OrgID, Limit: 7}))
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	upcoming, err := s.st.Upcoming(ctx, p.OrgID, 7)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	next := make([]map[string]any, 0, len(upcoming))
 	for _, sc := range upcoming {
@@ -481,7 +473,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) {
 			"agent_name": sc.AgentName, "next_run_at": sc.NextRunAt,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return writeJSON(w, http.StatusOK, map[string]any{
 		"agents": counts, "tasks": act.Tasks, "series": act.Series, "bucket": act.Bucket,
 		"recent_tasks": recent, "upcoming": next,
 	})
@@ -489,24 +481,21 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, p Principal) {
 
 // setup is what the panel's getting started guide ticks off. The panel reads
 // it at start, to name its first screen.
-func (s *Server) setup(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) setup(w http.ResponseWriter, r *http.Request, p Principal) error {
 	ctx := r.Context()
 	agents, err := s.st.Agents(ctx, p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	conns, err := s.st.Connections(ctx, p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	started, err := s.st.Started(ctx, p.OrgID, time.Now())
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return writeJSON(w, http.StatusOK, map[string]any{
 		"agents": len(agents), "connections": len(conns), "started": started,
 	})
 }
@@ -520,48 +509,43 @@ type activity struct {
 }
 
 // taskActivity counts the organisation's tasks, or one agent's, over the
-// window in ?since. It answers the request itself when it fails.
-func (s *Server) taskActivity(w http.ResponseWriter, r *http.Request, orgID, agentID string) (activity, bool) {
+// window in ?since.
+func (s *Server) taskActivity(r *http.Request, orgID, agentID string) (activity, error) {
 	ctx := r.Context()
 	window, err := time.ParseDuration(cmp.Or(r.URL.Query().Get("since"), "168h"))
 	if err != nil || window < time.Hour || window > 90*24*time.Hour {
-		badRequest(w, "since is a duration from 1h to 2160h, such as 168h")
-		return activity{}, false
+		return activity{}, badRequest("since is a duration from 1h to 2160h, such as 168h")
 	}
 	since := time.Now().Add(-window)
 	counts, err := s.st.TaskCounts(ctx, orgID, agentID, since)
 	if err != nil {
-		s.fail(w, err)
-		return activity{}, false
+		return activity{}, err
 	}
 	// Hours read badly past a day, and days say little within one.
 	daily := window > 48*time.Hour
 	zone, _ := time.LoadLocation(defaultZone)
 	series, err := s.st.TaskSeries(ctx, orgID, agentID, since, daily, zone)
 	if err != nil {
-		s.fail(w, err)
-		return activity{}, false
+		return activity{}, err
 	}
 	bucket := "hour"
 	if daily {
 		bucket = "day"
 	}
-	return activity{Tasks: counts, Series: series, Bucket: bucket}, true
+	return activity{Tasks: counts, Series: series, Bucket: bucket}, nil
 }
 
-func (s *Server) audit(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) audit(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if !p.CanAdmin() {
-		forbid(w, "only an administrator can read the audit log")
-		return
+		return forbid("only an administrator can read the audit log")
 	}
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	entries, err := s.st.AuditLog(r.Context(), p.OrgID, before, limit)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": entries})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": entries})
 }
 
 // record writes an audit entry. A failure is logged, not fatal: the change
@@ -574,31 +558,32 @@ func (s *Server) record(ctx context.Context, p Principal, action, target string,
 
 // ------------------------------------------------------------ helpers
 
-func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	return readJSONUpTo(w, r, v, 1<<20)
 }
 
-func readJSONUpTo(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+func readJSONUpTo(w http.ResponseWriter, r *http.Request, v any, limit int64) error {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "the request is too large")
-			return false
+			return refuse(http.StatusRequestEntityTooLarge, "too_large", "the request is too large")
 		}
-		badRequest(w, "the request is not valid: "+err.Error())
-		return false
+		return badRequest("the request is not valid: " + err.Error())
 	}
-	return true
+	return nil
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+// writeJSON always returns nil, so a handler can end with it. Once the
+// status is sent, a failed write cannot be answered any more.
+func writeJSON(w http.ResponseWriter, status int, v any) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	if v != nil {
 		_ = json.NewEncoder(w).Encode(v)
 	}
+	return nil
 }
 
 func writeError(w http.ResponseWriter, status int, code, msg string) {
@@ -613,74 +598,116 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	case status >= 500:
 		typ = "api_error"
 	}
-	writeJSON(w, status, map[string]any{"error": map[string]string{"type": typ, "code": code, "message": msg}})
+	_ = writeJSON(w, status, map[string]any{"error": map[string]string{"type": typ, "code": code, "message": msg}})
 }
 
-func badRequest(w http.ResponseWriter, msg string) {
-	writeError(w, http.StatusBadRequest, "invalid_request", msg)
+// apiError is a refusal meant for the caller: answer sends its status, code
+// and words as they are.
+type apiError struct {
+	status    int
+	code, msg string
 }
 
-func notFound(w http.ResponseWriter, what string) {
-	writeError(w, http.StatusNotFound, "not_found", "there is no such "+what)
+func (e *apiError) Error() string { return e.msg }
+
+func refuse(status int, code, msg string) error { return &apiError{status, code, msg} }
+
+func badRequest(msg string) error { return refuse(http.StatusBadRequest, "invalid_request", msg) }
+
+func notFound(what string) error {
+	return refuse(http.StatusNotFound, "not_found", "there is no such "+what)
 }
 
-// found answers a lookup that did not find a row of the caller's
-// organisation: another organisation's rows answer 404 like missing ones,
-// and any other error is ours.
-func (s *Server) found(w http.ResponseWriter, err error, sameOrg bool, what string) bool {
+func forbid(msg string) error { return refuse(http.StatusForbidden, "forbidden", msg) }
+
+// found checks a lookup of a row of the caller's organisation: another
+// organisation's rows answer 404 like missing ones, and any other error is
+// ours.
+func found(err error, sameOrg bool, what string) error {
 	switch {
 	case err == nil && sameOrg:
-		return true
+		return nil
 	case err == nil || errors.Is(err, store.ErrNotFound):
-		notFound(w, what)
-	default:
-		s.fail(w, err)
+		return notFound(what)
 	}
-	return false
+	return err
 }
 
-// saved answers a write: a conflict is 409 with code and msg, and any other
+// saved checks a write: a conflict is 409 with code and msg, and any other
 // error is ours.
-func (s *Server) saved(w http.ResponseWriter, err error, code, msg string) bool {
-	switch {
-	case err == nil:
-		return true
-	case errors.Is(err, store.ErrConflict):
-		writeError(w, http.StatusConflict, code, msg)
-	default:
-		s.fail(w, err)
+func saved(err error, code, msg string) error {
+	if errors.Is(err, store.ErrConflict) {
+		return refuse(http.StatusConflict, code, msg)
 	}
-	return false
+	return err
 }
 
-func forbid(w http.ResponseWriter, msg string) {
-	writeError(w, http.StatusForbidden, "forbidden", msg)
+// gatewayError and runtimeError mark where an error came from, so answer
+// passes on the gateway's or the machine's words. Only errors marked on
+// purpose are, so no other error's words reach the caller by mistake.
+type (
+	gatewayError struct{ err error }
+	runtimeError struct{ err error }
+)
+
+func (e gatewayError) Error() string { return e.err.Error() }
+func (e gatewayError) Unwrap() error { return e.err }
+func (e runtimeError) Error() string { return e.err.Error() }
+func (e runtimeError) Unwrap() error { return e.err }
+
+// gatewayErr marks a failed call to the gateway.
+func gatewayErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return gatewayError{err}
 }
 
-func (s *Server) fail(w http.ResponseWriter, err error) {
+// runtimeErr marks a machine that would not start or answer.
+func runtimeErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return runtimeError{err}
+}
+
+// answer writes the response to a handler's error. It is the one place that
+// decides what each failure looks like to the caller.
+func (s *Server) answer(w http.ResponseWriter, err error) {
+	if err == nil {
+		return
+	}
+	if e, ok := errors.AsType[*apiError](err); ok {
+		writeError(w, e.status, e.code, e.msg)
+		return
+	}
+	// The gateway's refusal is passed on in its own words.
+	if g, ok := errors.AsType[gatewayError](err); ok {
+		if e, ok := errors.AsType[*gateway.Error](g.err); ok {
+			status := e.Status
+			if status < 400 || status == http.StatusUnauthorized {
+				status = http.StatusBadGateway
+			}
+			writeError(w, status, cmp.Or(e.Code, "gateway_error"), e.Message)
+			return
+		}
+	}
+	// Refused for credit, a machine is 402, as the gateway answers a model
+	// call then.
+	if m, ok := errors.AsType[runtimeError](err); ok {
+		if e, ok := errors.AsType[*billing.Refused](m.err); ok {
+			writeError(w, http.StatusPaymentRequired, e.Code, e.Message)
+			return
+		}
+		writeError(w, http.StatusBadGateway, "runtime_error", m.err.Error())
+		return
+	}
 	if errors.Is(err, store.ErrNotFound) {
-		notFound(w, "thing")
+		writeError(w, http.StatusNotFound, "not_found", "there is no such thing")
 		return
 	}
 	s.log.Error("request failed", "error", err)
 	writeError(w, http.StatusInternalServerError, "internal", "something went wrong on our side; try again")
-}
-
-// gatewayFailed passes on the gateway's refusal in its own words.
-func (s *Server) gatewayFailed(w http.ResponseWriter, err error) {
-	if e, ok := errors.AsType[*gateway.Error](err); ok {
-		status := e.Status
-		if status < 400 || status == http.StatusUnauthorized {
-			status = http.StatusBadGateway
-		}
-		code := e.Code
-		if code == "" {
-			code = "gateway_error"
-		}
-		writeError(w, status, code, e.Message)
-		return
-	}
-	s.fail(w, err)
 }
 
 // trim cuts s to at most n bytes without splitting a character, which

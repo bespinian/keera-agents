@@ -48,27 +48,24 @@ func (s *Server) view(c store.Connection, bindings int) connectionView {
 
 // connectionKinds lists the kinds, and the address a connector people sign
 // in to registers with the service.
-func (s *Server) connectionKinds(w http.ResponseWriter, _ *http.Request, _ Principal) {
-	writeJSON(w, http.StatusOK, map[string]any{
+func (s *Server) connectionKinds(w http.ResponseWriter, _ *http.Request, _ Principal) error {
+	return writeJSON(w, http.StatusOK, map[string]any{
 		"data": connectors.Descriptors(), "callback_url": s.disp.AccountCallbackURL(),
 	})
 }
 
-func (s *Server) listConnections(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) listConnections(w http.ResponseWriter, r *http.Request, p Principal) error {
 	list, err := s.st.Connections(r.Context(), p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	counts, err := s.st.BindingCounts(r.Context(), p.OrgID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	accounts, err := s.st.UserAccounts(r.Context(), p.OrgID, p.UserID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	mine := make(map[string]*store.Account, len(accounts))
 	for i := range accounts {
@@ -89,21 +86,20 @@ func (s *Server) listConnections(w http.ResponseWriter, r *http.Request, p Princ
 		s.clearCookie(w, signInResultCookie, signInResultPath)
 		res["sign_in_result"] = signIn
 	}
-	writeJSON(w, http.StatusOK, res)
+	return writeJSON(w, http.StatusOK, res)
 }
 
 // getConnection is one connector, with where agents use it. Someone else's
 // workspace is left out, as it is from the workspaces list.
-func (s *Server) getConnection(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) getConnection(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadConnection(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	ctx := r.Context()
 	all, err := s.st.ConnectionBindings(ctx, c.ID)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	bindings := make([]store.Binding, 0, len(all))
 	for _, b := range all {
@@ -118,11 +114,10 @@ func (s *Server) getConnection(w http.ResponseWriter, r *http.Request, p Princip
 		case err == nil:
 			v.Account = &acc
 		case !errors.Is(err, store.ErrNotFound):
-			s.fail(w, err)
-			return
+			return err
 		}
 	}
-	writeJSON(w, http.StatusOK, struct {
+	return writeJSON(w, http.StatusOK, struct {
 		connectionView
 		Uses []store.Binding `json:"uses"`
 	}{v, bindings})
@@ -195,40 +190,35 @@ func check(ctx context.Context, c connectors.Connection) error {
 	return a.Check(ctx, c)
 }
 
-func (s *Server) createConnection(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) createConnection(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if !p.CanAdmin() {
-		forbid(w, "only an administrator can connect a service")
-		return
+		return forbid("only an administrator can connect a service")
 	}
 	var in connectionInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	d, ok := connectors.Describe(connectors.Kind(in.Kind))
 	if !ok {
-		badRequest(w, "there is no kind of connector called "+in.Kind)
-		return
+		return badRequest("there is no kind of connector called " + in.Kind)
 	}
 	perUser := in.PerUser != nil && *in.PerUser
 	if perUser && d.SignIn == nil {
-		badRequest(w, d.Label+" does not let people sign in with their own accounts")
-		return
+		return badRequest(d.Label + " does not let people sign in with their own accounts")
 	}
 	c := store.Connection{
 		ID: id.New("con"), OrgID: p.OrgID, Kind: in.Kind, Name: d.Label, Config: map[string]string{},
 		PerUser: perUser, CreatedBy: p.Email,
 	}
 	if err := s.prepare(r.Context(), d, &c, map[string]string{}, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out, err := s.st.CreateConnection(r.Context(), c)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "connection.create", out.ID, map[string]string{"kind": out.Kind, "name": out.Name})
-	writeJSON(w, http.StatusCreated, s.view(out, 0))
+	return writeJSON(w, http.StatusCreated, s.view(out, 0))
 }
 
 // prepare writes a form onto c, asks the service whether it works, and seals
@@ -256,39 +246,36 @@ func (s *Server) prepare(ctx context.Context, d connectors.Descriptor, c *store.
 
 // loadConnection finds a connector in the caller's organisation. Another
 // organisation's is not found, not forbidden.
-func (s *Server) loadConnection(w http.ResponseWriter, r *http.Request, p Principal, id string) (store.Connection, bool) {
+func (s *Server) loadConnection(r *http.Request, p Principal, id string) (store.Connection, error) {
 	c, err := s.st.Connection(r.Context(), id)
-	return c, s.found(w, err, c.OrgID == p.OrgID, "connector")
+	return c, found(err, c.OrgID == p.OrgID, "connector")
 }
 
-func (s *Server) adminConnection(w http.ResponseWriter, r *http.Request, p Principal) (store.Connection, bool) {
-	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
-	if !ok {
-		return c, false
+func (s *Server) adminConnection(r *http.Request, p Principal) (store.Connection, error) {
+	c, err := s.loadConnection(r, p, r.PathValue("id"))
+	if err != nil {
+		return c, err
 	}
 	if !p.CanAdmin() {
-		forbid(w, "only an administrator can change a connector")
-		return c, false
+		return c, forbid("only an administrator can change a connector")
 	}
-	return c, true
+	return c, nil
 }
 
-func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.adminConnection(w, r, p)
-	if !ok {
-		return
+func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.adminConnection(r, p)
+	if err != nil {
+		return err
 	}
 	var in connectionInput
-	if !readJSON(w, r, &in) {
-		return
+	if err := readJSON(w, r, &in); err != nil {
+		return err
 	}
 	if in.Kind != "" && in.Kind != c.Kind {
-		badRequest(w, "a connector keeps its kind; create a new one")
-		return
+		return badRequest("a connector keeps its kind; create a new one")
 	}
 	if in.PerUser != nil && *in.PerUser != c.PerUser {
-		badRequest(w, "a connector keeps whom it acts as; create a new one")
-		return
+		return badRequest("a connector keeps whom it acts as; create a new one")
 	}
 	d, _ := connectors.Describe(connectors.Kind(c.Kind))
 	secrets, err := s.disp.OpenSecrets(c)
@@ -302,16 +289,14 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	moved := movedEndpoint(fields, c.Config, in.Config)
 	if err := s.prepare(r.Context(), d, &c, secrets, in); err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	// People's tokens were given for the old server. Forgotten before the
 	// new one is saved, so no call sends them there meanwhile.
 	if c.PerUser && moved != "" {
 		n, err := s.disp.ForgetSignIns(r.Context(), c.ID)
 		if err != nil {
-			s.fail(w, err)
-			return
+			return err
 		}
 		s.record(r.Context(), p, "connection.sign_ins_forgotten", c.ID, map[string]string{
 			"name": c.Name, "count": strconv.FormatInt(n, 10),
@@ -319,8 +304,7 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Prin
 	}
 	out, err := s.st.UpdateConnection(r.Context(), c)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "connection.update", out.ID, map[string]string{"name": out.Name})
 	counts, _ := s.st.BindingCounts(r.Context(), p.OrgID)
@@ -328,36 +312,35 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request, p Prin
 	if a, err := s.st.Account(r.Context(), out.ID, p.UserID); err == nil && out.PerUser {
 		v.Account = &a
 	}
-	writeJSON(w, http.StatusOK, v)
+	return writeJSON(w, http.StatusOK, v)
 }
 
-func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.adminConnection(w, r, p)
-	if !ok {
-		return
+func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.adminConnection(r, p)
+	if err != nil {
+		return err
 	}
 	if err := s.st.DeleteConnection(r.Context(), c.ID); err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "connection.delete", c.ID, map[string]string{"kind": c.Kind, "name": c.Name})
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
-func (s *Server) checkConnection(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.adminConnection(w, r, p)
-	if !ok {
-		return
+func (s *Server) checkConnection(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.adminConnection(r, p)
+	if err != nil {
+		return err
 	}
 	conn, err := s.disp.Conn(c)
 	if err == nil {
 		err = check(r.Context(), conn)
 	}
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // connectionFolders lists a folder, for choosing one to connect an agent to,
@@ -365,25 +348,22 @@ func (s *Server) checkConnection(w http.ResponseWriter, r *http.Request, p Princ
 // names only: the connection may reach files they could not open
 // themselves. Their agents can still read those files once connected to a
 // folder.
-func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadConnection(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	adapter, ok := connectors.FilesFor(connectors.Kind(c.Kind))
 	if !ok {
-		badRequest(w, c.Name+" holds no files")
-		return
+		return badRequest(c.Name + " holds no files")
 	}
 	conn, err := s.disp.ConnFor(r.Context(), c, p.UserID)
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	files, err := adapter.List(r.Context(), conn, r.URL.Query().Get("parent"))
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	out := []connectors.File{}
 	for _, f := range files {
@@ -391,32 +371,29 @@ func (s *Server) connectionFolders(w http.ResponseWriter, r *http.Request, p Pri
 			out = append(out, f)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": out})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
 
 // connectionChannels lists where a chat bot can post, for a picker: first
 // the direct messages between the bot and whoever asks, then the channels
 // the bot is in. Not finding the person is a notice, not a failure, since
 // the channels are still useful.
-func (s *Server) connectionChannels(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) connectionChannels(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadConnection(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	adapter, ok := connectors.ChannelsFor(connectors.Kind(c.Kind))
 	if !ok {
-		badRequest(w, c.Name+" cannot list its channels")
-		return
+		return badRequest(c.Name + " cannot list its channels")
 	}
 	conn, err := s.disp.ConnFor(r.Context(), c, p.UserID)
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	channels, err := adapter.Channels(r.Context(), conn)
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	slices.SortFunc(channels, func(a, b connectors.Channel) int { return strings.Compare(a.Name, b.Name) })
 	out := []connectors.Channel{}
@@ -428,5 +405,5 @@ func (s *Server) connectionChannels(w http.ResponseWriter, r *http.Request, p Pr
 		out = append(out, me)
 	}
 	out = append(out, channels...)
-	writeJSON(w, http.StatusOK, map[string]any{"data": out, "notice": notice})
+	return writeJSON(w, http.StatusOK, map[string]any{"data": out, "notice": notice})
 }

@@ -22,26 +22,22 @@ type machineCost struct {
 // billing is one month of the organisation's machine time, per machine. It
 // is what keera-agents metered. The bill and the credit are in Keera
 // Gateway. Administrators only, as in the gateway.
-func (s *Server) billing(w http.ResponseWriter, r *http.Request, p Principal) {
+func (s *Server) billing(w http.ResponseWriter, r *http.Request, p Principal) error {
 	if !p.CanAdmin() {
-		forbid(w, "only an administrator can read what machines cost")
-		return
+		return forbid("only an administrator can read what machines cost")
 	}
 	b := s.opts.Billing
 	if !b.On() {
-		billingOff(w)
-		return
+		return billingOff()
 	}
 	from, err := parseMonth(r.URL.Query().Get("month"), time.Now())
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	to := from.AddDate(0, 1, 0)
 	rows, err := s.st.MachineUsage(r.Context(), p.OrgID, from, to)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	prices := b.Prices()
 	machines := make([]machineCost, 0, len(rows))
@@ -56,7 +52,7 @@ func (s *Server) billing(w http.ResponseWriter, r *http.Request, p Principal) {
 	if c, ok := b.Credit(r.Context(), p.OrgID); ok {
 		credit = &c
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return writeJSON(w, http.StatusOK, map[string]any{
 		"month": from.Format("2006-01"), "from": from, "to": to,
 		"prices": prices, "machines": machines, "total_micros": total, "credit": credit,
 	})
@@ -65,41 +61,43 @@ func (s *Server) billing(w http.ResponseWriter, r *http.Request, p Principal) {
 // agentCost is what one agent's machine cost this month, and what an hour of
 // it running costs. Its owner and administrators see it, as they see the
 // machine's settings.
-func (s *Server) agentCost(w http.ResponseWriter, r *http.Request, p Principal) {
-	if a, ok := s.editableAgent(w, r, p, r.PathValue("id")); ok {
-		s.machineCost(w, r, a)
+func (s *Server) agentCost(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.editableAgent(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
+	return s.machineCost(w, r, a)
 }
 
 // workspaceCost is agentCost for a workspace, which only its owner and
 // administrators see at all.
-func (s *Server) workspaceCost(w http.ResponseWriter, r *http.Request, p Principal) {
-	if a, ok := s.workspaceRef(w, r, p); ok {
-		s.machineCost(w, r, a)
+func (s *Server) workspaceCost(w http.ResponseWriter, r *http.Request, p Principal) error {
+	a, err := s.workspaceRef(r, p)
+	if err != nil {
+		return err
 	}
+	return s.machineCost(w, r, a)
 }
 
-func (s *Server) machineCost(w http.ResponseWriter, r *http.Request, a store.Agent) {
+func (s *Server) machineCost(w http.ResponseWriter, r *http.Request, a store.Agent) error {
 	b := s.opts.Billing
 	if !b.On() {
-		billingOff(w)
-		return
+		return billingOff()
 	}
 	from := monthStart(time.Now())
 	used, err := s.st.AgentUsage(r.Context(), a.ID, from)
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, agentCostView{
+	return writeJSON(w, http.StatusOK, agentCostView{
 		Month:       from.Format("2006-01"),
 		MonthMicros: b.Prices().Cost(used),
 		HourMicros:  b.Prices().Hour(a),
 	})
 }
 
-func billingOff(w http.ResponseWriter) {
-	writeError(w, http.StatusNotFound, "billing_off", "this deployment does not bill machine time")
+func billingOff() error {
+	return refuse(http.StatusNotFound, "billing_off", "this deployment does not bill machine time")
 }
 
 // agentCostView is one machine's cost.

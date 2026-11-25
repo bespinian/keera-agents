@@ -129,7 +129,9 @@ func TestViewOrg(t *testing.T) {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("GET", "/api/v1/agents?"+url.Values{"org_id": {tc.orgID}}.Encode(), nil)
 		p := tc.p
-		ok := s.viewOrg(w, r, &p)
+		err := s.viewOrg(r, &p)
+		ok := err == nil
+		s.answer(w, err)
 		switch {
 		case tc.status != 0 && (ok || w.Code != tc.status):
 			t.Errorf("%s: ok %v, %d; want %d", tc.name, ok, w.Code, tc.status)
@@ -137,7 +139,7 @@ func TestViewOrg(t *testing.T) {
 			t.Errorf("%s: ok %v, in %q; want %q", tc.name, ok, p.OrgID, tc.wantOrg)
 		}
 	}
-	if p := op; !s.viewOrg(httptest.NewRecorder(), httptest.NewRequest("GET", "/?org_id=org_b", nil), &p) || p.OrgName != "Bank B" {
+	if p := op; s.viewOrg(httptest.NewRequest("GET", "/?org_id=org_b", nil), &p) != nil || p.OrgName != "Bank B" {
 		t.Errorf("an operator in org_b sees the name %q", p.OrgName)
 	}
 }

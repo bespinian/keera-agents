@@ -37,22 +37,20 @@ type signInResult struct {
 
 // startSignIn answers where the caller's browser goes to sign in to a
 // connector. Anyone in the organisation may: they sign in as themselves.
-func (s *Server) startSignIn(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) startSignIn(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadConnection(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
 	pending := pendingSignIn{pending: newPending(), ConnectionID: c.ID, UserID: p.UserID}
 	u, err := s.disp.SignInURL(c, pending.State, challenge(pending.Verifier))
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return badRequest(err.Error())
 	}
 	if err := s.setSealed(w, signInCookie, signInPath, pending, loginTTL); err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"url": u})
+	return writeJSON(w, http.StatusOK, map[string]string{"url": u})
 }
 
 // signInCallback is where the service sends the browser back.
@@ -108,27 +106,26 @@ func (s *Server) signInCallback(w http.ResponseWriter, r *http.Request) {
 func (s *Server) signedInTo(w http.ResponseWriter, r *http.Request, connectionID, msg string) {
 	if err := s.setSealed(w, signInResultCookie, signInResultPath,
 		signInResult{ConnectionID: connectionID, Error: msg}, errorTTL); err != nil {
-		s.fail(w, err)
+		s.answer(w, err)
 		return
 	}
 	http.Redirect(w, r, "/connectors", http.StatusFound)
 }
 
 // disconnectAccount forgets the caller's own sign-in to a connector.
-func (s *Server) disconnectAccount(w http.ResponseWriter, r *http.Request, p Principal) {
-	c, ok := s.loadConnection(w, r, p, r.PathValue("id"))
-	if !ok {
-		return
+func (s *Server) disconnectAccount(w http.ResponseWriter, r *http.Request, p Principal) error {
+	c, err := s.loadConnection(r, p, r.PathValue("id"))
+	if err != nil {
+		return err
 	}
-	err := s.disp.Disconnect(r.Context(), c.ID, p.UserID)
+	err = s.disp.Disconnect(r.Context(), c.ID, p.UserID)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "you have not connected an account to "+c.Name)
-		return
+		return refuse(http.StatusNotFound, "not_found", "you have not connected an account to "+c.Name)
 	}
 	if err != nil {
-		s.fail(w, err)
-		return
+		return err
 	}
 	s.record(r.Context(), p, "account.disconnect", c.ID, map[string]string{"connection": c.Name})
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
