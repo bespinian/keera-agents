@@ -92,7 +92,7 @@ ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/keera-agents-runtime", "agent"]
 FROM docker.io/library/node:26.13.1-trixie-slim AS workspace
 
 ARG TARGETARCH
-ARG PI_VERSION=1.6.0
+ARG PI_VERSION=1.6.1
 ARG CODE_SERVER_VERSION=4.146.0
 ARG CLINE_VERSION=4.1.27
 ARG TTYD_VERSION=1.7.7
