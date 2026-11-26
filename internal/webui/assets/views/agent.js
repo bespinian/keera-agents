@@ -33,6 +33,7 @@ import {
   plural,
   sectionHead,
   avatarOf,
+  agentIconPath,
   currentRange,
   rangeOf,
   rangePicker,
@@ -307,13 +308,25 @@ async function overviewTab(ctx, agent) {
   );
 }
 
-/** taskRow is a task in a short list: its prompt, source and state. */
-export function taskRow(ctx, t) {
+/** taskRow is a task in a short list: its prompt, source and state. With
+ *  agent, it also names the agent, for lists of many agents' tasks. */
+export function taskRow(ctx, t, { agent = false } = {}) {
+  const who = agent
+    ? [
+        h(
+          "span",
+          { class: "source", title: "Agent" },
+          icon(agentIconPath(t.agent_icon)),
+          h("span", { class: "nowrap" }, t.agent_name),
+        ),
+        h("span", {}, "·"),
+      ]
+    : [];
   return miniRow(
     ctx,
     taskPath(t.id),
     firstLine(t.prompt, 90) || "Untitled task",
-    [sourceCell(t), h("span", {}, "·"), stamp(t.created_at, { cls: "nowrap" })],
+    [...who, sourceCell(t), h("span", {}, "·"), stamp(t.created_at, { cls: "nowrap" })],
     taskStatePill(t.state),
   );
 }

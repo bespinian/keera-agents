@@ -76,7 +76,7 @@ export async function dashboardView(ctx) {
       listCard({
         title: "Recent tasks",
         more: link(ctx, "/tasks", "All tasks"),
-        rows: recent.map((t) => taskRow(ctx, t)),
+        rows: recent.map((t) => taskRow(ctx, t, { agent: true })),
         emptyTitle: "No tasks yet",
         emptyBody: "Give an agent a task, or put a card in To do on a squad's board.",
       }),
