@@ -270,8 +270,10 @@ func TestBootstrapGivesTheAgentItsSettingsAndKey(t *testing.T) {
 	if b.Version == "" || b.Workspace != nil || len(b.Tools) == 0 {
 		t.Errorf("version %q, workspace %v, %d tools", b.Version, b.Workspace, len(b.Tools))
 	}
+	// The runtime fetches its bootstrap again while idle, which is no sign
+	// of use, or the agent would never be suspended.
 	got, _ := tr.st.Agent(tr.ctx, a.ID)
-	if got.State != store.AgentRunning || got.LastActiveAt == nil {
+	if got.State != store.AgentRunning || got.LastActiveAt != nil {
 		t.Errorf("after bootstrap the agent is %s, last active %v", got.State, got.LastActiveAt)
 	}
 

@@ -115,11 +115,9 @@ func (rn *Runner) bootstrap(w http.ResponseWriter, r *http.Request, a store.Agen
 		return
 	}
 	b.Gateway.APIKey = key
-	// A workspace fetches its bootstrap now and then whether or not anybody
-	// is connected, so that is no sign of use.
-	if a.Kind != store.KindWorkspace {
-		_ = rn.st.TouchAgent(r.Context(), a.ID)
-	}
+	// No sign of use: the runtime fetches its bootstrap again every few
+	// minutes, idle or not, which would keep it from ever being suspended.
+	// Starting or resuming it marks it active.
 	if a.State != store.AgentRunning {
 		_ = rn.st.SetAgentState(r.Context(), a.ID, store.AgentRunning, "")
 	}
