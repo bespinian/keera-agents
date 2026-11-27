@@ -94,7 +94,7 @@ FROM docker.io/library/node:26.13.1-trixie-slim AS workspace
 ARG TARGETARCH
 ARG PI_VERSION=1.6.1
 ARG CODE_SERVER_VERSION=4.146.0
-ARG CLINE_VERSION=4.1.27
+ARG CLINE_VERSION=4.1.28
 ARG TTYD_VERSION=1.7.7
 # The downloads below are checked against these, as their releases publish
 # them. Change them with the versions.
@@ -102,7 +102,7 @@ ARG TTYD_SHA256_AMD64=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7
 ARG TTYD_SHA256_ARM64=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
 ARG CODE_SERVER_SHA256_AMD64=e4825ae7afb441dfa63a4f579c121569de7c7958d2f35c3d18d803c8a3c7018f
 ARG CODE_SERVER_SHA256_ARM64=485d87c3c8df5978a89419d4fed0b3e0604a9b203bd177c7effa47bf21055a97
-ARG CLINE_SHA256=62437813fc43e09b3c532e0bd50d924ad8625153db05b74d71a73ce87fe3754d
+ARG CLINE_SHA256=83b87f50bbe83b8192f3f19c2a6c69be12526a58adaf6dcbc6bb8a2d0e382582
 
 LABEL org.opencontainers.image.title="Keera Workspace" \
       org.opencontainers.image.vendor="bespinian GmbH" \
